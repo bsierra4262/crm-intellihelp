@@ -1,0 +1,3 @@
+# El código de la aplicación NO se sirve por HTTP: sólo lo incluye index.php.
+# Sin esto, /app/bootstrap.php o /app/views/layout.php responden directo.
+Require all denied

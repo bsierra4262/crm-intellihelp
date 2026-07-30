@@ -1,0 +1,51 @@
+# ============================================================
+#  CRM INTELLIHELP  ·  public_html/crm  (crm.intellihelp.tech)
+#  Aísla esta carpeta del WordPress + Wordfence del raíz.
+# ============================================================
+
+# Desactivar el WAF de Wordfence (auto_prepend_file del raíz) para esta app
+php_value auto_prepend_file none
+
+# Config y almacenamiento seguros (fuera del web root)
+SetEnv CRM_CONFIG /home/u566451014/crm_config/config.php
+SetEnv CRM_STORAGE /home/u566451014/crm_storage
+
+DirectoryIndex index.php
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Servir archivos y carpetas reales tal cual (assets, uploads, etc.)
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Todo lo demás -> front controller
+    RewriteRule ^([A-Za-z0-9/_-]*)$ index.php?r=$1 [L,QSA]
+</IfModule>
+
+# Proteger archivos sensibles
+<FilesMatch "\.(sql|md|json|lock|log|ini|yml|py)$">
+    Require all denied
+</FilesMatch>
+
+# ---- Rendimiento ----
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/css text/xml application/javascript application/json application/xml image/svg+xml
+</IfModule>
+
+# Caché larga para assets: CSS y JS van versionados con ?v=, así que es seguro.
+<IfModule mod_headers.c>
+    <FilesMatch "\.(css|js|woff2?|ttf|otf|eot|png|jpe?g|gif|svg|webp|ico)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+</IfModule>
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css               "access plus 1 year"
+    ExpiresByType application/javascript "access plus 1 year"
+    ExpiresByType image/png              "access plus 1 year"
+    ExpiresByType image/svg+xml          "access plus 1 year"
+    ExpiresByType font/woff2             "access plus 1 year"
+</IfModule>

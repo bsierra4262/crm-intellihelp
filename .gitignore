@@ -1,0 +1,44 @@
+# ============================================================
+#  .gitignore — CRM INTELLIHELP
+#  Solo se versiona: app/ (código), bin/, test/, md/, docs/.
+#  NUNCA se versiona: secretos reales ni la base comercial del cliente.
+# ============================================================
+
+# --- Ignorar TODO el root por defecto... ---
+/*
+
+# --- ...menos lo que sí queremos versionar: ---
+!/.gitignore
+!/.gitattributes
+!/.editorconfig
+!/README.md
+!/LICENSE
+!/CHANGELOG.md
+!/CONTRIBUTING.md
+!/SECURITY.md
+!/INSTALL.md
+!/app/
+!/bin/
+!/test/
+!/md/
+!/docs/
+
+# --- Secretos reales (aunque estén dentro de app/): NUNCA subir ---
+app/server-config/config.php
+app/web/app/config.local.php
+bin/deploy.local.json
+/.env
+
+# --- Datos reales del cliente: la base comercial no va al repositorio ---
+Documentacion a consultar/
+**/CSV/
+*.csv
+*.xlsx
+
+# --- Basura / temporales ---
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+__pycache__/
+node_modules/

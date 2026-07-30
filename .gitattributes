@@ -1,0 +1,18 @@
+# Normalización de fin de línea: el repositorio guarda LF y el servidor
+# (Linux) recibe LF, sin importar desde qué sistema se haya editado.
+* text=auto eol=lf
+
+*.php   text eol=lf
+*.sql   text eol=lf
+*.md    text eol=lf
+*.css   text eol=lf
+*.js    text eol=lf
+*.sh    text eol=lf
+*.py    text eol=lf
+
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary

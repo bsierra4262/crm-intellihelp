@@ -1,0 +1,153 @@
+<?php
+/** @var array $c @var array $notas @var array $actividades @var array $negocios
+ *  @var array $envios @var array $linea */
+$dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
+    $v = trim((string)$valor);
+    echo '<div><div class="k">' . e($etiqueta) . '</div><div class="v' . ($v === '' ? ' empty' : '') . '">';
+    if ($v === '') {
+        echo '—';
+    } elseif ($tipo === 'mail') {
+        echo '<a href="mailto:' . e($v) . '">' . e($v) . '</a>';
+    } elseif ($tipo === 'tel') {
+        echo '<a href="tel:' . e(preg_replace('/[^\d+]/', '', $v)) . '">' . e($v) . '</a>';
+    } elseif ($tipo === 'url') {
+        $href = preg_match('#^https?://#i', $v) ? $v : 'https://' . $v;
+        echo '<a href="' . e($href) . '" target="_blank" rel="noopener">' . e(recortar($v, 40)) . '</a>';
+    } else {
+        echo e($v);
+    }
+    echo '</div></div>';
+};
+?>
+<div class="detail-head">
+    <span class="avatar-fallback"><?= e(iniciales($c['nombre_completo'])) ?></span>
+    <div style="flex:1;min-width:0">
+        <h1><?= e($c['nombre_completo']) ?></h1>
+        <div class="sub">
+            <?= e($c['cargo'] ?: 'Sin cargo cargado') ?>
+            <?php if ($c['cuenta_id']): ?>
+                · <a href="<?= e(url('cuenta-ver?id=' . (int)$c['cuenta_id'])) ?>"><?= e($c['cuenta']) ?></a>
+            <?php endif; ?>
+        </div>
+        <div style="margin-top:.4rem;display:flex;gap:.4rem;flex-wrap:wrap">
+            <?php if ($c['no_email']): ?><span class="badge badge-rej">Dado de baja</span><?php endif; ?>
+            <?php if ($c['email_rebotado']): ?><span class="badge badge-pend">Correo rebotado</span><?php endif; ?>
+            <?php if ($c['fuente']): ?><span class="badge badge-info"><?= e($c['fuente']) ?></span><?php endif; ?>
+        </div>
+    </div>
+    <div class="head-actions">
+        <a class="btn btn-ghost" href="<?= e(url('actividad-form?contacto_id=' . (int)$c['id'])) ?>"><?= icon('tareas', 16) ?>Nueva actividad</a>
+        <a class="btn btn-ghost" href="<?= e(url('negocio-form?contacto_id=' . (int)$c['id'])) ?>"><?= icon('negocios', 16) ?>Nuevo negocio</a>
+        <a class="btn btn-primary" href="<?= e(url('contacto-form?id=' . (int)$c['id'])) ?>"><?= icon('editar', 16) ?>Editar</a>
+    </div>
+</div>
+
+<div class="detail">
+    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+        <div class="card">
+            <div class="card-head"><h2>Datos de contacto</h2></div>
+            <div class="kv">
+                <?php
+                $dato('Correo principal', $c['email'], 'mail');
+                $dato('Correo secundario', $c['email2'], 'mail');
+                $dato('Correo terciario', $c['email3'], 'mail');
+                $dato('Teléfono directo', $c['telefono'], 'tel');
+                $dato('Móvil', $c['movil'], 'tel');
+                $dato('Conmutador', $c['conmutador'], 'tel');
+                $dato('LinkedIn', $c['linkedin'], 'url');
+                $dato('Sitio web', $c['sitio_web'], 'url');
+                $dato('Departamento', $c['departamento']);
+                $dato('Propietario', $c['propietario']);
+                ?>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h2>Ubicación</h2></div>
+            <div class="kv">
+                <?php
+                $dato('Domicilio', $c['calle']);
+                $dato('Localidad', $c['localidad']);
+                $dato('Provincia', $c['provincia']);
+                $dato('Código postal', $c['codigo_postal']);
+                $dato('País', $c['pais']);
+                ?>
+            </div>
+        </div>
+
+        <?php if (trim((string)$c['descripcion']) !== ''): ?>
+        <div class="card">
+            <div class="card-head"><h2>Notas del registro</h2></div>
+            <p style="white-space:pre-wrap;margin:0"><?= e($c['descripcion']) ?></p>
+        </div>
+        <?php endif; ?>
+
+        <div class="card">
+            <div class="card-head"><h2>Negocios</h2>
+                <a class="btn btn-ghost btn-sm" href="<?= e(url('negocio-form?contacto_id=' . (int)$c['id'])) ?>"><?= icon('mas', 14) ?>Agregar</a>
+            </div>
+            <?php if (!$negocios): ?>
+                <p class="muted small">Todavía no hay oportunidades asociadas.</p>
+            <?php else: ?>
+                <div class="table-scroll">
+                    <table class="grid">
+                        <thead><tr><th>Negocio</th><th>Etapa</th><th class="num">Importe</th><th>Cierre</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($negocios as $n): ?>
+                            <tr>
+                                <td data-label="Negocio"><a href="<?= e(url('negocio-ver?id=' . (int)$n['id'])) ?>"><?= e($n['nombre']) ?></a></td>
+                                <td data-label="Etapa"><span class="chip" style="background:<?= e($n['color']) ?>1f;color:<?= e($n['color']) ?>"><?= e($n['etapa']) ?></span></td>
+                                <td data-label="Importe" class="num"><?= money((float)$n['importe'], $n['moneda']) ?></td>
+                                <td data-label="Cierre"><?= fecha_corta($n['fecha_cierre']) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <?php if ($envios): ?>
+        <div class="card">
+            <div class="card-head"><h2>Campañas recibidas</h2></div>
+            <div class="table-scroll">
+                <table class="grid">
+                    <thead><tr><th>Campaña</th><th>Estado</th><th>Enviado</th><th>Respondió</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($envios as $en): ?>
+                        <tr>
+                            <td data-label="Campaña"><a href="<?= e(url('campana-ver?id=' . (int)$en['campana_id'])) ?>"><?= e($en['campana']) ?></a></td>
+                            <td data-label="Estado"><?= badge_envio($en['estado']) ?></td>
+                            <td data-label="Enviado"><?= fecha_hora($en['enviado_en']) ?></td>
+                            <td data-label="Respondió"><?= $en['respondido_en'] ? fecha_hora($en['respondido_en']) : '—' ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php endif; ?>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+        <?php include APP . '/views/_notas.php'; ?>
+        <?php include APP . '/views/_actividades_panel.php'; ?>
+
+        <div class="card">
+            <div class="card-head"><h2>Historial</h2></div>
+            <?php if (!$linea): ?>
+                <p class="muted small">Sin movimientos registrados.</p>
+            <?php else: ?>
+                <div class="timeline">
+                    <?php foreach ($linea as $x): ?>
+                        <div class="tl-item <?= e($x['tipo']) ?>">
+                            <div class="tl-when"><?= fecha_hora($x['cuando']) ?> · <?= e($x['actor'] ?: 'sistema') ?></div>
+                            <div class="tl-title"><?= e($x['titulo']) ?></div>
+                            <?php if ($x['detalle']): ?><div class="tl-detail"><?= e($x['detalle']) ?></div><?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
