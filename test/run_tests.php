@@ -44,6 +44,7 @@ $SRC = getenv('CRM_SRC') ?: (__DIR__ . '/../app/web/app');
 require $SRC . '/helpers.php';
 require $SRC . '/crm.php';
 require $SRC . '/registros.php';
+require $SRC . '/actividad.php';
 require $SRC . '/actividades.php';
 require $SRC . '/envio.php';
 require $SRC . '/campanas.php';
@@ -205,6 +206,19 @@ contiene('envío enviado',         badge_envio('enviado'), 'badge-ok');
 contiene('envío rebotado',        badge_envio('rebotado'), 'badge-rej');
 contiene('campaña enviando',      badge_campana('enviando'), 'badge-ok');
 no_contiene('nunca un badge pelado', badge_envio('pendiente'), 'class="badge "');
+
+echo "== Filtros del CRON (regresión BUG #1) ==\n";
+// BUG #1 — el listado del CRON hace JOIN con `usuarios`, que también tiene
+// `creado_en`: sin calificar las columnas, MySQL rechazaba la consulta por
+// ambigüedad y la pantalla no abría.
+[$where, $params] = actividad_where(['canal' => 'app', 'q' => 'hola', 'desde' => '2026-01-01']);
+contiene('la fecha va calificada',   $where, 'a.creado_en');
+contiene('el canal va calificado',   $where, 'a.canal');
+contiene('la búsqueda va calificada', $where, 'a.actor LIKE');
+ok('ninguna columna queda sin alias',
+   !preg_match('/(?<![a-z.])(creado_en|canal|tipo|actor|accion|detalle|ip)\s*(>=|<=|=|LIKE)/', $where));
+// canal + desde + los cuatro LIKE de la búsqueda
+eq('los parámetros acompañan al WHERE', count($params), 6);
 
 echo "== Cifrado de los tokens de Google ==\n";
 $claro = 'refresh-token-de-prueba-1234';

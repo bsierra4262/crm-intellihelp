@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/MySQL-MariaDB-4479A1?logo=mysql&logoColor=white" alt="MySQL / MariaDB">
   <img src="https://img.shields.io/badge/auth-Google%20Workspace-4285F4?logo=google&logoColor=white" alt="Google Workspace">
   <img src="https://img.shields.io/badge/Calendar%20%2B%20Meet-integrado-00897B?logo=googlemeet&logoColor=white" alt="Google Calendar + Meet">
-  <img src="https://img.shields.io/badge/tests-85%20unitarios%20%C2%B7%2048%20HTTP-9CC930" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-170%20comprobaciones-9CC930" alt="Tests">
   <img src="https://img.shields.io/badge/licencia-propietaria-663399" alt="Licencia propietaria">
 </p>
 
@@ -293,17 +293,20 @@ Y agendar la tarea automática cada 5 minutos:
 Regla del proyecto: **cada defecto detectado incorpora un test** para impedir su reaparición.
 
 ```bash
-php test/run_tests.php     # 85 casos de lógica pura, sin base ni red
+php test/run_tests.php     # 90 casos de lógica pura, sin base ni red
 bash test/smoke.sh         # 48 comprobaciones HTTP contra el sitio desplegado
+bash test/render.sh        # 32 pantallas ejecutadas de verdad, con sesión
 ```
 
-La primera batería cubre la normalización de la base de Zoho (con los casos reales que trae
-el CSV del cliente), la validación de CUIT, el formato de importes, las URLs de la aplicación
-y de Google, la paginación, el renderizado de plantillas, la detección de rebotes, los slugs
-de la agenda, el vencimiento de actividades y el cifrado de los tokens de Google.
-
-La segunda verifica que **toda ruta privada exija sesión**, que las públicas respondan, que la
-API rechace sin clave y que el código de la aplicación **no se pueda pedir por HTTP**.
+- **`run_tests.php`** cubre la normalización de la base de Zoho (con los casos reales que trae
+  el CSV del cliente), la validación de CUIT, el formato de importes, las URLs de la aplicación
+  y de Google, la paginación, el renderizado de plantillas, la detección de rebotes, los slugs
+  de la agenda, el vencimiento de actividades y el cifrado de los tokens de Google.
+- **`smoke.sh`** verifica que **toda ruta privada exija sesión**, que las públicas respondan,
+  que la API rechace sin clave y que el código de la aplicación **no se pueda pedir por HTTP**.
+- **`render.sh`** arma una sesión de administrador y **ejecuta cada pantalla de verdad**. Es lo
+  que atrapa una función inexistente o una variable que la vista espera y nadie pasó: cosas que
+  `php -l` no puede ver. Ya encontró dos defectos antes de que llegaran a producción.
 
 ## Seguridad
 

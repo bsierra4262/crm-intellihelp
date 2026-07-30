@@ -45,8 +45,16 @@ y el versionado, [SemVer](https://semver.org/lang/es/).
   rendimiento de las campañas (tasa de respuesta y de rebote).
 - **Documentación**: [mapa 1:1 de Zoho CRM](md/ZOHO-CRM-REFERENCIA.md) con marcas de uso real
   contra la base exportada del cliente, documento maestro y requerimientos permanentes.
-- **Tests**: 85 pruebas unitarias sin base ni red + 48 comprobaciones HTTP de rutas, permisos
-  y assets contra el sitio desplegado.
+- **Tests**: 90 pruebas unitarias sin base ni red, 48 comprobaciones HTTP de rutas, permisos y
+  assets, y 32 pantallas ejecutadas de verdad con una sesión de administrador.
+
+### Fixed
+
+- **BUG #1** — La pantalla **CRON** no abría: el listado hace `JOIN` con `usuarios`, que también
+  tiene `creado_en`, y las columnas del filtro iban sin calificar, así que MySQL rechazaba la
+  consulta por ambigüedad. Ahora todas van con el alias de la tabla, con test de regresión.
+- **BUG #2** — El cron no arrancaba en el servidor: buscaba el núcleo en la ruta del
+  repositorio y al desplegar la estructura cambia. Ahora prueba las dos ubicaciones.
 
 ### Security
 

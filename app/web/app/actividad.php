@@ -77,20 +77,26 @@ function actividad_disponible(): bool
 /** Meses que se muestran por defecto en pantalla (el histórico nunca se borra). */
 const ACTIVIDAD_VENTANA_MESES = 4;
 
-/** Construye WHERE + parámetros a partir de los filtros del CRON. */
+/**
+ * Construye WHERE + parámetros a partir de los filtros del CRON.
+ *
+ * Todas las columnas van calificadas con el alias `a`: la consulta del listado
+ * hace JOIN con `usuarios`, que también tiene `creado_en`, y sin el prefijo
+ * MySQL la rechaza por ambigua.
+ */
 function actividad_where(array $f): array
 {
-    $w = ['canal = ?'];
+    $w = ['a.canal = ?'];
     $p = [in_array($f['canal'] ?? 'app', ['app', 'api'], true) ? $f['canal'] : 'app'];
-    if (!empty($f['tipo'])) { $w[] = 'tipo = ?'; $p[] = $f['tipo']; }
+    if (!empty($f['tipo'])) { $w[] = 'a.tipo = ?'; $p[] = $f['tipo']; }
     // Ventana por defecto: últimos N meses (rendimiento). Si el usuario pide
     // una fecha "Desde" anterior, se consulta el histórico completo.
     $piso  = date('Y-m-d', strtotime('-' . ACTIVIDAD_VENTANA_MESES . ' months'));
     $desde = !empty($f['desde']) ? $f['desde'] : $piso;
-    $w[] = 'creado_en >= ?'; $p[] = $desde . ' 00:00:00';
-    if (!empty($f['hasta'])) { $w[] = 'creado_en <= ?'; $p[] = $f['hasta'] . ' 23:59:59'; }
+    $w[] = 'a.creado_en >= ?'; $p[] = $desde . ' 00:00:00';
+    if (!empty($f['hasta'])) { $w[] = 'a.creado_en <= ?'; $p[] = $f['hasta'] . ' 23:59:59'; }
     if (!empty($f['q'])) {
-        $w[] = '(actor LIKE ? OR accion LIKE ? OR detalle LIKE ? OR ip LIKE ?)';
+        $w[] = '(a.actor LIKE ? OR a.accion LIKE ? OR a.detalle LIKE ? OR a.ip LIKE ?)';
         $like = '%' . $f['q'] . '%';
         array_push($p, $like, $like, $like, $like);
     }
@@ -104,7 +110,7 @@ function actividad_list(array $f): array
         return ['rows' => [], 'total' => 0, 'page' => 1, 'per' => 25, 'sin_tabla' => true];
     }
     [$where, $p] = actividad_where($f);
-    $total = (int) qv("SELECT COUNT(*) FROM actividad $where", $p);
+    $total = (int) qv("SELECT COUNT(*) FROM actividad a $where", $p);
     $pg    = paginar($total, $f['page'] ?? 1, 25);
     $rows  = q("SELECT a.*, u.email AS usuario_email, u.avatar_url AS usuario_avatar
                 FROM actividad a LEFT JOIN usuarios u ON u.id = a.usuario_id
