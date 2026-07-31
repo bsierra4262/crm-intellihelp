@@ -81,13 +81,13 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <input type="email" name="email3" value="<?= $v('email3') ?>" maxlength="190">
             </label>
             <label class="fld"><span>Teléfono directo</span>
-                <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel">
+                <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
             </label>
             <label class="fld"><span>Móvil</span>
-                <input type="tel" name="movil" value="<?= $v('movil') ?>" maxlength="60" inputmode="tel">
+                <input type="tel" name="movil" value="<?= $v('movil') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
             </label>
             <label class="fld"><span>Conmutador</span>
-                <input type="tel" name="conmutador" value="<?= $v('conmutador') ?>" maxlength="60" placeholder="Central de la empresa" inputmode="tel">
+                <input type="tel" name="conmutador" value="<?= $v('conmutador') ?>" maxlength="60" placeholder="Central de la empresa" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
             </label>
             <label class="fld"><span>LinkedIn</span>
                 <input type="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255" placeholder="https://linkedin.com/in/…">

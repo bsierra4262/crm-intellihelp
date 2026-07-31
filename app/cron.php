@@ -44,11 +44,15 @@ if ($porWeb) {
     header('Content-Type: text/plain; charset=utf-8');
 }
 
-// Una sola corrida a la vez. El encabezado de este archivo prometía que era
-// seguro correrlo muchas veces, pero no había ningún bloqueo: dos corridas
-// solapadas leían los mismos envíos pendientes y los mandaban las dos, así que
-// el destinatario recibía el correo duplicado. Pasa fácil, porque además del
-// cron cada 5 minutos se puede disparar por URL con la clave de Ajustes.
+// Una sola corrida a la vez. Sin esto, dos corridas solapadas leían los mismos
+// envíos pendientes y los mandaban las dos: el destinatario recibía el correo
+// duplicado. Pasa fácil, porque además del cron se puede disparar por URL.
+//
+// El bloqueo vive en la conexión, y la conexión se reabre después de cada pausa
+// del despachador (este hosting la cierra a los 20 segundos de inactividad), así
+// que se puede perder a mitad de camino. Por eso NO es la única defensa: cada
+// envío se toma además con un UPDATE condicionado a su estado, que es atómico y
+// no depende de ninguna conexión en particular.
 if (!qv("SELECT GET_LOCK('crm_cron', 0)")) {
     $msg = 'Ya hay una corrida en curso. Esta se saltea para no duplicar envíos.';
     if ($porWeb) { echo $msg . PHP_EOL; } else { fwrite(STDOUT, $msg . PHP_EOL); }
@@ -76,9 +80,17 @@ try {
         log_app('cron.campanas', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
     }
 } catch (\Throwable $e) {
+    // La conexión pudo haberse caído durante una pausa: se reabre antes de
+    // intentar registrar nada, o el registro del error falla también y la
+    // corrida termina sin dejar ningún rastro de lo que pasó.
+    db_reanudar();
     $lineas[] = 'campañas ERROR: ' . $e->getMessage();
     log_app('cron.campanas_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
 }
+
+// El despachador es lo único que duerme. Después de él, la conexión puede estar
+// muerta y todo lo que sigue —rebotes, recordatorios, purga— la necesita.
+db_reanudar();
 
 // ---- 2. Casilla: rebotes y respuestas ----
 // Se lee cada 15 minutos, no en cada corrida: abrir IMAP es caro y los rebotes

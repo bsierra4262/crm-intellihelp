@@ -71,10 +71,10 @@
                 <input name="empresa_web" value="<?= e($s('empresa_web')) ?>" maxlength="190" placeholder="intellihelp.tech">
             </label>
             <label class="fld"><span>Teléfono</span>
-                <input name="empresa_telefono" value="<?= e($s('empresa_telefono')) ?>" maxlength="60">
+                <input type="tel" inputmode="tel" name="empresa_telefono" value="<?= e($s('empresa_telefono')) ?>" maxlength="60" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
             </label>
             <label class="fld"><span>WhatsApp</span>
-                <input name="empresa_whatsapp" value="<?= e($s('empresa_whatsapp')) ?>" maxlength="60" placeholder="5491150274827">
+                <input type="tel" inputmode="tel" name="empresa_whatsapp" value="<?= e($s('empresa_whatsapp')) ?>" maxlength="60" placeholder="5491150274827" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
                 <i class="hint">Sólo números, con código de país y sin el «+». Es el que usa el botón de WhatsApp.</i>
             </label>
             <label class="fld wide"><span>Correo de contacto</span>

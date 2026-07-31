@@ -1,10 +1,15 @@
 <?php
 declare(strict_types=1);
 
-/** Conexión PDO única (singleton) a MySQL/MariaDB. */
-function db(): PDO
+/**
+ * Conexión PDO única (singleton) a MySQL/MariaDB.
+ *
+ * @param bool $reabrir descarta la conexión actual y arma una nueva
+ */
+function db(bool $reabrir = false): PDO
 {
     static $pdo = null;
+    if ($reabrir) { $pdo = null; }
     if ($pdo instanceof PDO) {
         return $pdo;
     }
@@ -27,6 +32,29 @@ function db(): PDO
     $desfase = (new DateTime('now', new DateTimeZone(date_default_timezone_get())))->format('P');
     $pdo->exec("SET time_zone = '" . $desfase . "'");
     return $pdo;
+}
+
+/**
+ * Reabre la conexión si el servidor la cerró por inactividad.
+ *
+ * Este hosting tiene `wait_timeout = 20 segundos`, y el despachador de campañas
+ * espera entre 25 y 45 segundos entre correo y correo para que el ritmo no
+ * parezca de máquina. O sea: después de cada pausa la conexión está muerta, sin
+ * excepción. Lo que se veía era que la campaña mandaba el primer correo y
+ * después no pasaba nada más: fallaba el contador, fallaba la marca del cron y
+ * fallaba hasta el registro del error, porque todo usaba la misma conexión.
+ *
+ * Hay que llamarla después de cualquier espera larga.
+ */
+function db_reanudar(): void
+{
+    try {
+        db()->query('SELECT 1');
+        return;                       // sigue viva, no hay nada que hacer
+    } catch (\Throwable $e) {
+        // Se cayó por inactividad: se abre de nuevo.
+    }
+    db(true);
 }
 
 /** Ejecuta una consulta preparada y devuelve el statement. */

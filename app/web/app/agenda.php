@@ -171,6 +171,14 @@ function agenda_reservar(array $tipo, array $d): array
     if (!email_valido($email)) { throw new RuntimeException('El correo no es válido.'); }
     if ($nombre === '')        { throw new RuntimeException('Falta el nombre.'); }
     if ($inicio < time())      { throw new RuntimeException('Ese horario ya pasó.'); }
+    // El teléfono lo escribe alguien de afuera de la empresa, así que hay que
+    // comprobarlo del lado del servidor: `type="tel"` en el formulario no
+    // valida nada, es sólo una pista para el teclado del celular. Sin esto se
+    // podían mandar letras y quedaban guardadas como número de contacto.
+    if (!telefono_valido($d['telefono'] ?? null)) {
+        throw new RuntimeException('El teléfono no parece un número. Poné sólo números; '
+            . 'se aceptan también + ( ) - . y espacios.');
+    }
 
     // Verificación final contra doble reserva: entre que el visitante eligió el
     // horario y apretó "confirmar", otro pudo haber tomado el mismo hueco.

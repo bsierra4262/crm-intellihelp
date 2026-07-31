@@ -339,6 +339,28 @@ $p3 = bloques_render([['tipo' => 'texto', 'texto' => '<script>alert(1)</script> 
 ok('el texto de quien escribe no puede inyectar HTML', !str_contains($p3, '<script>'));
 ok('y la dirección sigue funcionando', str_contains($p3, 'href="https://ok.com"'));
 
+echo "== Teléfonos ==
+";
+// `type="tel"` NO valida nada: es sólo una pista para que el celular abra el
+// teclado numérico. Con ese atributo puesto se podían escribir letras igual y
+// quedaban guardadas como número de contacto. La garantía es esta función.
+ok('acepta un número suelto',         telefono_valido('1156660181'));
+ok('acepta el formato internacional', telefono_valido('+54 9 11 5027-4827'));
+ok('acepta paréntesis y guiones',     telefono_valido('(011) 4567-8900'));
+ok('rechaza letras',                  !telefono_valido('asdasd'));
+ok('rechaza números con letras',      !telefono_valido('11abc4567'));
+ok('rechaza algo demasiado corto',    !telefono_valido('123'));
+ok('rechaza una etiqueta HTML',       !telefono_valido('<script>x</script>'));
+ok('el campo vacío es válido (es opcional)', telefono_valido(''));
+eq('lo que no es teléfono no se guarda a medias', normalizar_telefono('asdasd'), null);
+eq('lo válido se guarda tal cual',    normalizar_telefono('+54 9 11 5027-4827'), '+54 9 11 5027-4827');
+
+echo "== Cómo se muestra un teléfono ==
+";
+eq('móvil argentino',  telefono_formato('5491150274827'), '+54 9 11 5027-4827');
+eq('vacío',            telefono_formato(''), '');
+eq('lo que no se reconoce se muestra tal cual', telefono_formato('+1 555 0100'), '+1 555 0100');
+
 echo "== Invitación de calendario (el botón de aceptar del correo) ==\n";
 // El archivo de calendario es lo que hace que Gmail muestre «Sí / No / Quizás».
 // Si se pasa del ancho o corta un acento al medio, el cliente lo descarta y el

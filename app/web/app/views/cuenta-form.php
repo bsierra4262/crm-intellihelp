@@ -60,7 +60,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <h2 class="sec">Contacto y ubicación</h2>
         <div class="grid-fields">
             <label class="fld"><span>Teléfono</span>
-                <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel">
+                <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
             </label>
             <label class="fld"><span>Correo</span>
                 <input type="email" name="email" value="<?= $v('email') ?>" maxlength="190">

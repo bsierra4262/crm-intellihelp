@@ -122,11 +122,42 @@ function normalizar_localidad(?string $v): ?string
     return $v;
 }
 
-/** Normaliza un teléfono conservando el formato legible que ya usa el equipo. */
+/**
+ * Caracteres que puede tener un teléfono escrito a mano.
+ *
+ * Sirve para el atributo `pattern` de los formularios y para validar del lado
+ * del servidor: la misma regla en los dos lados, así no puede pasar que la
+ * pantalla acepte algo que después la base rechaza.
+ */
+const TELEFONO_PATRON = '[0-9+()./\\s-]{6,40}';
+
+/**
+ * ¿Esto parece un teléfono?
+ *
+ * Se comprueba en el servidor porque `type="tel"` NO valida nada: es sólo una
+ * pista para que el celular abra el teclado numérico. Con ese atributo puesto
+ * se pueden escribir letras igual, y así se estaban guardando.
+ */
+function telefono_valido(?string $v): bool
+{
+    $v = trim((string)$v);
+    if ($v === '') { return true; }                       // vacío es válido: el campo es opcional
+    if (preg_match('/[^0-9+().\/\s-]/', $v)) { return false; }   // una letra lo descarta
+    return strlen(preg_replace('/\D/', '', $v) ?? '') >= 6;      // y tiene que tener números de verdad
+}
+
+/**
+ * Normaliza un teléfono conservando el formato legible que ya usa el equipo.
+ *
+ * Lo que no parece un teléfono se descarta en vez de guardarse a medias: es
+ * preferible el campo vacío antes que un dato que nadie va a poder marcar.
+ */
 function normalizar_telefono(?string $v): ?string
 {
     $v = trim((string)$v);
-    return $v === '' ? null : mb_substr($v, 0, 60);
+    if ($v === '') { return null; }
+    if (!telefono_valido($v)) { return null; }
+    return mb_substr($v, 0, 60);
 }
 
 // ------------------------------------------------------------

@@ -711,12 +711,20 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240): array
             }
             $fp = $sesiones[$clave];
 
+            // Se toma la fila con una condición sobre su estado: si otra
+            // corrida se adelantó, este UPDATE afecta cero filas y el correo no
+            // se manda dos veces. El bloqueo del cron por sí solo no alcanza,
+            // porque la conexión se reabre después de cada pausa y con ella se
+            // suelta el bloqueo.
+            $tomada = q("UPDATE envios SET estado = 'enviando', intentos = intentos + 1,
+                                cuenta_correo_id = ?, proximo_intento_en = NOW()
+                         WHERE id = ? AND estado = 'pendiente'",
+                        [$cuenta ? (int)$cuenta['id'] : null, (int)$envio['id']])->rowCount();
+            if ($tomada !== 1) { continue; }   // ya la agarró otra corrida
+
             $msg = campana_armar_mensaje($completa, $envio, $cuenta);
             $msg['message_id'] = nuevo_message_id();
             $err = null;
-            q("UPDATE envios SET estado = 'enviando', intentos = intentos + 1, cuenta_correo_id = ?,
-                      proximo_intento_en = NOW() WHERE id = ?",
-              [$cuenta ? (int)$cuenta['id'] : null, (int)$envio['id']]);
             $resultado = smtp_enviar($fp, $msg, $err, $cfg);
 
             if ($resultado === 'enviado') {
@@ -767,6 +775,14 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240): array
                 break;
             }
             sleep($pausa);
+
+            // Este hosting cierra la conexión a los 20 segundos de inactividad
+            // y la pausa mínima es de 25: después de dormir, la conexión SIEMPRE
+            // está muerta. Sin esto, la campaña mandaba el primer correo y todo
+            // lo que venía después fallaba en silencio —el contador, la marca
+            // del cron, hasta el registro del error—, así que en pantalla no
+            // pasaba nada y el avance se quedaba clavado en cero.
+            db_reanudar();
         }
 
         campana_recontar($cid);

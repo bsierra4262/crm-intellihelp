@@ -373,9 +373,47 @@ ok('los teléfonos se muestran legibles', str_contains($hlp, 'function telefono_
 $vistas2 = '';
 foreach (glob($WEB . '/app/views/*.php') ?: [] as $v) { $vistas2 .= (string) file_get_contents($v); }
 ok('y los listados lo usan', substr_count($vistas2, 'telefono_formato(') >= 4);
-// Un campo de teléfono con type="text" deja escribir letras.
-$telText = preg_match_all('/<input(?![^>]*type="tel")[^>]*name="(telefono|movil|conmutador)"/', $vistas2);
-ok('ningún teléfono admite letras', $telText === 0, "→ $telText campos sin type=tel");
+// La comprobación anterior sólo miraba que el campo tuviera type="tel", y eso
+// NO impide escribir letras: es una pista para el teclado del celular, nada
+// más. Un campo puede tener type="tel" y aceptar «asdasd» igual, que es
+// exactamente lo que estaba pasando. Lo que de verdad frena es el `pattern` en
+// el navegador y, sobre todo, la validación en el servidor.
+// Ojo con recorrer el marcado: una etiqueta puede llevar un bloque de PHP
+// adentro del atributo «value», y ese bloque termina con un «>» que no cierra
+// la etiqueta. Con una expresión ingenua, esta comprobación daba por inválidos
+// campos que estaban perfectos, y lo peor: podía dar por buenos los que no.
+//
+// (El ejemplo no se escribe acá: la marca de cierre de PHP dentro de un
+// comentario de una línea saca al intérprete del modo código, y a partir de
+// ahí el archivo se imprime como texto en vez de ejecutarse. Pasó.)
+$telSinPatron = 0;
+foreach (glob($WEB . '/app/views/*.php') ?: [] as $arch) {
+    $src = (string) file_get_contents($arch);
+    $i = 0;
+    while (($i = strpos($src, '<input', $i)) !== false) {
+        $j = $i + 6; $prof = 0;
+        while ($j < strlen($src)) {
+            if (substr($src, $j, 2) === '<?')            { $prof++; $j += 2; continue; }
+            if (substr($src, $j, 2) === '?>' && $prof)   { $prof--; $j += 2; continue; }
+            if ($src[$j] === '>' && $prof === 0)         { break; }
+            $j++;
+        }
+        $etq = substr($src, $i, $j - $i);
+        if (preg_match('/name="(telefono|movil|conmutador|empresa_telefono|empresa_whatsapp)"/', $etq)
+            && !str_contains($etq, 'pattern=')) {
+            $telSinPatron++;
+        }
+        $i = $j + 1;
+    }
+}
+ok('ningún teléfono se manda sin validar', $telSinPatron === 0, "→ $telSinPatron campos sin pattern");
+$crmPhp2 = (string) @file_get_contents($WEB . '/app/crm.php');
+ok('y el servidor lo comprueba de nuevo', str_contains($crmPhp2, 'function telefono_valido'),
+   '→ el navegador se puede saltear; el servidor no');
+ok('la reserva pública también lo comprueba',
+   str_contains((string) @file_get_contents($WEB . '/app/agenda.php'), 'telefono_valido'));
+ok('los formularios avisan en vez de descartar en silencio',
+   str_contains((string) @file_get_contents($WEB . '/app/pages/contacto-form.php'), 'telefono_valido'));
 // La base recorta los textos largos sin avisar.
 ok('los campos de texto llevan su tope de caracteres',
    substr_count($vistas2, 'maxlength=') >= 30);

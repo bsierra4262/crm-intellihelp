@@ -1,5 +1,5 @@
 <?php
-/** @var ?array $t @var int $id @var array $errores @var array $porDia */
+/** @var array $duenioU @var bool $conectado @var array $candidatos @var ?array $t @var int $id @var array $errores @var array $porDia */
 $v = fn(string $k, $def = '') => e($t[$k] ?? $def);
 $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
                5 => 'Viernes', 6 => 'Sábado', 0 => 'Domingo'];
@@ -29,6 +29,32 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
             </label>
             <label class="fld"><span>Duración (min)</span>
                 <input type="number" name="duracion_min" value="<?= $v('duracion_min', '30') ?>" min="5" max="480" required>
+            </label>
+            <label class="fld wide"><span>Calendario donde se crean las reuniones <i class="req">*</i></span>
+                <?php if ($candidatos): ?>
+                    <select name="usuario_id">
+                        <?php foreach ($candidatos as $cand): ?>
+                            <option value="<?= (int)$cand['id'] ?>" <?= (int)($duenioU['id'] ?? 0) === (int)$cand['id'] ? 'selected' : '' ?>>
+                                <?= e($cand['nombre']) ?> · <?= e($cand['email']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                <?php else: ?>
+                    <input value="<?= e($duenioU['email'] ?? '') ?>" readonly>
+                    <input type="hidden" name="usuario_id" value="<?= (int)($duenioU['id'] ?? 0) ?>">
+                <?php endif; ?>
+                <i class="hint <?= $conectado ? '' : 'bad' ?>">
+                    <?php if ($conectado): ?>
+                        La reunión se crea en <strong>este</strong> calendario de Google, con el Meet, y
+                        esta cuenta queda como organizadora: le llega la invitación igual que al cliente.
+                    <?php else: ?>
+                        <strong>Esta cuenta no tiene Google conectado.</strong> Las reservas se van a
+                        seguir tomando, pero la reunión <strong>no va a aparecer en ningún calendario</strong>
+                        ni va a generar el enlace de Meet: el cliente se queda con su confirmación y del
+                        lado nuestro no se entera nadie.
+                        <a href="<?= e(url('google-login?conectar=1')) ?>">Conectar Google</a>.
+                    <?php endif; ?>
+                </i>
             </label>
             <label class="fld full"><span>Descripción para el visitante</span>
                 <textarea name="descripcion" rows="3" placeholder="Qué van a hablar, qué tiene que traer…"><?= $v('descripcion') ?></textarea>

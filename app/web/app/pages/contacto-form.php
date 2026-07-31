@@ -25,6 +25,16 @@ if (is_post()) {
             $errores[$k] = "$et: la dirección no es válida.";
         }
     }
+
+    // El teléfono se comprueba en el SERVIDOR. `type="tel"` no valida nada: es
+    // sólo una pista para que el celular abra el teclado numérico, y con ese
+    // atributo puesto se pueden escribir letras igual. Antes se guardaban.
+    foreach (['telefono' => 'Teléfono directo', 'movil' => 'Móvil', 'conmutador' => 'Conmutador'] as $k => $et) {
+        if (trim((string)($d[$k] ?? '')) !== '' && !telefono_valido($d[$k])) {
+            $errores[$k] = "$et: sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.";
+        }
+    }
+
     // Alta de empresa al vuelo: si escribieron un nombre nuevo, se crea la
     // cuenta en el momento en vez de obligar a salir del formulario.
     if (empty($d['cuenta_id']) && trim((string)($d['cuenta_nueva'] ?? '')) !== '') {

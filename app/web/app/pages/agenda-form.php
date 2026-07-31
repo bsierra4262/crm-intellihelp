@@ -6,7 +6,7 @@ $id  = (int)($_GET['id'] ?? 0);
 $uid = (int)current_user_id();
 $t   = $id ? agenda_tipo_get($id) : null;
 
-if ($id && (!$t || (int)$t['usuario_id'] !== $uid)) {
+if ($id && (!$t || ((int)$t['usuario_id'] !== $uid && !auth_is_admin()))) {
     http_response_code(403);
     render('error', ['codigo' => 403, 'titulo' => 'No es tu agenda',
         'mensaje' => 'Sólo podés editar los tipos de reunión que creaste vos.'], 'Sin acceso');
@@ -27,12 +27,26 @@ if (!$id) {
     foreach ([1, 2, 3, 4, 5] as $d) { $porDia[$d] = ['09:00', '18:00']; }
 }
 
+// Quién es el dueño del calendario donde caen las reuniones. Hasta ahora esto
+// no se veía en ningún lado: la reunión se creaba en el calendario de quien
+// había armado el tipo, y no había forma de saber cuál era ni de comprobar que
+// esa cuenta tuviera Google conectado. Si no lo tiene, la reserva se toma igual
+// y el evento no se crea: el cliente recibe su enlace y la empresa no se entera.
+$duenio   = (int)($t['usuario_id'] ?? $uid);
+$duenioU  = q1('SELECT id, nombre, email FROM usuarios WHERE id = ?', [$duenio]) ?: [];
+$conectado = $duenio ? google_conectado($duenio) : false;
+$candidatos = auth_is_admin() ? users_activos() : [];
+
 $errores = [];
 
 if (is_post()) {
     verify_csrf();
     $d = $_POST;
-    $d['usuario_id'] = $uid;
+    // Sólo un administrador puede poner el tipo de reunión sobre el calendario
+    // de otra persona. Para el resto, siempre el propio: si no, bastaría con
+    // cambiar el número en el formulario para agendar sobre el calendario ajeno.
+    $pedido = (int)($_POST['usuario_id'] ?? 0);
+    $d['usuario_id'] = (auth_is_admin() && $pedido > 0) ? $pedido : $uid;
     if (trim((string)($d['nombre'] ?? '')) === '') { $errores['nombre'] = 'Poné un nombre.'; }
     if (empty($d['dias'])) { $errores['dias'] = 'Marcá al menos un día de la semana.'; }
 
@@ -75,5 +89,6 @@ if (is_post()) {
     }
 }
 
-render('agenda-form', compact('t', 'id', 'errores', 'porDia'),
+render('agenda-form', compact('t', 'id', 'errores', 'porDia',
+                              'duenioU', 'conectado', 'candidatos'),
        $id ? 'Editar tipo de reunión' : 'Nuevo tipo de reunión');
