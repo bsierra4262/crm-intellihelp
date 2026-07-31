@@ -82,7 +82,9 @@
             barra.classList.toggle('ok', c.pct >= 100);
         }
         // El listado muestra «3 / 6»; el panel, la frase completa.
-        poner(fila.querySelector('[data-vivo-avance]'), c.enviados + ' / ' + c.total);
+        // El avance mide lo resuelto —entregados más rebotados—, no sólo lo
+        // entregado: una campaña que entregó 3 y rebotó 3 terminó con los 6.
+        poner(fila.querySelector('[data-vivo-avance]'), c.procesados + ' / ' + c.total);
         var res = fila.querySelector('[data-vivo-resumen]');
         if (res) {
             poner(res, c.enviados + ' de ' + c.total + ' enviados · '
@@ -99,9 +101,9 @@
 
     /** Actualiza la ficha de una campaña. */
     function pintarFicha(c) {
-        ['enviados', 'total', 'rebotados', 'respondidos', 'aperturas', 'reuniones', 'errores']
+        ['enviados', 'total', 'total2', 'procesados', 'rebotados', 'respondidos', 'aperturas', 'reuniones', 'errores']
             .forEach(function (k) {
-                poner(doc.querySelector('[data-vivo-campo="' + k + '"]'), c[k]);
+                poner(doc.querySelector('[data-vivo-campo="' + k + '"]'), k === 'total2' ? c.total : c[k]);
             });
         var barra = doc.querySelector('[data-vivo-barra]');
         if (barra) {

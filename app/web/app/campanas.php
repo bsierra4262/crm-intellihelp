@@ -238,7 +238,14 @@ function campanas_listar(array $f = []): array
                        (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = 'enviado') AS enviados,
                        (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado IN ('rebotado','rechazado')) AS rebotados,
                        (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.respondido_en IS NOT NULL) AS respondidos,
-                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = 'error') AS errores
+                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = 'error') AS errores,
+                       -- «Procesados» es lo que ya se resolvió: entregados, rebotados y
+                       -- fallidos. Es lo que mide el AVANCE, y no es lo mismo que
+                       -- «enviados». Una campaña que entregó 3 y rebotó 3 terminó su
+                       -- trabajo con los 6: mostrar «3 de 6» hacía parecer que se había
+                       -- quedado a mitad de camino cuando en realidad no quedaba nada.
+                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id
+                         AND e.estado NOT IN ('pendiente','enviando','omitido')) AS procesados
                 FROM campanas c
                 LEFT JOIN listas l     ON l.id  = c.lista_id
                 LEFT JOIN plantillas pl ON pl.id = c.plantilla_id
@@ -258,7 +265,11 @@ function campana_get(int $id): ?array
                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado IN ("rebotado","rechazado")) AS rebotados,
                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.respondido_en IS NOT NULL) AS respondidos,
                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = "error") AS errores,
-                      (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.abierto_en IS NOT NULL) AS aperturas
+                      (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.abierto_en IS NOT NULL) AS aperturas,
+                      -- Ver el comentario de campanas_listar(): el avance mide lo
+                      -- resuelto, no sólo lo entregado.
+                      (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id
+                        AND e.estado NOT IN ("pendiente","enviando","omitido")) AS procesados
                FROM campanas c
                LEFT JOIN listas l      ON l.id  = c.lista_id
                LEFT JOIN plantillas pl ON pl.id = c.plantilla_id

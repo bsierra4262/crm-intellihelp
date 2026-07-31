@@ -1,7 +1,12 @@
 <?php
 /** @var int $aperturas @var array $c @var array $envios @var array $data @var array $f @var ?array $vista
  *  @var bool $testing @var array $motivos */
-$pct   = $c['total'] > 0 ? min(100, (int)round(100 * $c['enviados'] / $c['total'])) : 0;
+// Dos cosas distintas que antes se mezclaban: «entregados» es cuántos llegaron,
+// y el AVANCE es cuántos ya se resolvieron —entregados más rebotados—. Con 3
+// entregados y 3 rebotados, entregados son 3 pero el avance es 6 de 6: no queda
+// nada por hacer.
+$hechos = (int)($c['procesados'] ?? $c['enviados']);
+$pct    = $c['total'] > 0 ? min(100, (int)round(100 * $hechos / $c['total'])) : 0;
 $boton = function (string $accion, string $etiqueta, string $ic, string $clase = 'btn-ghost', array $confirmar = []) use ($c) {
     echo '<form class="inline-form" method="post" action="' . e(url('campana-accion')) . '">' . csrf_field()
        . '<input type="hidden" name="id" value="' . (int)$c['id'] . '">'
@@ -99,10 +104,17 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
          que apretar F5 para saber si la campaña estaba avanzando. */ ?>
 <div class="cards" data-vivo data-vivo-campana="<?= (int)$c['id'] ?>">
     <div class="card stat">
-        <span class="stat-label">Enviados</span>
+        <span class="stat-label">Entregados</span>
         <span class="stat-value"><span data-vivo-campo="enviados"><?= (int)$c['enviados'] ?></span>
             <span class="muted">/ <span data-vivo-campo="total"><?= (int)$c['total'] ?></span></span></span>
         <div class="progreso"><i data-vivo-barra class="<?= $pct >= 100 ? 'ok' : '' ?>" style="width:<?= $pct ?>%"></i></div>
+        <span class="stat-foot">
+            Avance: <span data-vivo-campo="procesados"><?= $hechos ?></span> de
+            <span data-vivo-campo="total2"><?= (int)$c['total'] ?></span> resueltos
+            <?php if ($hechos >= (int)$c['total'] && (int)$c['total'] > 0): ?>
+                — no queda nada en la cola
+            <?php endif; ?>
+        </span>
         <span class="stat-foot" data-vivo-cron <?= setting_get('cron_en_curso_desde', '') !== '' ? '' : 'hidden' ?>>
             <strong class="accent">Enviando ahora…</strong>
         </span>

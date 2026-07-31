@@ -74,7 +74,11 @@
                     una <a href="<?= e(url('listas')) ?>">lista</a> con los destinatarios y
                     la campaña que junta las dos. Después la pantalla de la campaña te va marcando qué falta.</td></tr>
             <?php else: foreach ($data['rows'] as $c):
-                $pct = $c['total'] > 0 ? min(100, (int)round(100 * $c['enviados'] / $c['total'])) : 0;
+                // El avance mide lo RESUELTO: entregados más rebotados. Una campaña
+                // que entregó 3 y rebotó 3 terminó con los 6, y decir «3 de 6» hacía
+                // parecer que se había quedado a mitad de camino.
+                $hechos = (int)($c['procesados'] ?? $c['enviados']);
+                $pct = $c['total'] > 0 ? min(100, (int)round(100 * $hechos / $c['total'])) : 0;
             ?>
                 <tr data-vivo-fila="<?= (int)$c['id'] ?>">
                     <td data-label="Campaña">
@@ -93,7 +97,7 @@
                     <td data-label="Estado"><span data-vivo-badge><?= badge_campana($c['estado']) ?></span></td>
                     <td data-label="Avance" class="col-avance">
                         <div class="progreso"><i data-vivo-barra class="<?= $pct >= 100 ? 'ok' : '' ?>" style="width:<?= $pct ?>%"></i></div>
-                        <span class="small muted" data-vivo-avance><?= (int)$c['enviados'] ?> / <?= (int)$c['total'] ?></span>
+                        <span class="small muted" data-vivo-avance><?= $hechos ?> / <?= (int)$c['total'] ?></span>
                     </td>
                     <td data-label="Respuestas" class="num prio-2 strong" data-vivo-col="respondidos"><?= (int)$c['respondidos'] ?></td>
                     <td data-label="Rebotes" class="num prio-3" data-vivo-col="rebotados"><?= (int)$c['rebotados'] ?></td>

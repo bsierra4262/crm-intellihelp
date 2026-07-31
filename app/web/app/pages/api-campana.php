@@ -29,7 +29,12 @@ $cifras = static function (array $c): array {
         'errores'     => (int)($c['errores'] ?? 0),
         'reuniones'   => (int)($c['reuniones'] ?? 0),
         'aperturas'   => (int)($c['aperturas'] ?? 0),
-        'pct'         => $total > 0 ? min(100, (int) round(100 * (int)$c['enviados'] / $total)) : 0,
+        // El avance mide lo RESUELTO —entregados más rebotados más fallidos—,
+        // no sólo lo entregado. Una campaña que entregó 3 y rebotó 3 terminó su
+        // trabajo con los 6, y la barra tiene que decir eso.
+        'procesados'  => (int)($c['procesados'] ?? $c['enviados']),
+        'pct'         => $total > 0
+            ? min(100, (int) round(100 * (int)($c['procesados'] ?? $c['enviados']) / $total)) : 0,
         // El estado va dibujado desde el servidor: cambia el texto y el color a
         // la vez, sin que el navegador tenga que saber qué color le toca a cada
         // estado. Si eso se duplicara en el JavaScript, tarde o temprano los dos

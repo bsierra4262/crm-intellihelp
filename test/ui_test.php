@@ -483,6 +483,22 @@ ok('sigue mirando después de terminar, más despacio',
    str_contains($vivo, 'reprogramar(') && str_contains($vivo, 'LENTO'));
 ok('no consulta con la pestaña en segundo plano', str_contains($vivo, 'doc.hidden'));
 
+echo "== El avance mide lo resuelto, no sólo lo entregado ==\n";
+// Una campaña que entregó 3 y rebotó 3 terminó su trabajo con los 6: no queda
+// nada en la cola. Mostrar «3 de 6» hacía parecer que se había quedado a mitad
+// de camino. «Entregados» sigue siendo 3, que es lo que de verdad llegó.
+ok('la consulta cuenta los resueltos',
+   str_contains($campanas, "e.estado NOT IN ('pendiente','enviando','omitido')) AS procesados"));
+ok('la ficha también', substr_count($campanas, 'AS procesados') >= 2);
+$campF2 = (string) @file_get_contents($WEB . '/app/views/campanas.php');
+ok('el listado muestra el avance con los resueltos', str_contains($campF2, '$hechos'));
+$fichaC2 = (string) @file_get_contents($WEB . '/app/views/campana-ver.php');
+ok('la tarjeta distingue entregados de avance',
+   str_contains($fichaC2, 'Entregados') && str_contains($fichaC2, 'resueltos'));
+ok('el endpoint en vivo devuelve los resueltos',
+   str_contains((string) @file_get_contents($WEB . '/app/pages/api-campana.php'), "'procesados'"));
+ok('y el navegador los usa para la barra', str_contains($vivo, 'c.procesados'));
+
 echo "== Alertas: el usuario se entera de lo que pasa ==\n";
 // Sin esto, lo importante pasaba sin que nadie se enterara: un cliente respondía
 // una campaña, alguien agendaba una reunión, y todo quedaba adentro de una
