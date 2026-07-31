@@ -52,10 +52,14 @@
             Si volvés a subir el mismo archivo, <strong>actualiza</strong> en vez de duplicar.
         </p>
         <div class="grid-fields">
-            <label class="fld wide"><span>Archivo CSV</span>
-                <input type="file" name="archivo" accept=".csv,text/csv" required>
+            <div class="fld wide"><span>Archivo CSV</span>
+                <label class="filefield">
+                    <input type="file" name="archivo" accept=".csv,text/csv" required>
+                    <span class="btn btn-ghost btn-sm"><?= icon('subir', 15) ?>Elegir archivo</span>
+                    <span class="nombre">Ningún archivo seleccionado</span>
+                </label>
                 <i class="hint">Tamaño máximo del servidor: <?= e($maxSubida) ?>.</i>
-            </label>
+            </div>
             <label class="fld"><span>Qué importar</span>
                 <select name="destino">
                     <option value="contactos">Contactos y empresas</option>

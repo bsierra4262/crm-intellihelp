@@ -734,7 +734,9 @@ INSERT INTO `app_settings` (`clave`, `valor`) VALUES
   ('imap_port',       '993'),
   ('campana_pausa_min', '25'),
   ('campana_pausa_max', '45'),
-  ('campana_limite_diario', '300')
+  ('campana_limite_diario', '300'),
+  -- Dias que se conserva lo archivado antes de borrarlo de verdad.
+  ('papelera_dias', '60')
 ON DUPLICATE KEY UPDATE `valor` = `valor`;
 
 -- Embudo por defecto. Las probabilidades son las que propusimos en

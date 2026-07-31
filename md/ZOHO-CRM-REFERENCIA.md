@@ -105,7 +105,10 @@ Dos conceptos de Zoho que conviene tener claros porque los vamos a replicar:
 > Replicarlos acá sería duplicar trabajo. Mi recomendación es dejarlos afuera y, si hace falta,
 > **enlazar** el CRM con esas apps por API. Igual quedan documentados por si los querés.
 >
-> Lo mismo con **Casos/Soluciones**: eso es una mesa de ayuda, y ya está osTicket + ITHOS.
+> Lo mismo con **Casos/Soluciones**: eso es una mesa de ayuda, y esa función ya la cubre
+> **GLPI** (con ITHOS encima). El **inventario** también está resuelto con un desarrollo
+> propio del equipo. Si en algún momento conviene, el CRM se enlaza con ellos por su API en
+> vez de duplicar los módulos.
 
 **Módulos que agregamos nosotros (no existen en Zoho o los hacemos distinto):**
 
@@ -437,7 +440,7 @@ Calendly. **Nosotros lo hacemos propio**, que es lo que pediste. Diseño:
 |---|---|---|
 | Tipos de reunión | «Reunión de presentación 30 min», «Demo 45 min»: duración, margen entre reuniones, aviso mínimo, ventana de días | 🔵 |
 | Disponibilidad | Horario laboral por usuario + **lectura de ocupación real de Google Calendar** (`freeBusy`) para no ofrecer horarios pisados | 🔵 |
-| Página pública de reserva | `crm.intellihelp.tech/agenda/<usuario>/<tipo>` — sin login, se elige día y hora, se cargan nombre/mail/empresa | 🔵 |
+| Página pública de reserva | `intellihelp.tech/crm/r/<usuario>/<tipo>` — **sin login y sin cuenta de Google**: el cliente entra desde el enlace del correo, elige día y hora y carga nombre, correo, empresa y teléfono | 🔵 |
 | Alta del evento | Se crea el evento en **Google Calendar** del vendedor con el invitado, y se genera el **Google Meet automáticamente** (`conferenceData.createRequest` con `conferenceSolutionKey.type = "hangoutsMeet"` y `conferenceDataVersion=1`) | 🔵 |
 | Vuelta al CRM | La reserva crea/enlaza el Contacto, deja la Reunión en Actividades y suma el evento a la línea de tiempo | 🔵 |
 | Confirmaciones y recordatorios | Mail de confirmación con el link de Meet + recordatorio 24 h antes | 🔵 |

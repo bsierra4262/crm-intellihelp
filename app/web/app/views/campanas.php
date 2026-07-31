@@ -7,6 +7,9 @@
     <div class="head-actions">
         <a class="btn btn-ghost" href="<?= e(url('plantillas')) ?>"><?= icon('plantillas', 16) ?>Plantillas</a>
         <a class="btn btn-ghost" href="<?= e(url('listas')) ?>"><?= icon('listas', 16) ?>Listas</a>
+        <?php if (auth_is_admin()): ?>
+            <a class="btn btn-ghost" href="<?= e(url('cuentas-correo')) ?>"><?= icon('campanas', 16) ?>Cuentas</a>
+        <?php endif; ?>
         <a class="btn btn-primary" href="<?= e(url('campana-form')) ?>"><?= icon('mas', 16) ?>Nueva campaña</a>
     </div>
 </div>
@@ -70,7 +73,7 @@
                         </div>
                     </td>
                     <td data-label="Estado"><?= badge_campana($c['estado']) ?></td>
-                    <td data-label="Avance" style="min-width:150px">
+                    <td data-label="Avance" class="col-avance">
                         <div class="progreso"><i class="<?= $pct >= 100 ? 'ok' : '' ?>" style="width:<?= $pct ?>%"></i></div>
                         <span class="small muted"><?= (int)$c['enviados'] ?> / <?= (int)$c['total'] ?></span>
                     </td>

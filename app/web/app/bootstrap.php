@@ -47,6 +47,14 @@ define('BASE_PATH', $basePath);
 define('STORAGE', $_SERVER['CRM_STORAGE'] ?? ($CONFIG['app']['storage'] ?? (dirname(WEBROOT) . '/storage')));
 define('APP_ENV', $CONFIG['app']['env'] ?? 'prod');
 
+/**
+ * Versión de los assets (cache-busting).
+ *
+ * El `.htaccess` cachea CSS y JS por un año, así que cada cambio visual tiene
+ * que subir este número o el navegador sigue mostrando la hoja de estilos vieja.
+ */
+define('ASSETS_V', '3');
+
 date_default_timezone_set($CONFIG['app']['timezone'] ?? 'UTC');
 
 // ---- Manejo de errores ----
@@ -69,7 +77,10 @@ require APP . '/crm.php';
 require APP . '/registros.php';
 require APP . '/actividades.php';
 require APP . '/negocios.php';
+require APP . '/bloques.php';
+require APP . '/preajustes.php';
 require APP . '/campanas.php';
+require APP . '/cuentas_correo.php';
 require APP . '/imap.php';
 require APP . '/agenda.php';
 

@@ -13,13 +13,18 @@
 <div class="card table-card">
     <div class="table-scroll">
         <table class="grid">
-            <thead><tr><th>Lista</th><th class="num">Miembros</th><th class="prio-2">Descripción</th><th class="prio-3">Creada</th><th class="acts">Acciones</th></tr></thead>
+            <thead><tr><th>Lista</th><th>Segmento</th><th class="num">Miembros</th><th class="prio-2">Descripción</th><th class="prio-3">Creada</th><th class="acts">Acciones</th></tr></thead>
             <tbody>
             <?php if (!$rows): ?>
-                <tr><td colspan="5" class="empty">Todavía no hay listas. Creá una y cargala con contactos del CRM.</td></tr>
+                <tr><td colspan="6" class="empty">Todavía no hay listas. Creá una y cargala con contactos del CRM.</td></tr>
             <?php else: foreach ($rows as $l): ?>
                 <tr>
                     <td data-label="Lista"><a href="<?= e(url('lista-ver?id=' . (int)$l['id'])) ?>"><strong><?= e($l['nombre']) ?></strong></a></td>
+                    <td data-label="Segmento">
+                        <?php if ($l['categoria']): ?>
+                            <span class="chip" style="background:<?= e($l['categoria_color']) ?>1f;color:<?= e($l['categoria_color']) ?>"><?= e($l['categoria']) ?></span>
+                        <?php else: ?><span class="muted">—</span><?php endif; ?>
+                    </td>
                     <td data-label="Miembros" class="num strong"><?= number_format((int)$l['miembros'], 0, ',', '.') ?></td>
                     <td data-label="Descripción" class="prio-2"><?= e(recortar($l['descripcion'], 60) ?: '—') ?></td>
                     <td data-label="Creada" class="prio-3"><?= fecha_corta($l['creado_en']) ?></td>

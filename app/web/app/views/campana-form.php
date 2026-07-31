@@ -1,5 +1,6 @@
 <?php
-/** @var ?array $c @var int $id @var array $errores @var array $usuarios @var array $listas @var array $plantillas */
+/** @var ?array $c @var int $id @var array $errores @var array $usuarios @var array $listas
+ *  @var array $plantillas @var array $cuentas @var array $categorias */
 $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
 ?>
 <div class="page-head">
@@ -36,10 +37,19 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                     <option value="">— Elegí una —</option>
                     <?php foreach ($listas as $l): ?>
                         <option value="<?= (int)$l['id'] ?>" <?= (string)($c['lista_id'] ?? '') === (string)$l['id'] ? 'selected' : '' ?>>
-                            <?= e($l['nombre']) ?> (<?= (int)$l['miembros'] ?>)
+                            <?= $l['categoria'] ? '[' . e($l['categoria']) . '] ' : '' ?><?= e($l['nombre']) ?> (<?= (int)$l['miembros'] ?>)
                         </option>
                     <?php endforeach; ?>
                 </select>
+            </label>
+            <label class="fld"><span>Segmento</span>
+                <select name="categoria_id">
+                    <option value="">— Sin segmento —</option>
+                    <?php foreach ($categorias as $cat): ?>
+                        <option value="<?= (int)$cat['id'] ?>" <?= (string)($c['categoria_id'] ?? '') === (string)$cat['id'] ? 'selected' : '' ?>><?= e($cat['nombre']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <i class="hint">Sirve para agrupar las campañas por rubro y comparar resultados.</i>
             </label>
             <label class="fld"><span>Plantilla <i class="req">*</i></span>
                 <select name="plantilla_id" required>
@@ -57,7 +67,27 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
 
     <div class="card form-card">
         <h2 class="sec">De quién viene</h2>
+        <p class="muted small" style="margin:-.5rem 0 1rem">
+            Elegí desde qué casilla sale esta campaña. Cada cuenta tiene su propio tope diario y
+            su propia reputación, así que se pueden correr <strong>varias campañas en paralelo</strong>
+            sin que se pisen.
+            <?php if (auth_is_admin()): ?><a href="<?= e(url('cuentas-correo')) ?>">Administrar cuentas</a>.<?php endif; ?>
+        </p>
         <div class="grid-fields">
+            <label class="fld wide"><span>Cuenta de correo</span>
+                <select name="cuenta_correo_id">
+                    <option value="">— La cuenta por defecto —</option>
+                    <?php foreach ($cuentas as $cu): ?>
+                        <option value="<?= (int)$cu['id'] ?>" <?= (string)($c['cuenta_correo_id'] ?? '') === (string)$cu['id'] ? 'selected' : '' ?>>
+                            <?= e($cu['nombre']) ?> · <?= e($cu['remitente']) ?>
+                            (<?= (int)$cu['enviados_hoy'] ?>/<?= (int)$cu['limite_diario'] ?> hoy)
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <?php if (!$cuentas): ?>
+                    <i class="hint bad">No hay cuentas cargadas. Sin una cuenta la campaña no puede salir.</i>
+                <?php endif; ?>
+            </label>
             <label class="fld"><span>Nombre del remitente</span>
                 <input name="remitente_nombre" value="<?= $v('remitente_nombre') ?>" maxlength="160">
             </label>

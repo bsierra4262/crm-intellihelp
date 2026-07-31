@@ -47,14 +47,14 @@
     <form method="post" action="<?= e(url('negocio-etapa')) ?>" class="urow">
         <?= csrf_field() ?>
         <input type="hidden" name="id" value="<?= (int)$n['id'] ?>">
-        <select name="etapa_id" style="min-width:220px">
+        <select name="etapa_id" class="w-lg">
             <?php foreach ($etapas as $et): ?>
                 <option value="<?= (int)$et['id'] ?>" <?= (int)$n['etapa_id'] === (int)$et['id'] ? 'selected' : '' ?>>
                     <?= e($et['nombre']) ?> (<?= (int)$et['probabilidad'] ?> %)
                 </option>
             <?php endforeach; ?>
         </select>
-        <input name="motivo_perdida" placeholder="Motivo (si se pierde)" maxlength="200" style="min-width:220px">
+        <input name="motivo_perdida" placeholder="Motivo (si se pierde)" maxlength="200" class="w-lg">
         <button class="btn btn-primary btn-sm"><?= icon('convertir', 15) ?>Mover</button>
     </form>
 </div>

@@ -84,12 +84,21 @@
     }, true);
 
     // --------------------------------------------------------
-    //  Cierre del menú al navegar (drawer en pantallas angostas)
+    //  Cierre de los menús al hacer clic afuera
+    //  (drawer de la barra y desplegable «Más»)
     // --------------------------------------------------------
     document.addEventListener('click', function (e) {
         if (document.body.classList.contains('nav-open') && !e.target.closest('.topnav, .nav-toggle')) {
             document.body.classList.remove('nav-open');
         }
+        document.querySelectorAll('details.menu[open]').forEach(function (d) {
+            if (!d.contains(e.target)) { d.removeAttribute('open'); }
+        });
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') { return; }
+        document.body.classList.remove('nav-open');
+        document.querySelectorAll('details.menu[open]').forEach(function (d) { d.removeAttribute('open'); });
     });
 
     // --------------------------------------------------------
@@ -126,6 +135,19 @@
             else { c.value = ''; }
         });
         form.submit();
+    });
+
+    // --------------------------------------------------------
+    //  Campo de archivo: mostrar el nombre elegido
+    // --------------------------------------------------------
+    document.addEventListener('change', function (e) {
+        var input = e.target.closest('.filefield input[type=file]');
+        if (!input) { return; }
+        var etiqueta = input.closest('.filefield').querySelector('.nombre');
+        if (!etiqueta) { return; }
+        etiqueta.textContent = input.files && input.files.length
+            ? input.files[0].name
+            : 'Ningún archivo seleccionado';
     });
 
     // --------------------------------------------------------

@@ -51,7 +51,7 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
             <form method="post" class="urow">
                 <?= csrf_field() ?>
                 <input type="hidden" name="accion" value="estado">
-                <select name="estado" style="min-width:220px">
+                <select name="estado" class="w-lg">
                     <?php foreach (estados_posible_cliente() as $x): ?>
                         <option value="<?= e($x) ?>" <?= $p['estado'] === $x ? 'selected' : '' ?>><?= e($x) ?></option>
                     <?php endforeach; ?>

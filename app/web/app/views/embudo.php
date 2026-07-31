@@ -50,7 +50,10 @@ foreach ($cols as $c) {
     <?php foreach ($cols as $col): $et = $col['etapa']; ?>
         <div class="kcol">
             <div class="kcol-head">
-                <strong><span class="kcol-dot" style="background:<?= e($et['color']) ?>"></span><?= e($et['nombre']) ?></strong>
+                <strong title="<?= e($et['nombre']) ?>">
+                    <span class="kcol-dot" style="background:<?= e($et['color']) ?>"></span>
+                    <em><?= e($et['nombre']) ?></em>
+                </strong>
                 <span class="kcol-sum"><?= count($col['negocios']) ?> · <?= money($col['total']) ?></span>
             </div>
             <div class="kcol-body">

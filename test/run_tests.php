@@ -20,13 +20,13 @@ ini_set('display_errors', '1');
 if (!defined('BASE_PATH')) { define('BASE_PATH', '/crm'); }
 if (!defined('APP'))       { define('APP', __DIR__); }
 
-$_SERVER['HTTP_HOST']   = $_SERVER['HTTP_HOST'] ?? 'crm.intellihelp.tech';
+$_SERVER['HTTP_HOST']   = $_SERVER['HTTP_HOST'] ?? 'intellihelp.tech';
 $_SERVER['SCRIPT_NAME'] = '/index.php';
 
 $GLOBALS['CONFIG'] = [
     'app' => [
         'name'      => 'CRM Test',
-        'canonical' => 'https://crm.intellihelp.tech',
+        'canonical' => 'https://intellihelp.tech/crm',
         'timezone'  => 'America/Argentina/Buenos_Aires',
         'secret'    => 'test-secret',
     ],
@@ -47,6 +47,8 @@ require $SRC . '/registros.php';
 require $SRC . '/actividad.php';
 require $SRC . '/actividades.php';
 require $SRC . '/envio.php';
+require $SRC . '/bloques.php';
+require $SRC . '/preajustes.php';
 require $SRC . '/campanas.php';
 require $SRC . '/imap.php';
 require $SRC . '/google.php';
@@ -120,13 +122,13 @@ eq('ARS',                         money(1234.5), '$ 1.234,50');
 eq('USD',                         money(1000, 'USD'), 'US$ 1.000,00');
 eq('cero',                        money(0), '$ 0,00');
 
-echo "== URLs (subdominio y subcarpeta conviven) ==\n";
+echo "== URLs (la dirección oficial es intellihelp.tech/crm) ==\n";
 eq('url interna respeta BASE_PATH', url('contactos'), '/crm/contactos');
 eq('url con barra inicial',       url('/contactos'), '/crm/contactos');
-contiene('url_abs usa la canónica', url_abs('r/juan/demo'), 'https://crm.intellihelp.tech/r/juan/demo');
+contiene('url_abs usa la canónica', url_abs('r/juan/demo'), 'https://intellihelp.tech/crm/r/juan/demo');
 ok('redirect_uri de Google es HTTPS (evita redirect_uri_mismatch)',
    str_starts_with(google_redirect_uri(), 'https://'));
-eq('redirect_uri exacto',         google_redirect_uri(), 'https://crm.intellihelp.tech/google-callback');
+eq('redirect_uri exacto',         google_redirect_uri(), 'https://intellihelp.tech/crm/google-callback');
 
 echo "== Paginación ==\n";
 $p = paginar(0, 1, 25);
@@ -163,6 +165,78 @@ $cuerpo2 = "No such user\r\nOriginal-Recipient: rfc822;MARIA@ACME.COM\r\n";
 eq('normaliza a minúsculas',      extraer_destinatario_rebote($cuerpo2)[0] ?? '', 'maria@acme.com');
 $cuerpo3 = 'El mensaje para pedro@acme.com no pudo entregarse.';
 ok('fallback: busca cualquier dirección', in_array('pedro@acme.com', extraer_destinatario_rebote($cuerpo3), true));
+
+echo "== Motor de bloques: el HTML tiene que sobrevivir en Outlook y en Gmail ==\n";
+$pre  = plantillas_preajustes()['pulsemail'];
+$ctxE = ['empresa' => 'INTELLIHELP', 'empresa_web' => 'intellihelp.tech', 'logo' => 'https://x/logo.png'];
+$htmlP = bloques_render($pre['bloques'], $pre['ajustes'], $ctxE);
+contiene('arma el documento completo',       $htmlP, '<!DOCTYPE html');
+contiene('maqueta con tablas',               $htmlP, '<table role="presentation"');
+contiene('ancho fijo de 600 px',             $htmlP, 'max-width:600px');
+contiene('estilos en línea',                 $htmlP, 'style="');
+contiene('respaldo VML para el botón de Outlook', $htmlP, 'v:roundrect');
+contiene('media query para el celular',      $htmlP, '@media only screen and (max-width:620px)');
+no_contiene('sin flexbox',                   $htmlP, 'display:flex');
+no_contiene('sin grid',                      $htmlP, 'display:grid');
+no_contiene('sin imágenes de fondo',         $htmlP, 'background-image');
+no_contiene('sin JavaScript',                $htmlP, '<script');
+no_contiene('sin formularios',               $htmlP, '<form');
+ok('pesa bastante menos que el límite de Gmail', strlen($htmlP) < 102000,
+   '(' . round(strlen($htmlP) / 1024, 1) . ' KB)');
+ok('los cuatro preajustes están completos',
+   count(plantillas_preajustes()) === 4
+   && !array_filter(plantillas_preajustes(), fn($p) => empty($p['bloques']) || empty($p['asunto'])));
+
+echo "== Escapado dentro del correo (no se puede inyectar HTML) ==\n";
+$sucio = bloques_render([['tipo' => 'texto', 'texto' => '<script>alert(1)</script> & "comillas"']], [], $ctxE);
+no_contiene('el HTML del usuario se escapa',  $sucio, '<script>alert');
+contiene('queda como texto',                  $sucio, '&lt;script&gt;');
+// Regresión BUG #11 — los esquemas peligrosos pasaban con un `https://` pegado
+// adelante en vez de descartarse.
+foreach (['javascript:alert(1)', 'JaVaScRiPt:alert(1)', "java\tscript:alert(1)",
+          'data:text/html,<script>x</script>', 'vbscript:msgbox'] as $malo) {
+    $url = bloques_render([['tipo' => 'boton', 'texto' => 'X', 'enlace' => $malo]], [], $ctxE);
+    ok('descarta el enlace «' . recortar($malo, 22) . '»',
+       !str_contains($url, 'href') || !preg_match('/javascript|vbscript|data:text/i', $url));
+}
+$buena = bloques_render([['tipo' => 'boton', 'texto' => 'X', 'enlace' => 'intellihelp.tech/agenda']], [], $ctxE);
+contiene('completa el https:// en un enlace suelto', $buena, 'https://intellihelp.tech/agenda');
+$varia = bloques_render([['tipo' => 'boton', 'texto' => 'X', 'enlace' => '{{agenda}}']], [], $ctxE);
+contiene('deja pasar las variables de plantilla',    $varia, '{{agenda}}');
+
+echo "== Versión en texto plano ==\n";
+$txt = bloques_texto($pre['bloques'], $ctxE);
+ok('genera texto plano',                      strlen($txt) > 100);
+no_contiene('el texto plano no lleva etiquetas', $txt, '<');
+
+echo "== Verificador de entregabilidad ==\n";
+$okChk = bloques_verificar($pre['bloques'], 'Una propuesta para {{empresa}}', $htmlP, $txt);
+ok('un correo sano no da errores',            count($okChk['errores']) === 0,
+   '→ ' . json_encode(array_column($okChk['errores'], 0), JSON_UNESCAPED_UNICODE));
+$malChk = bloques_verificar([], 'GRATIS OFERTA LIMITADA ACTÚA AHORA', '<html><script>x</script></html>', '');
+ok('detecta el asunto en mayúsculas y las palabras riesgosas', count($malChk['errores']) >= 2);
+$conJs = bloques_verificar([], 'Hola', '<html><script>x</script>{{baja}}</html>', 'hola');
+ok('detecta JavaScript en el correo',
+   (bool) array_filter($conJs['errores'], fn($x) => str_contains($x[0], 'JavaScript')));
+$pesado = bloques_verificar([], 'Hola', str_repeat('<p>a</p>', 20000), 'hola');
+ok('detecta que Gmail lo va a recortar',
+   (bool) array_filter($pesado['errores'], fn($x) => str_contains($x[0], 'pesa')));
+$sinTexto = bloques_verificar([], 'Hola', '<html><img src="a"><img src="b"><img src="c"></html>', 'hola');
+ok('detecta demasiada imagen y poco texto',
+   (bool) array_filter($sinTexto['errores'], fn($x) => str_contains($x[0], 'poco texto')));
+
+echo "== Rebote definitivo vs. pasajero (decide si se archiva el contacto) ==\n";
+// Definitivos: la casilla no existe o el dominio no existe. Archivan el contacto.
+ok('DSN con estado 5.x.x',        es_rebote_duro("Action: failed\r\nStatus: 5.1.1\r\nDiagnostic-Code: smtp; 550"));
+ok('«user unknown»',              es_rebote_duro('550 5.1.1 <x@y.com>: Recipient address rejected: User unknown'));
+ok('«does not exist»',            es_rebote_duro('The email account that you tried to reach does not exist.'));
+ok('dominio inexistente',         es_rebote_duro('Host or domain name not found. Name service error'));
+ok('en castellano',               es_rebote_duro('La dirección no existe en este servidor'));
+// Pasajeros: se arreglan solos. NO se archiva a nadie.
+ok('buzón lleno NO es definitivo', !es_rebote_duro('552 5.2.2 Mailbox full / quota exceeded'));
+ok('DSN con estado 4.x.x',        !es_rebote_duro("Action: delayed\r\nStatus: 4.4.1\r\nWill retry"));
+ok('greylisting',                 !es_rebote_duro('451 4.7.1 Greylisted, try again later'));
+ok('ante la duda, pasajero',      !es_rebote_duro('Algo raro pasó con este mensaje'));
 
 echo "== Correos ==\n";
 ok('válido',                      email_valido('juan.perez@acme.com.ar'));

@@ -55,13 +55,13 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
         <h3 style="margin:1.4rem 0 .6rem">Horario laboral</h3>
         <?php foreach ($nombresDia as $dia => $etiqueta): $act = isset($porDia[$dia]); ?>
             <div class="urow" style="padding:.35rem 0;border-bottom:1px solid var(--line-soft)">
-                <label class="switch" style="min-width:150px">
+                <label class="switch w-dia">
                     <input type="checkbox" name="dias[]" value="<?= $dia ?>" <?= $act ? 'checked' : '' ?>>
                     <span class="track"></span><span><?= e($etiqueta) ?></span>
                 </label>
-                <input type="time" name="desde[<?= $dia ?>]" value="<?= e($porDia[$dia][0] ?? '09:00') ?>" style="width:130px">
+                <input type="time" name="desde[<?= $dia ?>]" value="<?= e($porDia[$dia][0] ?? '09:00') ?>" class="w-sm">
                 <span class="muted small">a</span>
-                <input type="time" name="hasta[<?= $dia ?>]" value="<?= e($porDia[$dia][1] ?? '18:00') ?>" style="width:130px">
+                <input type="time" name="hasta[<?= $dia ?>]" value="<?= e($porDia[$dia][1] ?? '18:00') ?>" class="w-sm">
             </div>
         <?php endforeach; ?>
     </div>

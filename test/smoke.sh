@@ -10,11 +10,11 @@
 #    · los assets están donde deben
 #    · la app responde igual por el subdominio y por la subcarpeta
 #
-#  Uso:  bash test/smoke.sh [https://crm.intellihelp.tech]
+#  Uso:  bash test/smoke.sh [https://intellihelp.tech/crm]
 # ============================================================
 set -u
 
-BASE="${1:-https://crm.intellihelp.tech}"
+BASE="${1:-https://intellihelp.tech/crm}"
 OK=0
 FALLOS=0
 
@@ -43,6 +43,17 @@ contiene() {  # contiene <descripción> <url> <texto>
     fi
 }
 
+echo "== Una sola dirección: el subdominio redirige =="
+red="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -m 25 https://crm.intellihelp.tech/login)"
+case "$red" in
+    30*\ https://intellihelp.tech/crm/login*)
+        echo "  [OK] crm.intellihelp.tech redirige a intellihelp.tech/crm  ($red)"
+        OK=$((OK + 1)) ;;
+    *)
+        echo "  [XX] el subdominio no redirige como corresponde  → $red"
+        FALLOS=$((FALLOS + 1)) ;;
+esac
+
 echo "== Acceso =="
 probar "el login responde"                 "$BASE/login"            "200"
 contiene "muestra el ingreso con Google"   "$BASE/login"            "Ingresar con Google Workspace"
@@ -54,7 +65,7 @@ for r in dashboard contactos cuentas posibles negocios embudo actividades campan
          plantillas listas agenda reservas reportes buscar \
          contacto-form cuenta-form posible-form negocio-form actividad-form \
          campana-form plantilla-form lista-form agenda-form \
-         usuarios papelera ajustes cron api-keys importar; do
+         usuarios papelera ajustes cron api-keys importar cuentas-correo imagenes plantilla-vista; do
     probar "«$r» exige sesión"              "$BASE/$r"               "302"
 done
 
@@ -77,6 +88,7 @@ probar "la config no es accesible"         "$BASE/server-config/config.php"   "4
 echo "== Assets =="
 probar "hoja de estilos"                   "$BASE/assets/css/app.css"         "200"
 probar "javascript"                        "$BASE/assets/js/app.js"           "200"
+probar "editor de plantillas"              "$BASE/assets/js/editor.js"        "200"
 probar "logo"                              "$BASE/assets/img/ITH-logo-139x75.png" "200"
 probar "favicon"                           "$BASE/assets/img/favicon.png"     "200"
 

@@ -103,6 +103,10 @@
             <label class="fld"><span>Pausa mínima (seg)</span><input type="number" name="campana_pausa_min" value="<?= e($s('campana_pausa_min', '25')) ?>" min="5"></label>
             <label class="fld"><span>Pausa máxima (seg)</span><input type="number" name="campana_pausa_max" value="<?= e($s('campana_pausa_max', '45')) ?>" min="10"></label>
             <label class="fld"><span>Límite diario</span><input type="number" name="campana_limite_diario" value="<?= e($s('campana_limite_diario', '300')) ?>" min="1"></label>
+            <label class="fld"><span>Días en la papelera</span>
+                <input type="number" name="papelera_dias" value="<?= e($s('papelera_dias', '60')) ?>" min="1" max="365">
+                <i class="hint">Cuánto se conserva lo archivado antes de borrarlo definitivamente.</i>
+            </label>
             <label class="fld"><span>Clave del cron por URL</span>
                 <input name="cron_clave" value="<?= e($s('cron_clave')) ?>" maxlength="60">
                 <i class="hint">Sólo hace falta si el hosting no permite ejecutar el cron por línea de comandos.</i>

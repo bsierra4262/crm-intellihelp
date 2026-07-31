@@ -24,5 +24,6 @@ if (is_post()) {
     $l = array_merge($l ?? [], $d);
 }
 
-render('lista-form', ['l' => $l, 'id' => $id, 'errores' => $errores],
+render('lista-form', ['l' => $l, 'id' => $id, 'errores' => $errores,
+                      'categorias' => categorias_listar()],
        $id ? 'Editar lista' : 'Nueva lista');

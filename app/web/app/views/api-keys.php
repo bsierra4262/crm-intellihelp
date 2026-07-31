@@ -18,8 +18,8 @@
     <form method="post" class="urow">
         <?= csrf_field() ?>
         <input type="hidden" name="accion" value="crear">
-        <input name="nombre" placeholder="Para qué sistema es" maxlength="120" required style="min-width:240px">
-        <select name="scope" style="min-width:200px">
+        <input name="nombre" placeholder="Para qué sistema es" maxlength="120" required class="w-xl">
+        <select name="scope" class="w-md">
             <option value="lectura">Sólo lectura</option>
             <option value="root">Acceso total</option>
         </select>

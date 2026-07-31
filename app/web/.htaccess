@@ -16,6 +16,13 @@ Options -Indexes
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # ---- Una sola dirección ----
+    # El subdominio existe porque el hosting lo necesita para servir la carpeta,
+    # pero la dirección oficial es intellihelp.tech/crm. Todo lo que entre por
+    # crm.intellihelp.tech se manda ahí, incluido el callback de Google.
+    RewriteCond %{HTTP_HOST} ^crm\.intellihelp\.tech$ [NC]
+    RewriteRule ^(.*)$ https://intellihelp.tech/crm/$1 [R=301,L,QSA]
+
     # Servir archivos y carpetas reales tal cual (assets, uploads, etc.)
     RewriteCond %{REQUEST_FILENAME} -f [OR]
     RewriteCond %{REQUEST_FILENAME} -d

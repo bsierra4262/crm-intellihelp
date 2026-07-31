@@ -63,7 +63,7 @@ En [Google Cloud Console](https://console.cloud.google.com/) → **API y servici
 1. **URI de redireccionamiento autorizado** (exacto, sin barra final):
 
    ```
-   https://crm.intellihelp.tech/google-callback
+   https://intellihelp.tech/crm/google-callback
    ```
 
 2. **Permisos** habilitados en la pantalla de consentimiento:
@@ -108,9 +108,12 @@ Si el dominio raíz corre WordPress con Wordfence, el `.htaccess` de la aplicaci
 - desactiva el WAF para esta carpeta (`php_value auto_prepend_file none`);
 - define su propio `RewriteEngine`, que **no hereda** las reglas del directorio padre.
 
-Con eso, `crm.intellihelp.tech` y `intellihelp.tech/crm` funcionan sin tocar el WordPress.
-La ruta base se deduce en tiempo de ejecución, así que el mismo código responde bien por
-las dos direcciones.
+Con eso la aplicación funciona sin tocar el WordPress del dominio.
+
+El mismo `.htaccess` redirige `crm.intellihelp.tech` a `intellihelp.tech/crm` con un 301:
+el subdominio hace falta para que el hosting mapee la carpeta, pero la dirección oficial es
+una sola. La ruta base se deduce en tiempo de ejecución, así que si mañana cambia la carpeta
+el código sigue funcionando.
 
 ---
 
@@ -129,14 +132,14 @@ Si el hosting sólo permite cron por URL, cargar una clave en **Ajustes → Clav
 llamar a:
 
 ```
-https://crm.intellihelp.tech/cron.php?clave=LA_CLAVE
+https://intellihelp.tech/crm/cron.php?clave=LA_CLAVE
 ```
 
 ---
 
 ## 7. Primer ingreso
 
-1. Entrar a `https://crm.intellihelp.tech`.
+1. Entrar a `https://intellihelp.tech/crm`.
 2. Ingresar con la cuenta de Google del dominio. **El primer usuario queda como
    administrador** automáticamente; el resto entra como Comercial.
 3. Ir a **Ajustes** y cargar:
@@ -150,8 +153,33 @@ https://crm.intellihelp.tech/cron.php?clave=LA_CLAVE
 ## 8. Verificación
 
 ```bash
-php test/run_tests.php     # lógica pura: 85 pruebas, sin base ni red
-bash test/smoke.sh         # 48 comprobaciones HTTP contra el sitio desplegado
+php test/run_tests.php                # lógica pura: 99 pruebas, sin base ni red
+bash test/smoke.sh                    # 49 comprobaciones HTTP contra el sitio desplegado
+bash test/render.sh                   # 32 pantallas ejecutadas con sesión de administrador
+python test/verificar_unificacion.py  # 14 aserciones sobre la base de contactos unificada
 ```
 
-Ambas salen con código `0` si todo está bien.
+Todas salen con código `0` si está bien.
+
+---
+
+## 9. Migración de la base de contactos
+
+Para fundir la base de Zoho con las listas sueltas de campaña en un solo archivo limpio:
+
+```bash
+python bin/unificar_listas.py
+python test/verificar_unificacion.py
+```
+
+Deja en `Documentacion a consultar/CSV/Normalizada completa/`:
+
+| Archivo | Qué tiene |
+| --- | --- |
+| `contactos-unificados.csv` | la base final completa, lista para importar |
+| `contactos-nuevos.csv` | sólo lo que no estaba en Zoho |
+| `contactos-en-zoho.csv` | los que ya estaban, con los datos que aportan las listas |
+| `duplicados.csv` | auditoría de qué se fusionó y por qué |
+| `RESUMEN.md` | el informe de la corrida |
+
+El archivo unificado ya usa los nombres de columna que entiende el importador del CRM.

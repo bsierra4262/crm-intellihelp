@@ -41,7 +41,9 @@ campañas de **Pulsemail** (la app de escritorio de correo masivo). Un solo luga
 - La **agenda propia de reuniones** — reemplaza a Calendly: crea el evento en Google Calendar
   y genera el **Google Meet** solo, sin depender de servicios externos.
 
-**En vivo:** `https://crm.intellihelp.tech` (también responde en `https://intellihelp.tech/crm`).
+**En vivo:** `https://intellihelp.tech/crm` — **una sola dirección**. El subdominio
+`crm.intellihelp.tech` existe porque el hosting lo necesita para servir la carpeta, pero
+redirige acá con un 301.
 **Uso:** herramienta interna. Acceso exclusivo con cuenta **@intellihelp.tech**.
 
 ---
@@ -73,15 +75,20 @@ desplegar en un hosting compartido.
    que la PC esté prendida. En web eso no sirve: la campaña se **encola** y un **cron** la va
    despachando con la misma pausa aleatoria anti-spam (25–45 s) y los mismos reintentos.
    La campaña sigue aunque cierres el navegador.
-3. **Un solo `BASE_PATH` calculado en runtime.** El mismo código responde igual en el
-   subdominio (`crm.intellihelp.tech`) y en la subcarpeta (`intellihelp.tech/crm`), porque la
-   ruta base se deduce de `SCRIPT_NAME` en vez de estar fija en la configuración.
+3. **Una sola dirección: `intellihelp.tech/crm`.** El subdominio no se puede eliminar (el
+   hosting lo usa para mapear la carpeta), pero el `.htaccess` lo redirige con un 301 para que
+   no queden dos URLs circulando ni dos sesiones distintas. Además, `BASE_PATH` se deduce de
+   `SCRIPT_NAME` en tiempo de ejecución, así que la app funciona igual si mañana cambia la
+   ruta o se sirve desde otro lugar.
 4. **Aislamiento del WordPress del raíz.** `public_html` tiene WordPress + Wordfence. El
    `.htaccess` de la app desactiva el WAF (`auto_prepend_file none`) y define su propio
    `RewriteEngine`, que no hereda las reglas del padre. Es exactamente lo que ya funciona en
    `/comprobantes` y `/remitos`.
-5. **Nada se borra físico.** Borrado lógico (`eliminado_en`) en todas las tablas de negocio,
-   igual que en APP Tickets. La papelera es una sección más.
+5. **Nada se borra de golpe.** Todo borrado es lógico (`eliminado_en`) en las tablas de
+   negocio. Lo eliminado vive en la papelera **60 días** —restaurable con un clic— y recién
+   después el cron lo borra de verdad. El plazo existe porque la limpieza ahora también es
+   automática: un rebote definitivo archiva el contacto sin intervención humana, y hace falta
+   una ventana para revertirlo si el sistema se equivocó.
 
 ---
 
@@ -350,7 +357,8 @@ Reglas que se auditan de raíz (no se parchan):
    `.md` de cada módulo, en el mismo cambio que el código.
 3. **Un test de regresión por cada defecto** encontrado: falla con el bug, pasa con el arreglo.
 4. **Sin secretos ni datos reales en el repositorio.**
-5. **Nada se borra físico:** borrado lógico en toda tabla de negocio.
+5. **Nada se borra de golpe:** borrado lógico + papelera de 60 días. El único borrado real lo
+   hace el cron, y sólo sobre lo que ya cumplió el plazo.
 6. **Nada de datos de prueba en producción.** La base arranca vacía; los datos los carga el equipo.
 7. **El trabajo del usuario nunca se pierde:** la campaña retoma donde quedó, los formularios
    guardan borrador.

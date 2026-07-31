@@ -55,9 +55,11 @@ function mime_nombre(string $nombre): string
  * cerrar la conexión en cada mensaje multiplica la latencia y algunos
  * proveedores lo interpretan como comportamiento robótico.
  */
-function smtp_abrir(?string &$err = null)
+function smtp_abrir(?string &$err = null, ?array $cfg = null)
 {
-    $c    = smtp_cfg();
+    // `$cfg` permite abrir la sesión con UNA cuenta concreta. Es lo que hace
+    // posible correr varias campañas en paralelo, cada una con su casilla.
+    $c    = $cfg ?? smtp_cfg();
     $host = (string)$c['host'];
     $port = (int)$c['port'];
     $seg  = strtolower((string)$c['seguridad']);
@@ -120,7 +122,7 @@ function smtp_cerrar($fp): void
  * @param array $msg  para|para_nombre|asunto|html|texto|de|de_nombre|responder_a|cc[]|message_id|baja_url
  * @return string 'enviado' | 'rechazado' | 'error'
  */
-function smtp_enviar($fp, array $msg, ?string &$err = null): string
+function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null): string
 {
     if (!is_resource($fp)) { $err = 'La conexión SMTP no está abierta.'; return 'error'; }
 
@@ -135,7 +137,7 @@ function smtp_enviar($fp, array $msg, ?string &$err = null): string
     $cmd = static function (string $x) use ($fp, $leer): string { fwrite($fp, $x . "\r\n"); return $leer(); };
     $ok  = static fn(string $r, string $code) => str_starts_with(ltrim($r), $code);
 
-    $c        = smtp_cfg();
+    $c        = $cfg ?? smtp_cfg();
     $de       = (string)($msg['de'] ?? $c['from'] ?? $c['user']);
     $deNombre = (string)($msg['de_nombre'] ?? $c['from_name'] ?? 'INTELLIHELP');
     $para     = normalizar_email((string)($msg['para'] ?? ''));

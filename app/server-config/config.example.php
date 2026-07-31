@@ -23,7 +23,8 @@ return [
         'base_path' => '',
         // URL canónica: a dónde vuelve Google después del login y con qué
         // dirección se arman los enlaces públicos (agenda, desuscripción).
-        'canonical'   => 'https://crm.intellihelp.tech',
+        // El subdominio redirige acá, así que la app tiene una sola dirección.
+        'canonical'   => 'https://intellihelp.tech/crm',
         'env'         => 'prod',                                  // 'prod' | 'dev'
         'timezone'    => 'America/Argentina/Buenos_Aires',
         'storage'     => '/home/USUARIO/crm_storage',             // adjuntos, fuera del web root

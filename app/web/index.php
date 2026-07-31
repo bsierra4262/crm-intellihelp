@@ -52,6 +52,10 @@ $rutas = [
     'campana-accion'  => ['public' => false],
     'plantillas'      => ['public' => false],
     'plantilla-form'  => ['public' => false],
+    'plantilla-vista' => ['public' => false],
+    'imagenes'        => ['public' => false],
+    'img'             => ['public' => true],   // sirve las imágenes de las campañas
+    'cuentas-correo'  => ['public' => false, 'admin' => true],
     'listas'          => ['public' => false],
     'lista-form'      => ['public' => false],
     'lista-ver'       => ['public' => false],

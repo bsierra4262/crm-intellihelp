@@ -47,4 +47,6 @@ render('campana-form', [
     'usuarios'   => users_activos(),
     'listas'     => listas_listar(),
     'plantillas' => plantillas_listar(true),
+    'cuentas'    => cuentas_correo_listar(true),
+    'categorias' => categorias_listar(),
 ], $id ? 'Editar campaña' : 'Nueva campaña');

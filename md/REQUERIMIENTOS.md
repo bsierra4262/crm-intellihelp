@@ -25,7 +25,8 @@
 - [ ] Diseño **profesional**, **totalmente responsive**, **iconos SVG**.
 - [ ] **Ventanas emergentes propias** (modal de marca, nunca `confirm()` del navegador).
 - [ ] Solo se sube al servidor el contenido de **`app/`** (webroot `public_html/crm`).
-- [ ] La app tiene que responder igual en `crm.intellihelp.tech` y en `intellihelp.tech/crm`.
+- [ ] **Una sola dirección: `intellihelp.tech/crm`.** El subdominio `crm.intellihelp.tech`
+      redirige ahí con un 301 y no se usa: es más profesional una sola URL bajo el dominio.
 
 ## 🎨 Diseño / UI — profesional y CONSISTENTE (auditar, no parchar)
 
@@ -50,7 +51,12 @@
       [ZOHO-CRM-REFERENCIA.md](ZOHO-CRM-REFERENCIA.md); el cliente marca ahí qué sobra.
 - [ ] La migración desde el CSV de Zoho **no duplica** cuentas ni contactos y **normaliza**
       provincia, país y localidad.
-- [ ] **Nada se borra físico:** borrado lógico + papelera.
+- [ ] **Nada se borra de golpe:** borrado lógico + papelera de **60 días**; recién ahí se
+      elimina definitivamente. El usuario ve el registro como eliminado, pero puede recuperarlo
+      si hubo un error de la aplicación.
+- [ ] **La base se limpia sola:** un correo que rebota de forma definitiva (la casilla o el
+      dominio ya no existen) **archiva el contacto automáticamente**. Un rebote pasajero
+      (buzón lleno, greylisting) NO archiva nada.
 - [ ] Toda pantalla de listado tiene búsqueda, filtros, orden, paginación y exportación.
 
 ## ✉️ Campañas
@@ -66,6 +72,11 @@
 ## 📅 Agenda
 
 - [ ] **Herramienta propia**, sin Calendly ni Cal.com.
+- [ ] **El cliente NO se loguea con nada.** Entra por el enlace público que viene en el correo
+      de la campaña, elige día y horario y carga nombre, correo, empresa y teléfono. Es el 1 a 1
+      de Calendly, simplificado a eso.
+- [ ] El enlace que se inserta en las campañas lleva el **id de la campaña**, para poder medir
+      cuántas reuniones trajo cada envío.
 - [ ] La disponibilidad se calcula contra la **ocupación real de Google Calendar**.
 - [ ] Al reservar se crea el evento en Google Calendar **con Google Meet automático**.
 - [ ] Confirmación y recordatorio por correo, con enlaces propios para reprogramar y cancelar.

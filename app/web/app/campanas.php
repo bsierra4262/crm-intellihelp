@@ -27,14 +27,51 @@ function plantilla_get(int $id): ?array
     return q1('SELECT * FROM plantillas WHERE id = ? AND eliminado_en IS NULL', [$id]);
 }
 
+/** Datos de la empresa que usan las plantillas. */
+function contexto_marca(): array
+{
+    return [
+        'empresa'          => (string) setting_get('empresa_nombre', 'INTELLIHELP'),
+        'empresa_web'      => (string) setting_get('empresa_web', ''),
+        'empresa_telefono' => (string) setting_get('empresa_telefono', ''),
+        'empresa_email'    => (string) setting_get('empresa_email', ''),
+        'empresa_whatsapp' => (string) setting_get('empresa_whatsapp', ''),
+        'logo'             => url_abs('assets/img/ITH-logo.png'),
+    ];
+}
+
 function plantilla_guardar(array $d, ?int $id = null): int
 {
+    $tipo = ($d['tipo'] ?? 'visual') === 'html' ? 'html' : 'visual';
+
+    // En el editor visual el HTML NO se escribe a mano: se genera a partir de
+    // los bloques. Así el correo siempre sale con la estructura de tablas que
+    // sobrevive en Outlook, sin depender de que quien lo arma sepa de HTML.
+    $bloques = null;
+    $html    = (string)($d['cuerpo_html'] ?? '');
+    $texto   = trim((string)($d['cuerpo_texto'] ?? ''));
+
+    if ($tipo === 'visual') {
+        $crudo = $d['bloques'] ?? '[]';
+        $datos = is_array($crudo) ? $crudo : (json_decode((string)$crudo, true) ?: []);
+        $lista = is_array($datos['bloques'] ?? null) ? $datos['bloques'] : (is_array($datos) ? $datos : []);
+        $aj    = is_array($datos['ajustes'] ?? null) ? $datos['ajustes'] : [];
+        $ctx   = contexto_marca();
+        $html  = bloques_render($lista, $aj, $ctx);
+        $texto = bloques_texto($lista, $ctx);
+        $bloques = json_encode(['bloques' => $lista, 'ajustes' => $aj],
+                               JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
     $campos = [
         'nombre'       => trim((string)($d['nombre'] ?? '')),
         'asunto'       => trim((string)($d['asunto'] ?? '')),
-        'cuerpo_html'  => (string)($d['cuerpo_html'] ?? ''),
-        'cuerpo_texto' => trim((string)($d['cuerpo_texto'] ?? '')) ?: null,
+        'cuerpo_html'  => $html,
+        'cuerpo_texto' => $texto ?: null,
+        'bloques'      => $bloques,
         'carpeta'      => $d['carpeta'] ?: null,
+        'tipo'         => $tipo,
+        'preajuste'    => $d['preajuste'] ?: null,
         'activo'       => !empty($d['activo']) ? 1 : 0,
     ];
     if ($id) {
@@ -56,15 +93,17 @@ function plantilla_guardar(array $d, ?int $id = null): int
 function variables_plantilla(): array
 {
     return [
-        '{{nombre}}'      => 'Nombre de pila del destinatario',
-        '{{apellido}}'    => 'Apellido',
-        '{{nombre_completo}}' => 'Nombre y apellido',
-        '{{empresa}}'     => 'Empresa del destinatario',
-        '{{cargo}}'       => 'Cargo',
-        '{{email}}'       => 'Correo del destinatario',
-        '{{remitente}}'   => 'Tu nombre',
-        '{{agenda}}'      => 'Enlace a tu agenda para que reserve una reunión',
-        '{{baja}}'        => 'Enlace para darse de baja (obligatorio)',
+        '{{nombre}}'           => 'Nombre de pila del destinatario',
+        '{{apellido}}'         => 'Apellido',
+        '{{nombre_completo}}'  => 'Nombre y apellido',
+        '{{empresa}}'          => 'Empresa del destinatario',
+        '{{cargo}}'            => 'Cargo',
+        '{{email}}'            => 'Correo del destinatario',
+        '{{remitente}}'        => 'Tu nombre',
+        '{{remitente_empresa}}' => 'El nombre de nuestra empresa',
+        '{{empresa_web}}'      => 'Nuestro sitio web',
+        '{{agenda}}'           => 'Enlace a tu agenda para que reserve una reunión',
+        '{{baja}}'             => 'Enlace para darse de baja (obligatorio)',
     ];
 }
 
@@ -73,16 +112,24 @@ function render_plantilla(string $texto, array $datos): string
 {
     $nombre   = trim((string)($datos['nombre'] ?? ''));
     $apellido = trim((string)($datos['apellido'] ?? ''));
+    // El ajuste sólo se consulta si hace falta: así esta función sirve también
+    // fuera de la aplicación (por ejemplo en la batería de pruebas, que corre
+    // sin base de datos).
+    $ajuste = static function (string $clave, string $def): string {
+        return function_exists('setting_get') ? (string) setting_get($clave, $def) : $def;
+    };
     $mapa = [
-        '{{nombre}}'          => $nombre !== '' ? $nombre : 'Hola',
-        '{{apellido}}'        => $apellido,
-        '{{nombre_completo}}' => trim($nombre . ' ' . $apellido),
-        '{{empresa}}'         => (string)($datos['empresa'] ?? ''),
-        '{{cargo}}'           => (string)($datos['cargo'] ?? ''),
-        '{{email}}'           => (string)($datos['email'] ?? ''),
-        '{{remitente}}'       => (string)($datos['remitente'] ?? ''),
-        '{{agenda}}'          => (string)($datos['agenda'] ?? ''),
-        '{{baja}}'            => (string)($datos['baja'] ?? ''),
+        '{{nombre}}'            => $nombre !== '' ? $nombre : 'Hola',
+        '{{apellido}}'          => $apellido,
+        '{{nombre_completo}}'   => trim($nombre . ' ' . $apellido),
+        '{{empresa}}'           => (string)($datos['empresa'] ?? ''),
+        '{{cargo}}'             => (string)($datos['cargo'] ?? ''),
+        '{{email}}'             => (string)($datos['email'] ?? ''),
+        '{{remitente}}'         => (string)($datos['remitente'] ?? ''),
+        '{{remitente_empresa}}' => (string)($datos['remitente_empresa'] ?? $ajuste('empresa_nombre', 'INTELLIHELP')),
+        '{{empresa_web}}'       => (string)($datos['empresa_web'] ?? $ajuste('empresa_web', '')),
+        '{{agenda}}'            => (string)($datos['agenda'] ?? ''),
+        '{{baja}}'              => (string)($datos['baja'] ?? ''),
     ];
     return strtr($texto, $mapa);
 }
@@ -91,10 +138,13 @@ function render_plantilla(string $texto, array $datos): string
 //  Listas de destinatarios
 // ------------------------------------------------------------
 
-function listas_listar(): array
+function listas_listar(?int $categoriaId = null): array
 {
-    return q('SELECT l.*, (SELECT COUNT(*) FROM lista_miembros m WHERE m.lista_id = l.id) AS miembros
-              FROM listas l WHERE l.eliminado_en IS NULL ORDER BY l.nombre')->fetchAll();
+    $w = 'WHERE l.eliminado_en IS NULL' . ($categoriaId ? ' AND l.categoria_id = ' . $categoriaId : '');
+    return q("SELECT l.*, c.nombre AS categoria, c.color AS categoria_color,
+                     (SELECT COUNT(*) FROM lista_miembros m WHERE m.lista_id = l.id) AS miembros
+              FROM listas l LEFT JOIN categorias c ON c.id = l.categoria_id
+              $w ORDER BY c.orden IS NULL, c.orden, l.nombre")->fetchAll();
 }
 
 function lista_get(int $id): ?array
@@ -105,13 +155,15 @@ function lista_get(int $id): ?array
 function lista_guardar(array $d, ?int $id = null): int
 {
     $nombre = trim((string)($d['nombre'] ?? ''));
+    $cat    = $d['categoria_id'] ?: null;
     if ($id) {
-        q('UPDATE listas SET nombre = ?, descripcion = ? WHERE id = ?', [$nombre, $d['descripcion'] ?: null, $id]);
+        q('UPDATE listas SET nombre = ?, descripcion = ?, categoria_id = ? WHERE id = ?',
+          [$nombre, $d['descripcion'] ?: null, $cat, $id]);
         log_app('lista.editar', ['entidad' => 'lista', 'entidad_id' => $id, 'detalle' => $nombre]);
         return $id;
     }
-    q('INSERT INTO listas (nombre, descripcion, creado_por) VALUES (?, ?, ?)',
-      [$nombre, $d['descripcion'] ?: null, current_user_id()]);
+    q('INSERT INTO listas (nombre, descripcion, categoria_id, creado_por) VALUES (?, ?, ?, ?)',
+      [$nombre, $d['descripcion'] ?: null, $cat, current_user_id()]);
     $nuevo = last_id();
     log_app('lista.crear', ['entidad' => 'lista', 'entidad_id' => $nuevo, 'detalle' => $nombre]);
     return $nuevo;
@@ -201,6 +253,8 @@ function campana_guardar(array $d, ?int $id = null): int
         'tipo'             => $d['tipo'] ?: 'Correo masivo',
         'plantilla_id'     => $d['plantilla_id'] ?: null,
         'lista_id'         => $d['lista_id'] ?: null,
+        'cuenta_correo_id' => $d['cuenta_correo_id'] ?: null,
+        'categoria_id'     => $d['categoria_id'] ?: null,
         'propietario_id'   => $d['propietario_id'] ?: current_user_id(),
         'remitente_nombre' => $d['remitente_nombre'] ?: null,
         'remitente_email'  => normalizar_email($d['remitente_email'] ?? '') ?: null,
@@ -336,9 +390,12 @@ function campana_enviados_hoy(int $campanaId): int
  * Arma el mensaje concreto para un destinatario de la campaña.
  * Se separa del despacho para poder mostrar una vista previa real en pantalla.
  */
-function campana_armar_mensaje(array $c, array $envio): array
+function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): array
 {
     $baja   = url_abs('baja?t=' . $envio['token']);
+    // Enlace a la agenda del responsable de la campaña. Lleva el id de la
+    // campaña pegado (?c=) para que la reunión que salga de ahí quede atribuida
+    // a esta campaña y se pueda medir cuántas reuniones trajo.
     $agenda = '';
     if (!empty($c['propietario_id'])) {
         $tipo = q1('SELECT t.slug, u.email FROM agenda_tipos t
@@ -346,19 +403,24 @@ function campana_armar_mensaje(array $c, array $envio): array
                     WHERE t.usuario_id = ? AND t.activo = 1 ORDER BY t.id LIMIT 1',
                    [(int)$c['propietario_id']]);
         if ($tipo) {
-            $agenda = url_abs('r/' . explode('@', (string)$tipo['email'])[0] . '/' . $tipo['slug']);
+            $agenda = url_abs('r/' . explode('@', (string)$tipo['email'])[0] . '/' . $tipo['slug'])
+                    . '?c=' . (int)$c['id'];
         }
     }
 
     $partes = preg_split('/\s+/', trim((string)$envio['nombre'])) ?: [];
     $datos = [
-        'nombre'    => $partes[0] ?? '',
-        'apellido'  => count($partes) > 1 ? implode(' ', array_slice($partes, 1)) : '',
-        'empresa'   => (string)($envio['empresa'] ?? ''),
-        'email'     => (string)$envio['email'],
-        'remitente' => (string)($c['remitente_nombre'] ?: $c['propietario'] ?: 'INTELLIHELP'),
-        'agenda'    => $agenda,
-        'baja'      => $baja,
+        'nombre'            => $partes[0] ?? '',
+        'apellido'          => count($partes) > 1 ? implode(' ', array_slice($partes, 1)) : '',
+        'empresa'           => (string)($envio['empresa'] ?? ''),
+        'email'             => (string)$envio['email'],
+        'remitente'         => (string)($c['remitente_nombre']
+                                        ?: ($cuenta['remitente_nombre'] ?? '')
+                                        ?: $c['propietario'] ?: 'INTELLIHELP'),
+        'remitente_empresa' => (string) setting_get('empresa_nombre', 'INTELLIHELP'),
+        'empresa_web'       => (string) setting_get('empresa_web', ''),
+        'agenda'            => $agenda,
+        'baja'              => $baja,
     ];
 
     $asunto = render_plantilla((string)($c['asunto'] ?: $c['plantilla_asunto'] ?: ''), $datos);
@@ -385,9 +447,9 @@ function campana_armar_mensaje(array $c, array $envio): array
         'asunto'      => $asunto,
         'html'        => $html,
         'texto'       => $texto,
-        'de'          => $c['remitente_email'] ?: null,
-        'de_nombre'   => $c['remitente_nombre'] ?: null,
-        'responder_a' => $c['responder_a'] ?: null,
+        'de'          => $c['remitente_email'] ?: ($cuenta['remitente'] ?? null),
+        'de_nombre'   => $c['remitente_nombre'] ?: ($cuenta['remitente_nombre'] ?? null),
+        'responder_a' => $c['responder_a'] ?: ($cuenta['responder_a'] ?? null),
         'cc'          => array_filter(array_map('trim', preg_split('/[;,\s]+/', (string)($c['copia_a'] ?? '')) ?: [])),
         'baja_url'    => $baja,
     ];
@@ -411,7 +473,10 @@ function campanas_despachar(int $maxPorCorrida = 5): array
                    WHERE eliminado_en IS NULL AND estado IN ('enviando','programada')
                    ORDER BY inicio_en IS NULL, inicio_en")->fetchAll();
 
-    $fp = null;
+    // Una sesión SMTP abierta POR CUENTA: varias campañas que comparten la
+    // misma casilla reusan la conexión, y las que usan casillas distintas
+    // avanzan en paralelo sin pisarse.
+    $sesiones = [];
     foreach ($campanas as $c) {
         $cid = (int)$c['id'];
 
@@ -426,6 +491,17 @@ function campanas_despachar(int $maxPorCorrida = 5): array
 
         if (!campana_en_horario($c))                                    { continue; }
         if (campana_enviados_hoy($cid) >= (int)$c['limite_diario'])     { continue; }
+
+        // Casilla desde la que sale esta campaña.
+        $cuenta = !empty($c['cuenta_correo_id'])
+            ? cuenta_correo_get((int)$c['cuenta_correo_id'])
+            : cuenta_correo_predeterminada();
+        if ($cuenta && (int)$cuenta['activo'] !== 1) { $cuenta = null; }
+        if ($cuenta && !cuenta_tiene_cupo($cuenta)) {
+            // La casilla llegó a su tope diario: la campaña espera a mañana en
+            // vez de forzar un envío que arruinaría la reputación.
+            continue;
+        }
 
         $pendientes = q("SELECT * FROM envios
                          WHERE campana_id = ? AND estado = 'pendiente'
@@ -463,21 +539,30 @@ function campanas_despachar(int $maxPorCorrida = 5): array
                 continue;
             }
 
-            if ($fp === null) {
+            $clave = $cuenta ? 'c' . (int)$cuenta['id'] : 'ajustes';
+            $cfg   = $cuenta ? cuenta_a_config($cuenta) : null;
+            if (!isset($sesiones[$clave])) {
                 $err = null;
-                $fp  = smtp_abrir($err);
+                $fp  = smtp_abrir($err, $cfg);
                 if (!$fp) {
                     log_app('campana.smtp_error', ['tipo' => 'error', 'entidad' => 'campana', 'entidad_id' => $cid,
-                        'detalle' => (string)$err]);
-                    return $res;   // sin SMTP no hay nada que hacer en esta corrida
+                        'detalle' => ($cuenta ? 'Cuenta «' . $cuenta['nombre'] . '»: ' : '') . (string)$err]);
+                    if ($cuenta) {
+                        q('UPDATE cuentas_correo SET ultimo_error = ? WHERE id = ?',
+                          [recortar($err, 250), (int)$cuenta['id']]);
+                    }
+                    continue 2;   // esta campaña no puede avanzar; las demás sí
                 }
+                $sesiones[$clave] = $fp;
             }
+            $fp = $sesiones[$clave];
 
-            $msg = campana_armar_mensaje($completa, $envio);
+            $msg = campana_armar_mensaje($completa, $envio, $cuenta);
             $msg['message_id'] = nuevo_message_id();
             $err = null;
-            q("UPDATE envios SET estado = 'enviando', intentos = intentos + 1 WHERE id = ?", [(int)$envio['id']]);
-            $resultado = smtp_enviar($fp, $msg, $err);
+            q("UPDATE envios SET estado = 'enviando', intentos = intentos + 1, cuenta_correo_id = ? WHERE id = ?",
+              [$cuenta ? (int)$cuenta['id'] : null, (int)$envio['id']]);
+            $resultado = smtp_enviar($fp, $msg, $err, $cfg);
 
             if ($resultado === 'enviado') {
                 q("UPDATE envios SET estado = 'enviado', enviado_en = NOW(), message_id = ?, motivo = NULL WHERE id = ?",
@@ -492,7 +577,10 @@ function campanas_despachar(int $maxPorCorrida = 5): array
                   [recortar($err, 250), (int)$envio['id']]);
                 q("INSERT INTO envio_eventos (envio_id, tipo, detalle) VALUES (?, 'rebote', ?)",
                   [(int)$envio['id'], recortar($err, 400)]);
-                marcar_rebote((string)$envio['email'], 'rechazo directo del servidor');
+                // Un 5xx en el RCPT es el servidor diciendo «esa casilla no existe»:
+                // es definitivo, así que el contacto se archiva.
+                marcar_rebote((string)$envio['email'],
+                              'El servidor rechazó la dirección: ' . recortar($err, 150), true);
                 $res['rebotados']++;
             } else {
                 // Error temporal: se reintenta más tarde, con el tope de Pulsemail.
@@ -505,9 +593,10 @@ function campanas_despachar(int $maxPorCorrida = 5): array
                     q("UPDATE envios SET estado = 'pendiente', motivo = ?, proximo_intento_en = DATE_ADD(NOW(), INTERVAL ? MINUTE) WHERE id = ?",
                       [recortar($err, 250), min(60, $intentos * 5), (int)$envio['id']]);
                 }
-                // Un error de conexión invalida la sesión SMTP: se reabre.
+                // Un error de conexión invalida la sesión SMTP: se reabre en la
+                // próxima vuelta.
                 smtp_cerrar($fp);
-                $fp = null;
+                unset($sesiones[$clave]);
             }
 
             // Pausa aleatoria antes del siguiente de ESTA campaña.
@@ -521,7 +610,7 @@ function campanas_despachar(int $maxPorCorrida = 5): array
         $res['campanas'][] = $cid;
     }
 
-    if ($fp) { smtp_cerrar($fp); }
+    foreach ($sesiones as $fp) { smtp_cerrar($fp); }
     return $res;
 }
 
@@ -554,16 +643,87 @@ function desuscribir(string $email, string $motivo = 'baja', ?int $campanaId = n
         'detalle' => 'Baja de las campañas · ' . $motivo . ($detalle ? ' · ' . $detalle : '')]);
 }
 
-/** Marca un correo como rebotado en todo el CRM. */
-function marcar_rebote(string $email, string $detalle = ''): void
+/**
+ * Marca un correo como rebotado en todo el CRM.
+ *
+ * Un rebote DURO (la casilla no existe, el dominio no existe) además **archiva
+ * el contacto**: no tiene sentido dejar en la base a alguien al que no se le
+ * puede escribir, y hacerlo a mano con miles de contactos no escala.
+ *
+ * «Archivar» acá significa mandarlo a la papelera, no borrarlo: sigue estando
+ * y se puede restaurar. La eliminación definitiva la hace el cron recién a los
+ * 60 días (ver `purgar_papelera()`), por si el archivado fue un error.
+ */
+function marcar_rebote(string $email, string $detalle = '', bool $duro = false): void
 {
     $email = normalizar_email($email);
     q('UPDATE contactos SET email_rebotado = 1 WHERE email = ?', [$email]);
     q('UPDATE posibles_clientes SET email_rebotado = 1 WHERE email = ?', [$email]);
     q("UPDATE envios SET estado = 'rebotado', rebotado_en = NOW(), motivo = ?
        WHERE email = ? AND estado IN ('enviado','enviando')", [recortar($detalle, 250), $email]);
+
+    $archivados = 0;
+    if ($duro) {
+        // Sólo se archiva si el correo rebotado es el ÚNICO del contacto: si
+        // tiene otra dirección válida, se sigue pudiendo trabajar con él.
+        foreach (['contactos' => 'contacto', 'posibles_clientes' => 'posible_cliente'] as $tabla => $entidad) {
+            $cols = $tabla === 'contactos' ? ['email', 'email2', 'email3'] : ['email', 'email2'];
+            $otros = implode(' OR ', array_map(
+                fn($c) => "($c IS NOT NULL AND $c <> '' AND $c <> ?)", array_slice($cols, 1)));
+            $params = array_merge([$email], array_fill(0, count($cols) - 1, $email));
+            $filas = q("SELECT id FROM $tabla
+                        WHERE email = ? AND eliminado_en IS NULL AND NOT ($otros)", $params)->fetchAll();
+            foreach ($filas as $r) {
+                q("UPDATE $tabla SET eliminado_en = NOW() WHERE id = ?", [(int)$r['id']]);
+                log_app($entidad . '.archivar_rebote', ['tipo' => 'sistema', 'actor' => 'sistema',
+                    'entidad' => $entidad, 'entidad_id' => (int)$r['id'],
+                    'detalle' => 'Archivado automáticamente: el correo ' . $email
+                               . ' rebotó de forma definitiva. Se puede recuperar desde la papelera '
+                               . 'durante ' . dias_papelera() . ' días.']);
+                $archivados++;
+            }
+        }
+        desuscribir($email, 'rebote_duro', null, recortar($detalle, 200));
+    }
+
     log_app('campana.rebote', ['tipo' => 'sistema', 'actor' => $email,
-        'detalle' => 'Rebote detectado' . ($detalle ? ': ' . $detalle : '')]);
+        'detalle' => ($duro ? 'Rebote definitivo' : 'Rebote temporal')
+                   . ($detalle ? ': ' . recortar($detalle, 200) : '')
+                   . ($archivados ? ' · ' . $archivados . ' contacto(s) archivado(s)' : '')]);
+}
+
+/** Cuántos días se conserva lo archivado antes de borrarlo de verdad. */
+function dias_papelera(): int
+{
+    return max(1, (int) setting_get('papelera_dias', '60'));
+}
+
+/**
+ * Borra definitivamente lo que lleva más de N días en la papelera.
+ *
+ * Es el único lugar del sistema donde se borra de verdad. Hasta que se cumple
+ * el plazo, todo sigue recuperable desde la papelera.
+ *
+ * @return array<string,int> cuántos se borraron de cada módulo
+ */
+function purgar_papelera(?int $dias = null): array
+{
+    $dias = $dias ?? dias_papelera();
+    $out  = [];
+    foreach (tablas_papelera() as $entidad => $def) {
+        $st = q("DELETE FROM {$def['tabla']}
+                 WHERE eliminado_en IS NOT NULL
+                   AND eliminado_en < DATE_SUB(NOW(), INTERVAL ? DAY)", [$dias]);
+        $n = $st->rowCount();
+        if ($n > 0) {
+            $out[$entidad] = $n;
+            log_app('papelera.purga', ['tipo' => 'sistema', 'actor' => 'cron',
+                'entidad' => $entidad,
+                'detalle' => $n . ' ' . $def['etiqueta'] . '(s) eliminados definitivamente '
+                           . 'tras ' . $dias . ' días en la papelera']);
+        }
+    }
+    return $out;
 }
 
 /** Marca que un destinatario respondió (lo llama el lector IMAP). */

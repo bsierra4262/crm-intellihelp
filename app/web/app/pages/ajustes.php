@@ -35,7 +35,7 @@ if (is_post()) {
             'smtp_host', 'smtp_port', 'smtp_seguridad', 'smtp_user', 'smtp_from', 'smtp_from_name',
             'imap_host', 'imap_port', 'imap_user',
             'campana_pausa_min', 'campana_pausa_max', 'campana_limite_diario',
-            'cron_clave',
+            'papelera_dias', 'cron_clave',
         ];
         foreach ($claves as $k) {
             if (array_key_exists($k, $_POST)) {

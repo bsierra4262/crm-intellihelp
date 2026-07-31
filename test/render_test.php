@@ -50,6 +50,9 @@ function rutas_a_probar(): array
         'campana-form'    => [],
         'plantillas'      => [],
         'plantilla-form'  => [],
+        'plantilla-nueva' => ['_r' => 'plantilla-form', 'desde' => 'pulsemail'],
+        'cuentas-correo'  => [],
+        'imagenes'        => [],
         'listas'          => [],
         'lista-form'      => [],
         'agenda'          => [],
@@ -97,9 +100,9 @@ if ($modo === '--limpiar') {
 
     // Fingir una request web para que el bootstrap y las vistas funcionen.
     $_SERVER['REQUEST_METHOD'] = 'GET';
-    $_SERVER['HTTP_HOST']      = 'crm.intellihelp.tech';
-    $_SERVER['SCRIPT_NAME']    = '/index.php';
-    $_SERVER['REQUEST_URI']    = '/' . $ruta;
+    $_SERVER['HTTP_HOST']      = 'intellihelp.tech';
+    $_SERVER['SCRIPT_NAME']    = '/crm/index.php';
+    $_SERVER['REQUEST_URI']    = '/crm/' . $ruta;
     $_SERVER['HTTPS']          = 'on';
     $_SERVER['REMOTE_ADDR']    = '127.0.0.1';
     $_GET = $params + ['r' => $ruta];

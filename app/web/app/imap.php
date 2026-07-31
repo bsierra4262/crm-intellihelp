@@ -111,6 +111,53 @@ function es_rebote(string $de, string $asunto): bool
     return false;
 }
 
+/**
+ * ¿El rebote es DEFINITIVO o pasajero?
+ *
+ * Importa porque un rebote definitivo archiva el contacto y uno pasajero no:
+ * una casilla llena o un servidor caído se arreglan solos, pero una dirección
+ * que no existe no va a existir mañana.
+ *
+ * Se mira, en este orden:
+ *   1. el código de estado del DSN (RFC 3463): 5.x.x es permanente, 4.x.x temporal;
+ *   2. el código SMTP citado en el cuerpo (550, 553…);
+ *   3. las frases típicas, en inglés y en castellano.
+ */
+function es_rebote_duro(string $cuerpo): bool
+{
+    if (preg_match('/Status:\s*([45])\.\d+\.\d+/i', $cuerpo, $m)) {
+        return $m[1] === '5';
+    }
+    if (preg_match('/\b(4\d\d)[\s-]/', $cuerpo) && !preg_match('/\b5[05]\d[\s-]/', $cuerpo)) {
+        return false;
+    }
+    $definitivas = [
+        'user unknown', 'no such user', 'unknown user', 'does not exist',
+        'recipient not found', 'no mailbox', 'mailbox unavailable',
+        'address rejected', 'recipient address rejected', 'invalid recipient',
+        'domain not found', 'host or domain name not found', 'nxdomain',
+        'no such domain', 'unrouteable address', 'account has been disabled',
+        'account is disabled', 'user doesn\'t have',
+        'no existe', 'usuario desconocido', 'destinatario no encontrado',
+        'direccion no existe', 'dirección no existe', 'cuenta deshabilitada',
+    ];
+    $temporales = [
+        'mailbox full', 'quota exceeded', 'over quota', 'try again later',
+        'temporarily deferred', 'temporary failure', 'greylist',
+        'buzon lleno', 'buzón lleno', 'cuota excedida', 'intente mas tarde',
+    ];
+    $c = mb_strtolower($cuerpo);
+    foreach ($temporales as $t) {
+        if (str_contains($c, $t)) { return false; }
+    }
+    foreach ($definitivas as $d) {
+        if (str_contains($c, $d)) { return true; }
+    }
+    // Ante la duda, se trata como temporal: archivar un contacto por error es
+    // peor que dejarlo marcado y revisarlo después.
+    return false;
+}
+
 /** Saca del cuerpo del rebote la dirección que falló. */
 function extraer_destinatario_rebote(string $cuerpo): array
 {
@@ -139,7 +186,7 @@ function extraer_destinatario_rebote(string $cuerpo): array
  */
 function imap_revisar(int $diasPrimeraVez = 30): array
 {
-    $res = ['rebotes' => 0, 'respuestas' => 0, 'revisados' => 0, 'error' => null];
+    $res = ['rebotes' => 0, 'duros' => 0, 'respuestas' => 0, 'revisados' => 0, 'error' => null];
     if (!imap_configurado()) {
         $res['error'] = 'IMAP sin configurar.';
         return $res;
@@ -182,13 +229,14 @@ function imap_revisar(int $diasPrimeraVez = 30): array
 
             if (es_rebote($de, $asunto)) {
                 $cuerpo = (string) imap_body($mbox, $uid, FT_UID | FT_PEEK);
+                $duro   = es_rebote_duro($cuerpo);
                 foreach (extraer_destinatario_rebote($cuerpo) as $direccion) {
                     if ($direccion === $propio) { continue; }
                     // Sólo cuentan los rebotes de NUESTRAS campañas.
                     if (!qv('SELECT 1 FROM envios WHERE email = ? LIMIT 1', [$direccion])) { continue; }
-                    marcar_rebote($direccion, recortar($asunto, 200));
-                    desuscribir($direccion, 'rebote_duro', null, recortar($asunto, 200));
+                    marcar_rebote($direccion, recortar($asunto, 200), $duro);
                     $res['rebotes']++;
+                    if ($duro) { $res['duros']++; }
                 }
                 continue;
             }

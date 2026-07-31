@@ -5,26 +5,52 @@ $u       = auth_user();
 $ruta    = current_route();
 $appName = $GLOBALS['CONFIG']['app']['name'] ?? 'CRM INTELLIHELP';
 
-// La navegación agrupa por trabajo, no por tabla: primero lo que se usa todos
-// los días, después lo de marketing, y al final lo de administración.
+// La barra lleva SÓLO el trabajo diario. Todo lo administrativo va al menú
+// «Más»: con catorce solapas sueltas la barra no entraba ni en una pantalla de
+// 1920 px y la última quedaba cortada al medio.
 $nav = [
-    'dashboard'   => ['Panel',      'panel'],
-    'posibles'    => ['Posibles',   'posibles'],
-    'contactos'   => ['Contactos',  'contactos'],
-    'cuentas'     => ['Empresas',   'cuentas'],
-    'embudo'      => ['Embudo',     'embudo'],
-    'actividades' => ['Actividades','tareas'],
-    'campanas'    => ['Campañas',   'campanas'],
-    'agenda'      => ['Agenda',     'agenda'],
-    'reportes'    => ['Reportes',   'reportes'],
+    'dashboard'   => ['Panel',       'panel'],
+    'posibles'    => ['Posibles',    'posibles'],
+    'contactos'   => ['Contactos',   'contactos'],
+    'cuentas'     => ['Empresas',    'cuentas'],
+    'embudo'      => ['Embudo',      'embudo'],
+    'actividades' => ['Actividades', 'tareas'],
+    'campanas'    => ['Campañas',    'campanas'],
+    'agenda'      => ['Agenda',      'agenda'],
+    'reportes'    => ['Reportes',    'reportes'],
 ];
+
+// Las rutas hijas marcan activa a su sección madre: estando en «Nuevo contacto»
+// la solapa Contactos tiene que seguir encendida.
+$seccionDe = [
+    'contacto-form' => 'contactos', 'contacto-ver' => 'contactos',
+    'cuenta-form'   => 'cuentas',   'cuenta-ver'   => 'cuentas',
+    'posible-form'  => 'posibles',  'posible-ver'  => 'posibles', 'posible-convertir' => 'posibles',
+    'negocio-form'  => 'embudo',    'negocio-ver'  => 'embudo',   'negocios' => 'embudo',
+    'actividad-form' => 'actividades',
+    'campana-form'  => 'campanas',  'campana-ver'  => 'campanas',
+    'plantillas'    => 'campanas',  'plantilla-form' => 'campanas',
+    'listas'        => 'campanas',  'lista-form'   => 'campanas', 'lista-ver' => 'campanas',
+    'agenda-form'   => 'agenda',    'reservas'     => 'agenda',
+];
+$seccion = $seccionDe[$ruta] ?? $ruta;
+
+$admin = [];
 if ($u && ($u['rol'] ?? '') === 'admin') {
-    $nav['importar'] = ['Importar', 'importar'];
-    $nav['usuarios'] = ['Usuarios', 'usuarios'];
-    $nav['papelera'] = ['Papelera', 'papelera'];
-    $nav['ajustes']  = ['Ajustes',  'ajustes'];
-    $nav['cron']     = ['CRON',     'cron'];
+    $admin = [
+        'importar'       => ['Importar datos',  'importar'],
+        'cuentas-correo' => ['Cuentas de correo', 'campanas'],
+        'imagenes'       => ['Imágenes',        'subir'],
+        '-'              => null,
+        'usuarios' => ['Usuarios',       'usuarios'],
+        'papelera' => ['Papelera',       'papelera'],
+        '--'       => null,
+        'ajustes'  => ['Ajustes',        'ajustes'],
+        'api-keys' => ['API',            'clave'],
+        'cron'     => ['CRON',           'cron'],
+    ];
 }
+$adminActivo = isset($admin[$seccion]);
 
 $asset     = fn($p) => e(url($p));
 $extraHead = $extraHead ?? '';
@@ -50,7 +76,7 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Saira:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="<?= $asset('assets/css/app.css') ?>?v=1">
+    <link rel="stylesheet" href="<?= $asset('assets/css/app.css') ?>?v=<?= ASSETS_V ?>">
     <?php if (!empty($brand['primary']) || !empty($brand['accent'])): ?>
     <style>:root{<?php if (!empty($brand['primary'])): ?>--primary:<?= e($brand['primary']) ?>;<?php endif; ?><?php if (!empty($brand['accent'])): ?>--accent:<?= e($brand['accent']) ?>;<?php endif; ?>}</style>
     <?php endif; ?>
@@ -98,8 +124,24 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
         <button class="nav-toggle" aria-label="Menú" onclick="document.body.classList.toggle('nav-open')"><?= icon('menu', 20) ?></button>
         <nav class="topnav">
             <?php foreach ($nav as $r => [$etiqueta, $ic]): ?>
-                <a href="<?= $asset($r) ?>" class="<?= $ruta === $r ? 'active' : '' ?>"><?= icon($ic) ?><?= e($etiqueta) ?></a>
+                <a href="<?= $asset($r) ?>" class="<?= $seccion === $r ? 'active' : '' ?>"
+                   title="<?= e($etiqueta) ?>"><?= icon($ic) ?><span><?= e($etiqueta) ?></span></a>
             <?php endforeach; ?>
+            <?php if ($admin): ?>
+                <details class="menu">
+                    <summary class="menu-btn <?= $adminActivo ? 'tiene-activo' : '' ?>" title="Administración">
+                        <?= icon('ajustes') ?><span>Más</span><?= icon('abajo', 14) ?>
+                    </summary>
+                    <div class="menu-pop">
+                        <?php foreach ($admin as $r => $def): ?>
+                            <?php if ($def === null): ?><div class="sep"></div><?php continue; ?><?php endif; ?>
+                            <a href="<?= $asset($r) ?>" class="<?= $seccion === $r ? 'active' : '' ?>">
+                                <?= icon($def[1], 16) ?><?= e($def[0]) ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </details>
+            <?php endif; ?>
         </nav>
         <form class="gsearch" method="get" action="<?= $asset('buscar') ?>" role="search">
             <?= icon('buscar', 16) ?>
@@ -115,7 +157,7 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
             <?php else: ?>
                 <span class="avatar-fallback"><?= e($ini) ?></span>
             <?php endif; ?>
-            <a class="btn-logout" href="<?= $asset('logout') ?>"><?= icon('salir', 16) ?>Salir</a>
+            <a class="btn-logout" href="<?= $asset('logout') ?>" title="Cerrar sesión"><?= icon('salir', 16) ?><span>Salir</span></a>
         </div>
     </header>
     <main class="content">
@@ -128,7 +170,7 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
 <?php else: ?>
     <?= $content ?>
 <?php endif; ?>
-<?php if ($u): ?><script defer src="<?= $asset('assets/js/app.js') ?>?v=1"></script><?php endif; ?>
+<?php if ($u): ?><script defer src="<?= $asset('assets/js/app.js') ?>?v=<?= ASSETS_V ?>"></script><?php endif; ?>
 <?= $extraFoot ?>
 </body>
 </html>
