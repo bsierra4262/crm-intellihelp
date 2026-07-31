@@ -94,15 +94,22 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
     <div class="flash flash-info"><strong>Modo prueba:</strong> sólo salen correos a los destinatarios internos de Ajustes.</div>
 <?php endif; ?>
 
-<div class="cards">
+<?php /* data-vivo enciende la actualización sola: el script pregunta cada seis
+         segundos y cambia estos números sin recargar la página. Sin eso había
+         que apretar F5 para saber si la campaña estaba avanzando. */ ?>
+<div class="cards" data-vivo data-vivo-campana="<?= (int)$c['id'] ?>">
     <div class="card stat">
         <span class="stat-label">Enviados</span>
-        <span class="stat-value"><?= (int)$c['enviados'] ?> <span class="muted">/ <?= (int)$c['total'] ?></span></span>
-        <div class="progreso"><i class="<?= $pct >= 100 ? 'ok' : '' ?>" style="width:<?= $pct ?>%"></i></div>
+        <span class="stat-value"><span data-vivo-campo="enviados"><?= (int)$c['enviados'] ?></span>
+            <span class="muted">/ <span data-vivo-campo="total"><?= (int)$c['total'] ?></span></span></span>
+        <div class="progreso"><i data-vivo-barra class="<?= $pct >= 100 ? 'ok' : '' ?>" style="width:<?= $pct ?>%"></i></div>
+        <span class="stat-foot" data-vivo-cron <?= setting_get('cron_en_curso_desde', '') !== '' ? '' : 'hidden' ?>>
+            <strong class="accent">Enviando ahora…</strong>
+        </span>
     </div>
     <div class="card stat">
         <span class="stat-label">Aperturas</span>
-        <span class="stat-value"><?= (int)$aperturas ?></span>
+        <span class="stat-value" data-vivo-campo="aperturas"><?= (int)$aperturas ?></span>
         <span class="stat-foot">
             <?= $c['enviados'] > 0 ? round(100 * $aperturas / $c['enviados'], 1) : 0 ?> % de los enviados.
             Es un piso: muchos clientes bloquean las imágenes y esa apertura no se cuenta.
@@ -110,17 +117,17 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
     </div>
     <div class="card stat">
         <span class="stat-label">Respuestas</span>
-        <span class="stat-value accent"><?= (int)$c['respondidos'] ?></span>
+        <span class="stat-value accent" data-vivo-campo="respondidos"><?= (int)$c['respondidos'] ?></span>
         <span class="stat-foot"><?= $c['enviados'] > 0 ? round(100 * $c['respondidos'] / $c['enviados'], 1) : 0 ?> % de los enviados</span>
     </div>
     <div class="card stat">
         <span class="stat-label">Rebotes</span>
-        <span class="stat-value <?= $c['rebotados'] ? 'warn' : '' ?>"><?= (int)$c['rebotados'] ?></span>
+        <span class="stat-value <?= $c['rebotados'] ? 'warn' : '' ?>" data-vivo-campo="rebotados"><?= (int)$c['rebotados'] ?></span>
         <span class="stat-foot"><?= (int)$c['desuscriptos'] ?> bajas · <?= (int)$c['errores'] ?> errores</span>
     </div>
     <div class="card stat">
         <span class="stat-label">Reuniones agendadas</span>
-        <span class="stat-value accent"><?= (int)$c['reuniones'] ?></span>
+        <span class="stat-value accent" data-vivo-campo="reuniones"><?= (int)$c['reuniones'] ?></span>
         <span class="stat-foot">desde el enlace de la agenda</span>
     </div>
 </div>
@@ -163,7 +170,7 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
     </div>
 </form>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo-tabla>
     <div class="table-scroll">
         <table class="grid">
             <thead>
@@ -180,7 +187,7 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
             <?php if (!$envios): ?>
                 <tr><td colspan="6" class="empty">La cola está vacía. Usá «Preparar cola» para cargar los destinatarios de la lista.</td></tr>
             <?php else: foreach ($envios as $x): ?>
-                <tr>
+                <tr data-envio="<?= (int)$x['id'] ?>">
                     <td data-label="Destinatario">
                         <div class="cell-main">
                             <?php if ($x['contacto_id']): ?>
@@ -190,9 +197,9 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
                         </div>
                     </td>
                     <td data-label="Empresa" class="prio-2"><?= e(recortar($x['empresa'], 28) ?: '—') ?></td>
-                    <td data-label="Estado"><?= badge_envio($x['estado']) ?></td>
-                    <td data-label="Enviado" class="prio-3"><?= $x['enviado_en'] ? fecha_hora($x['enviado_en']) : '—' ?></td>
-                    <td data-label="Respondió" class="prio-3"><?= $x['respondido_en'] ? fecha_hora($x['respondido_en']) : '—' ?></td>
+                    <td data-label="Estado"><span data-vivo-badge><?= badge_envio($x['estado']) ?></span></td>
+                    <td data-label="Enviado" class="prio-3" data-vivo-enviado><?= $x['enviado_en'] ? fecha_hora($x['enviado_en']) : '—' ?></td>
+                    <td data-label="Respondió" class="prio-3" data-vivo-respondio><?= $x['respondido_en'] ? fecha_hora($x['respondido_en']) : '—' ?></td>
                     <td data-label="Detalle" class="prio-4"><span class="small muted"><?= e(recortar($x['motivo'], 46) ?: '—') ?></span></td>
                 </tr>
             <?php endforeach; endif; ?>

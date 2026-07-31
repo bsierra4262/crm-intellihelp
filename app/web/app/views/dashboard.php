@@ -66,7 +66,7 @@ $u = auth_user();
         <?php endif; ?>
     </div>
 
-    <div class="card">
+    <div class="card" data-vivo>
         <div class="card-head">
             <h2>Campañas en curso</h2>
             <a class="btn btn-ghost btn-sm" href="<?= e(url('campanas')) ?>">Ver todas</a>
@@ -77,13 +77,13 @@ $u = auth_user();
             <?php foreach ($campanas as $c):
                 $pct = $c['total'] > 0 ? min(100, round(100 * $c['enviados'] / $c['total'])) : 0;
             ?>
-                <div class="mb-3">
+                <div class="mb-3" data-vivo-fila="<?= (int)$c['id'] ?>">
                     <div class="urow entre">
                         <a href="<?= e(url('campana-ver?id=' . (int)$c['id'])) ?>" class="strong"><?= e($c['nombre']) ?></a>
                         <span class="badge <?= $c['estado'] === 'enviando' ? 'badge-ok' : 'badge-neutral' ?>"><?= e($c['estado']) ?></span>
                     </div>
-                    <div class="progreso"><i style="width:<?= $pct ?>%"></i></div>
-                    <div class="small muted">
+                    <div class="progreso"><i data-vivo-barra style="width:<?= $pct ?>%"></i></div>
+                    <div class="small muted" data-vivo-resumen>
                         <?= (int)$c['enviados'] ?> de <?= (int)$c['total'] ?> enviados ·
                         <?= (int)$c['respondidos'] ?> respuestas · <?= (int)$c['rebotados'] ?> rebotes
                     </div>

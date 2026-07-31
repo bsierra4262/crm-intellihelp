@@ -1,4 +1,4 @@
-<?php /** @var array $reloj @var array $f @var array $data @var array $resumen @var array $conteo @var string $ultima */
+<?php /** @var string $enCurso @var array $reloj @var array $f @var array $data @var array $resumen @var array $conteo @var string $ultima */
 $tipos = ['' => 'Todo', 'accion' => 'Acciones', 'nav' => 'Navegación', 'auth' => 'Accesos',
           'error' => 'Errores', 'sistema' => 'Sistema'];
 ?>
@@ -31,7 +31,16 @@ $tipos = ['' => 'Todo', 'accion' => 'Acciones', 'nav' => 'Navegación', 'auth' =
     <div class="card stat">
         <span class="stat-label">Última tarea automática</span>
         <span class="stat-value sm"><?= $ultima ? fecha_hora($ultima) : 'nunca' ?></span>
-        <span class="stat-foot"><?= $ultima ? tiempo_relativo($ultima) : 'Falta agendarla en el hosting' ?></span>
+        <span class="stat-foot">
+            <?php if ($enCurso): ?>
+                <?php /* Una corrida que manda correos dura varios minutos. Sin esto
+                         la pantalla mostraba la hora de la corrida anterior justo
+                         cuando el cron estaba trabajando. */ ?>
+                <strong class="accent">Corriendo ahora</strong>, desde las <?= e(substr($enCurso, 11, 5)) ?> h
+            <?php else: ?>
+                <?= $ultima ? tiempo_relativo($ultima) : 'Falta agendarla en el hosting' ?>
+            <?php endif; ?>
+        </span>
     </div>
     <div class="card stat">
         <span class="stat-label">Hora del sistema</span>

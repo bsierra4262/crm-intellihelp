@@ -20,6 +20,7 @@ render('cron', [
     'resumen' => actividad_resumen($canal),
     'conteo'  => actividad_conteo_tipos($canal),
     'ultima'  => setting_get('cron_ultima_corrida', ''),
+    'enCurso' => setting_get('cron_en_curso_desde', ''),
     // Estado del reloj. Todo lo que se agenda depende de que la aplicación y la
     // base coincidan: si discreparan, los recordatorios saldrían a destiempo y
     // la agenda pública ofrecería horarios ya pasados. Se muestra para poder

@@ -418,6 +418,40 @@ ok('los formularios avisan en vez de descartar en silencio',
 ok('los campos de texto llevan su tope de caracteres',
    substr_count($vistas2, 'maxlength=') >= 30);
 
+echo "== Se actualiza sin recargar la página ==\n";
+// Ver el estado real sólo al apretar F5 no sirve: una campaña manda un correo
+// cada 25-45 segundos y una corrida dura varios minutos, así que la pantalla
+// se pasa mintiendo casi todo el tiempo.
+$vivo = (string) @file_get_contents($WEB . '/assets/js/vivo.js');
+ok('existe el actualizador en vivo', $vivo !== '');
+ok('el layout lo carga', str_contains($layout, 'vivo.js'));
+ok('hay un endpoint que devuelve el avance', file_exists($WEB . '/app/pages/api-campana.php'));
+ok('y su ruta está registrada', str_contains($idx, "'api-campana'"));
+// La ficha y el panel tienen que estar marcados, o el script no encuentra qué
+// actualizar y se queda mirando una pantalla que no cambia nunca.
+$fichaC = (string) @file_get_contents($WEB . '/app/views/campana-ver.php');
+$panelC = (string) @file_get_contents($WEB . '/app/views/dashboard.php');
+ok('la ficha de la campaña está marcada', str_contains($fichaC, 'data-vivo-campana'));
+ok('sus cifras están marcadas una por una', substr_count($fichaC, 'data-vivo-campo=') >= 5);
+ok('cada destinatario de la cola está marcado', str_contains($fichaC, 'data-envio='));
+ok('el panel también', str_contains($panelC, 'data-vivo-fila='));
+// Consultar para siempre una pantalla que nadie mira es tirar recursos.
+ok('deja de preguntar cuando la campaña termina', str_contains($vivo, '!d.campana.sigue'));
+ok('y cuando la pestaña queda en segundo plano', str_contains($vivo, 'document.hidden'));
+ok('y si el servidor deja de responder', str_contains($vivo, 'fallos >= 3'));
+
+echo "== Los ajustes no se quedan viejos ==\n";
+// Los ajustes se cachean en memoria por proceso. Sin invalidar ese caché,
+// guardar uno y volver a leerlo en la misma request devolvía el valor anterior,
+// y un proceso largo como el cron arrastraba durante minutos los valores que
+// había al arrancar. Apareció porque una comprobación del cron leía siempre la
+// misma marca y daba un falso negativo: decía que el cron no corría cuando sí.
+$dbPhp2 = (string) @file_get_contents($WEB . '/app/db.php');
+ok('guardar un ajuste invalida el caché',
+   preg_match('/function setting_set.*?setting_refrescar\(\)/s', $dbPhp2) === 1);
+ok('y se puede refrescar a mano en los procesos largos',
+   str_contains($dbPhp2, 'function setting_refrescar'));
+
 echo "== El avance se ve en tiempo real ==\n";
 // Una corrida puede durar varios minutos. El avance se actualizaba recién al
 // terminar toda la campaña, así que durante todo ese rato la pantalla decía

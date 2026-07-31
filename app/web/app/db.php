@@ -86,9 +86,21 @@ function last_id(): int
 
 // ---- Ajustes de la aplicación (tabla app_settings) ----
 
+/**
+ * Lee un ajuste.
+ *
+ * Los ajustes se cargan una sola vez por proceso: son pocos y se consultan
+ * muchas veces. El caché se invalida al escribir, y también a mano con
+ * `setting_refrescar()` para los procesos largos —el cron corre varios
+ * minutos, y sin eso lee para siempre los valores que había al arrancar.
+ */
 function setting_get(string $clave, ?string $def = null): ?string
 {
     static $cache = null;
+    if ($GLOBALS['__settings_sucio'] ?? false) {
+        $cache = null;
+        unset($GLOBALS['__settings_sucio']);
+    }
     if ($cache === null) {
         $cache = [];
         try {
@@ -106,6 +118,22 @@ function setting_set(string $clave, ?string $valor): void
 {
     q('INSERT INTO app_settings (clave, valor) VALUES (?, ?)
        ON DUPLICATE KEY UPDATE valor = VALUES(valor)', [$clave, $valor]);
+    // Sin esto, guardar un ajuste y volver a leerlo en la misma request
+    // devolvía el valor viejo: el caché no se enteraba de la escritura.
+    setting_refrescar();
+}
+
+/**
+ * Obliga a releer los ajustes de la base en la próxima consulta.
+ *
+ * Hace falta en los procesos largos. El cron corre varios minutos y, sin esto,
+ * arrastra los valores que había al arrancar: si alguien pasa el sistema a
+ * producción o cambia el tope diario mientras hay una campaña saliendo, la
+ * corrida en curso lo ignora hasta que termina.
+ */
+function setting_refrescar(): void
+{
+    $GLOBALS['__settings_sucio'] = true;
 }
 
 /** ¿La app está en modo testing? (bloquea envíos reales de campaña). */

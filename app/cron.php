@@ -67,6 +67,12 @@ register_shutdown_function(static function (): void {
 $t0     = microtime(true);
 $lineas = [];
 
+// Se deja anotado que la corrida ARRANCÓ, no sólo cuándo terminó. Una corrida
+// que manda correos dura varios minutos, y mientras tanto la pantalla mostraba
+// la hora de la corrida anterior: parecía que el cron estaba parado justo
+// cuando más trabajando estaba.
+setting_set('cron_en_curso_desde', date('Y-m-d H:i:s'));
+
 // ---- 1. Campañas ----
 try {
     // 240 s de presupuesto: el cron corre cada 5 minutos, así que la corrida
@@ -150,6 +156,7 @@ try {
 }
 
 setting_set('cron_ultima_corrida', date('Y-m-d H:i:s'));
+setting_set('cron_en_curso_desde', '');
 
 $salida = date('c') . ' · ' . implode(' | ', $lineas)
         . sprintf(' | %.1f s', microtime(true) - $t0) . PHP_EOL;
