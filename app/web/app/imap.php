@@ -4,19 +4,22 @@ declare(strict_types=1);
 // ============================================================
 //  Lectura de la casilla (IMAP): rebotes y respuestas.
 //
-//  Misma lógica que Pulsemail, con el porqué de cada decisión:
+//  ¿Por qué un cliente IMAP propio y no la extensión `imap` de PHP?
 //
-//   · Los rebotes se reconocen por el remitente (`mailer-daemon`,
-//     `postmaster`, `mail-daemon`) Y, como red de seguridad, por asuntos
-//     típicos («Delivery Status Notification», «Undelivered Mail Returned to
-//     Sender»…): hay servidores que no firman como daemon pero sí ponen esos
-//     asuntos.
-//   · Del cuerpo del rebote se extrae la dirección que falló; sólo cuenta si
-//     esa dirección está en NUESTRAS campañas. Así los rebotes personales de
-//     la misma casilla no ensucian el CRM.
-//   · Se guarda el último UID leído por buzón: la primera pasada mira 30 días,
-//     las siguientes sólo lo nuevo. Sin eso, el cron cada 5 minutos releería
-//     la casilla entera.
+//  Porque la extensión usa la librería c-client, que **no envía SNI** al
+//  negociar TLS. Gmail responde a eso con un certificado de descarte y PHP
+//  aborta con el error:
+//
+//      Certificate failure for imap.gmail.com: self-signed certificate:
+//      /OU=No SNI provided - please fix your client./CN=invalid2.invalid
+//
+//  La salida fácil es `/novalidate-cert`, pero eso apaga la verificación del
+//  certificado: deja la conexión abierta a un intermediario. La salida correcta
+//  es hablar IMAP sobre un socket propio, que **sí** manda SNI y **sí** valida
+//  el certificado. Es el mismo camino que ya tomamos con SMTP.
+//
+//  La lógica de detección (qué es un rebote, cuál es definitivo, de quién es la
+//  dirección que falló) es la de Pulsemail, que ya está probada en producción.
 // ============================================================
 
 const REMITENTES_REBOTE = ['mailer-daemon', 'postmaster', 'mail-daemon'];
@@ -27,8 +30,10 @@ const ASUNTOS_REBOTE = [
     'mail delivery failure',
     'returned mail',
     'undeliverable',
+    'failure notice',
     'no se pudo entregar',
     'correo no entregado',
+    'devolución de correo',
 ];
 
 function imap_cfg(): array
@@ -48,28 +53,190 @@ function imap_cfg(): array
 function imap_configurado(): bool
 {
     $c = imap_cfg();
-    return function_exists('imap_open') && !empty($c['user']) && !empty($c['pass']);
+    return !empty($c['user']) && !empty($c['pass']);
 }
 
-/** Abre la conexión a un buzón. Devuelve el recurso o null. */
-function imap_conectar(string $buzon = 'INBOX', ?string &$err = null)
+// ------------------------------------------------------------
+//  Cliente IMAP mínimo (lo que necesitamos y nada más)
+// ------------------------------------------------------------
+
+/**
+ * Abre la conexión y autentica. Devuelve el socket o null.
+ *
+ * El `peer_name` explícito es lo que hace que la negociación mande SNI: sin
+ * eso Gmail devuelve el certificado de descarte y la conexión se cae.
+ */
+function imap_conectar(?string &$err = null, ?array $cfg = null)
 {
-    if (!function_exists('imap_open')) {
-        $err = 'La extensión IMAP de PHP no está disponible en este servidor.';
+    $c    = $cfg ?? imap_cfg();
+    $host = (string)($c['host'] ?: 'imap.gmail.com');
+    $port = (int)($c['port'] ?: 993);
+
+    if (empty($c['user']) || empty($c['pass'])) {
+        $err = 'La casilla de entrada no está configurada.';
         return null;
     }
-    $c   = imap_cfg();
-    $ruta = '{' . $c['host'] . ':' . (int)$c['port'] . '/imap/ssl}' . $buzon;
-    $mbox = @imap_open($ruta, (string)$c['user'], (string)$c['pass'], 0, 1);
-    if (!$mbox) {
-        $err = 'No se pudo abrir la casilla: ' . (imap_last_error() ?: 'sin detalle');
-        imap_errors();
+
+    $ctx = stream_context_create(['ssl' => [
+        'peer_name'         => $host,
+        'SNI_enabled'       => true,
+        'verify_peer'       => true,
+        'verify_peer_name'  => true,
+        'allow_self_signed' => false,
+    ]]);
+
+    // Se abre en texto plano y se sube a TLS a mano: así el contexto con SNI
+    // se aplica de verdad (con `ssl://` algunos PHP lo arman antes de tiempo).
+    $fp = @stream_socket_client("tcp://$host:$port", $en, $es, 20, STREAM_CLIENT_CONNECT, $ctx);
+    if (!$fp) {
+        $err = "No se pudo conectar a $host:$port ($es).";
         return null;
     }
-    return $mbox;
+    stream_set_timeout($fp, 30);
+
+    if (!@stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+        $err = 'No se pudo establecer la conexión segura con ' . $host
+             . '. Revisá que el servidor y el puerto sean correctos.';
+        fclose($fp);
+        return null;
+    }
+
+    $saludo = fgets($fp, 2048);
+    if (!$saludo || !str_starts_with(ltrim((string)$saludo), '* OK')) {
+        $err = 'El servidor no saludó como se esperaba: ' . trim((string)$saludo);
+        fclose($fp);
+        return null;
+    }
+
+    $r = imap_cmd($fp, 'LOGIN ' . imap_cita((string)$c['user']) . ' ' . imap_cita((string)$c['pass']));
+    if (!$r['ok']) {
+        // Gmail contesta con este texto cuando falta la contraseña de aplicación.
+        $err = str_contains(mb_strtolower($r['texto']), 'credentials')
+            ? 'Usuario o contraseña incorrectos. Con Google Workspace hay que usar una '
+              . 'contraseña de aplicación, no la contraseña normal de la cuenta.'
+            : 'No se pudo iniciar sesión: ' . $r['texto'];
+        fclose($fp);
+        return null;
+    }
+    return $fp;
 }
 
-/** Último UID procesado de un buzón. */
+function imap_cerrar($fp): void
+{
+    if (is_resource($fp)) {
+        @imap_cmd($fp, 'LOGOUT');
+        @fclose($fp);
+    }
+}
+
+/** Entrecomilla un valor para el protocolo IMAP. */
+function imap_cita(string $v): string
+{
+    return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $v) . '"';
+}
+
+/**
+ * Manda un comando y devuelve la respuesta completa.
+ *
+ * IMAP mezcla líneas sueltas con «literales» (`{123}` + 123 bytes crudos), así
+ * que no alcanza con leer por líneas: hay que leer exactamente lo que anuncia.
+ *
+ * @return array{ok:bool, texto:string, lineas:array<int,string>, crudo:string}
+ */
+function imap_cmd($fp, string $comando, int $limiteBytes = 8388608): array
+{
+    static $n = 0;
+    $tag = sprintf('a%04d', ++$n);
+    fwrite($fp, $tag . ' ' . $comando . "\r\n");
+
+    $lineas = [];
+    $crudo  = '';
+    $ok     = false;
+    $texto  = '';
+    $leidos = 0;
+
+    while (!feof($fp)) {
+        $linea = fgets($fp, 8192);
+        if ($linea === false) { break; }
+        $leidos += strlen($linea);
+        $crudo  .= $linea;
+
+        // Literal anunciado al final de la línea: se leen esos bytes exactos.
+        if (preg_match('/\{(\d+)\}\r?\n$/', $linea, $m)) {
+            $faltan = (int)$m[1];
+            $buf = '';
+            while ($faltan > 0 && !feof($fp)) {
+                $trozo = fread($fp, min($faltan, 65536));
+                if ($trozo === false || $trozo === '') { break; }
+                $buf    .= $trozo;
+                $faltan -= strlen($trozo);
+            }
+            $crudo  .= $buf;
+            $leidos += strlen($buf);
+            $lineas[] = rtrim($linea, "\r\n") . "\n" . $buf;
+            continue;
+        }
+
+        $lineas[] = rtrim($linea, "\r\n");
+
+        if (str_starts_with($linea, $tag . ' ')) {
+            $resto = trim(substr($linea, strlen($tag) + 1));
+            $ok    = str_starts_with($resto, 'OK');
+            $texto = $resto;
+            break;
+        }
+        if ($leidos > $limiteBytes) { break; }   // red de seguridad
+    }
+
+    return ['ok' => $ok, 'texto' => $texto, 'lineas' => $lineas, 'crudo' => $crudo];
+}
+
+/** Decodifica un encabezado MIME (=?UTF-8?B?...?=) a texto plano. */
+function imap_texto(?string $s): string
+{
+    $s = trim((string)$s);
+    if ($s === '') { return ''; }
+    $out = preg_replace_callback(
+        '/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/',
+        static function (array $m): string {
+            $juego = strtoupper($m[1]);
+            $texto = strtoupper($m[2]) === 'B'
+                ? (base64_decode($m[3], true) ?: '')
+                : quoted_printable_decode(str_replace('_', ' ', $m[3]));
+            if ($juego === 'UTF-8' || $juego === 'US-ASCII') { return $texto; }
+            $conv = @mb_convert_encoding($texto, 'UTF-8', $juego);
+            return $conv !== false ? $conv : $texto;
+        },
+        $s
+    );
+    // Entre dos palabras codificadas seguidas no va espacio (RFC 2047).
+    return trim(preg_replace('/\?=\s+=\?/', '', (string)$out) ?: (string)$out);
+}
+
+/** Saca un encabezado del bloque de cabeceras. */
+function imap_cabecera(string $cabeceras, string $nombre): string
+{
+    // Las cabeceras plegadas continúan en la línea siguiente con espacio o tab.
+    if (preg_match('/^' . preg_quote($nombre, '/') . ':\s*(.*(?:\r?\n[ \t].*)*)/mi', $cabeceras, $m)) {
+        return trim(preg_replace('/\r?\n[ \t]+/', ' ', $m[1]) ?? $m[1]);
+    }
+    return '';
+}
+
+/** Extrae la dirección de un encabezado tipo `Nombre <x@y.com>`. */
+function imap_direccion(string $cabecera): string
+{
+    if (preg_match('/<([^>]+)>/', $cabecera, $m)) { return normalizar_email($m[1]); }
+    if (preg_match('/[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i', $cabecera, $m)) {
+        return normalizar_email($m[0]);
+    }
+    return '';
+}
+
+// ------------------------------------------------------------
+//  Estado por buzón
+// ------------------------------------------------------------
+
 function imap_ultimo_uid(string $buzon): int
 {
     return (int) (qv('SELECT ultimo_uid FROM imap_estado WHERE buzon = ?', [$buzon]) ?: 0);
@@ -82,29 +249,17 @@ function imap_guardar_uid(string $buzon, int $uid): void
       [$buzon, $uid]);
 }
 
-/** Decodifica un encabezado MIME a texto plano. */
-function imap_texto(?string $s): string
-{
-    if ($s === null || $s === '') { return ''; }
-    $out = '';
-    foreach (imap_mime_header_decode($s) as $p) {
-        $juego = strtolower((string)$p->charset);
-        $texto = (string)$p->text;
-        $out  .= ($juego === 'default' || $juego === 'utf-8')
-            ? $texto
-            : (@mb_convert_encoding($texto, 'UTF-8', $juego) ?: $texto);
-    }
-    return trim($out);
-}
+// ------------------------------------------------------------
+//  Clasificación de rebotes (lógica de Pulsemail)
+// ------------------------------------------------------------
 
-/** ¿El mensaje es un rebote? */
 function es_rebote(string $de, string $asunto): bool
 {
-    $de = strtolower($de);
+    $de = mb_strtolower($de);
     foreach (REMITENTES_REBOTE as $r) {
         if (str_contains($de, $r)) { return true; }
     }
-    $asunto = strtolower($asunto);
+    $asunto = mb_strtolower($asunto);
     foreach (ASUNTOS_REBOTE as $a) {
         if (str_contains($asunto, $a)) { return true; }
     }
@@ -117,11 +272,6 @@ function es_rebote(string $de, string $asunto): bool
  * Importa porque un rebote definitivo archiva el contacto y uno pasajero no:
  * una casilla llena o un servidor caído se arreglan solos, pero una dirección
  * que no existe no va a existir mañana.
- *
- * Se mira, en este orden:
- *   1. el código de estado del DSN (RFC 3463): 5.x.x es permanente, 4.x.x temporal;
- *   2. el código SMTP citado en el cuerpo (550, 553…);
- *   3. las frases típicas, en inglés y en castellano.
  */
 function es_rebote_duro(string $cuerpo): bool
 {
@@ -162,7 +312,6 @@ function es_rebote_duro(string $cuerpo): bool
 function extraer_destinatario_rebote(string $cuerpo): array
 {
     $encontrados = [];
-    // Los servidores serios usan la cabecera estándar del DSN.
     if (preg_match_all('/Final-Recipient:\s*rfc822;\s*([^\s<>]+@[^\s<>]+)/i', $cuerpo, $m)) {
         $encontrados = array_merge($encontrados, $m[1]);
     }
@@ -170,8 +319,6 @@ function extraer_destinatario_rebote(string $cuerpo): array
         $encontrados = array_merge($encontrados, $m[1]);
     }
     if (!$encontrados) {
-        // Último recurso: cualquier dirección del cuerpo. Se filtra después
-        // contra nuestras campañas, así que un falso positivo no hace daño.
         if (preg_match_all('/[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i', $cuerpo, $m)) {
             $encontrados = $m[0];
         }
@@ -179,60 +326,93 @@ function extraer_destinatario_rebote(string $cuerpo): array
     return array_values(array_unique(array_map('normalizar_email', $encontrados)));
 }
 
+// ------------------------------------------------------------
+//  Revisión de la casilla
+// ------------------------------------------------------------
+
 /**
  * Escanea la casilla y actualiza rebotes y respuestas.
  *
- * @return array{rebotes:int, respuestas:int, revisados:int, error:?string}
+ * La primera pasada mira los últimos N días; las siguientes, sólo lo que llegó
+ * después del último UID visto. Sin eso, el cron cada 5 minutos releería la
+ * casilla entera todo el tiempo.
+ *
+ * @return array{rebotes:int, duros:int, respuestas:int, revisados:int, error:?string}
  */
-function imap_revisar(int $diasPrimeraVez = 30): array
+function imap_revisar(int $diasPrimeraVez = 30, ?array $cfg = null, string $etiquetaBuzon = 'INBOX'): array
 {
     $res = ['rebotes' => 0, 'duros' => 0, 'respuestas' => 0, 'revisados' => 0, 'error' => null];
-    if (!imap_configurado()) {
-        $res['error'] = 'IMAP sin configurar.';
+
+    $c = $cfg ?? imap_cfg();
+    if (empty($c['user']) || empty($c['pass'])) {
+        $res['error'] = 'La casilla de entrada no está configurada.';
         return $res;
     }
-    $err  = null;
-    $mbox = imap_conectar('INBOX', $err);
-    if (!$mbox) {
+
+    $err = null;
+    $fp  = imap_conectar($err, $c);
+    if (!$fp) {
         $res['error'] = $err;
         return $res;
     }
 
     try {
-        $ultimo = imap_ultimo_uid('INBOX');
-        if ($ultimo > 0) {
-            $uids = imap_search($mbox, 'UID ' . ($ultimo + 1) . ':*', SE_UID) ?: [];
-        } else {
-            $uids = imap_search($mbox, 'SINCE "' . date('d-M-Y', strtotime("-$diasPrimeraVez days")) . '"', SE_UID) ?: [];
+        $sel = imap_cmd($fp, 'SELECT "INBOX"');
+        if (!$sel['ok']) {
+            $res['error'] = 'No se pudo abrir INBOX: ' . $sel['texto'];
+            return $res;
         }
+
+        $ultimo = imap_ultimo_uid($etiquetaBuzon);
+        $busq = $ultimo > 0
+            ? 'UID SEARCH UID ' . ($ultimo + 1) . ':*'
+            : 'UID SEARCH SINCE ' . date('d-M-Y', strtotime("-$diasPrimeraVez days"));
+        $r = imap_cmd($fp, $busq);
+        if (!$r['ok']) {
+            $res['error'] = 'La búsqueda falló: ' . $r['texto'];
+            return $res;
+        }
+
+        $uids = [];
+        foreach ($r['lineas'] as $l) {
+            if (preg_match('/^\* SEARCH(.*)$/i', $l, $m)) {
+                foreach (preg_split('/\s+/', trim($m[1])) ?: [] as $x) {
+                    if ($x !== '' && ctype_digit($x)) { $uids[] = (int)$x; }
+                }
+            }
+        }
+        // `UID n:*` siempre devuelve al menos el último mensaje aunque no sea
+        // nuevo: se descarta lo que ya se procesó.
+        $uids = array_values(array_filter($uids, fn($u) => $u > $ultimo));
+        sort($uids);
         // Tope por corrida: el cron pasa cada pocos minutos, no hace falta
-        // procesar miles de mensajes de una y arriesgar el tiempo de ejecución.
-        $uids = array_slice($uids, -300);
-        $propio = normalizar_email((string)(imap_cfg()['user'] ?? ''));
+        // procesar miles de una y arriesgar el tiempo de ejecución.
+        $uids   = array_slice($uids, 0, 300);
+        $propio = normalizar_email((string)($c['user'] ?? ''));
         $maxUid = $ultimo;
 
         foreach ($uids as $uid) {
-            $uid = (int)$uid;
             $maxUid = max($maxUid, $uid);
             $res['revisados']++;
 
-            $cab = imap_fetchheader($mbox, $uid, FT_UID);
-            if ($cab === false) { continue; }
-            $info   = imap_rfc822_parse_headers($cab);
-            $de     = '';
-            if (!empty($info->from[0])) {
-                $de = strtolower(($info->from[0]->mailbox ?? '') . '@' . ($info->from[0]->host ?? ''));
-            }
-            $asunto = imap_texto($info->subject ?? '');
+            $h = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[HEADER])");
+            if (!$h['ok']) { continue; }
+            $cab    = $h['crudo'];
+            $de     = imap_direccion(imap_cabecera($cab, 'From'));
+            $asunto = imap_texto(imap_cabecera($cab, 'Subject'));
 
             if ($de === '' || $de === $propio) { continue; }
 
             if (es_rebote($de, $asunto)) {
-                $cuerpo = (string) imap_body($mbox, $uid, FT_UID | FT_PEEK);
+                // Sólo acá hace falta el cuerpo: es donde viene el DSN con la
+                // dirección que falló y el código de error.
+                $b = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[TEXT])", 524288);
+                $cuerpo = $b['ok'] ? $b['crudo'] : '';
                 $duro   = es_rebote_duro($cuerpo);
                 foreach (extraer_destinatario_rebote($cuerpo) as $direccion) {
                     if ($direccion === $propio) { continue; }
-                    // Sólo cuentan los rebotes de NUESTRAS campañas.
+                    // Sólo cuentan los rebotes de NUESTRAS campañas: los rebotes
+                    // personales de la misma casilla no ensucian el CRM.
                     if (!qv('SELECT 1 FROM envios WHERE email = ? LIMIT 1', [$direccion])) { continue; }
                     marcar_rebote($direccion, recortar($asunto, 200), $duro);
                     $res['rebotes']++;
@@ -248,26 +428,32 @@ function imap_revisar(int $diasPrimeraVez = 30): array
             }
         }
 
-        imap_guardar_uid('INBOX', $maxUid);
+        imap_guardar_uid($etiquetaBuzon, $maxUid);
+    } catch (\Throwable $e) {
+        $res['error'] = $e->getMessage();
     } finally {
-        imap_close($mbox);
-        imap_errors();
+        imap_cerrar($fp);
     }
 
     // Los contadores de las campañas afectadas se recalculan de una sola vez.
-    foreach (q("SELECT DISTINCT campana_id FROM envios WHERE rebotado_en >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
-                   OR respondido_en >= DATE_SUB(NOW(), INTERVAL 1 HOUR)")->fetchAll() as $r) {
-        campana_recontar((int)$r['campana_id']);
+    foreach (q("SELECT DISTINCT campana_id FROM envios
+                WHERE rebotado_en >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                   OR respondido_en >= DATE_SUB(NOW(), INTERVAL 1 HOUR)")->fetchAll() as $r2) {
+        campana_recontar((int)$r2['campana_id']);
     }
     return $res;
 }
 
-/** Prueba la conexión IMAP sin procesar nada. */
-function imap_probar(?string &$err = null): bool
+/** Prueba la conexión sin procesar nada. */
+function imap_probar(?string &$err = null, ?array $cfg = null): bool
 {
-    $mbox = imap_conectar('INBOX', $err);
-    if (!$mbox) { return false; }
-    imap_close($mbox);
-    imap_errors();
+    $fp = imap_conectar($err, $cfg);
+    if (!$fp) { return false; }
+    $r = imap_cmd($fp, 'SELECT "INBOX"');
+    imap_cerrar($fp);
+    if (!$r['ok']) {
+        $err = 'Se conectó pero no pudo abrir la bandeja de entrada: ' . $r['texto'];
+        return false;
+    }
     return true;
 }

@@ -187,6 +187,27 @@ ok('los cuatro preajustes están completos',
    count(plantillas_preajustes()) === 4
    && !array_filter(plantillas_preajustes(), fn($p) => empty($p['bloques']) || empty($p['asunto'])));
 
+echo "== Botón de WhatsApp (formato oficial) ==\n";
+$wa = bloques_render([['tipo' => 'whatsapp', 'telefono' => '54 9 11 5027-4827',
+                       'mensaje' => 'Hola, me interesa conocer más sobre sus soluciones.',
+                       'texto' => 'Escribinos']], [], $ctxE);
+contiene('usa api.whatsapp.com/send',  $wa, 'api.whatsapp.com/send/?phone=');
+contiene('deja el número sin símbolos', $wa, 'phone=5491150274827');
+contiene('codifica el mensaje',        $wa, 'text=Hola%2C+me+interesa');
+contiene('lleva los parámetros oficiales', $wa, 'type=phone_number&amp;app_absent=0');
+contiene('el texto del botón se respeta', $wa, 'Escribinos');
+// Sin número el bloque no se dibuja (el documento sigue existiendo, vacío).
+no_contiene('sin número no dibuja el botón',
+            bloques_render([['tipo' => 'whatsapp']], [], []), 'whatsapp.com');
+$waCtx = bloques_render([['tipo' => 'whatsapp']], [], ['empresa_whatsapp' => '5491150274827']);
+contiene('si no le ponen número usa el de la empresa', $waCtx, 'phone=5491150274827');
+
+echo "== Botón de agenda ==\n";
+$ag = bloques_render([['tipo' => 'agenda', 'texto' => 'Agendar reunión']], [], $ctxE);
+contiene('deja la variable para resolver al enviar', $ag, '{{agenda}}');
+contiene('respeta el texto del botón',               $ag, 'Agendar reunión');
+contiene('se dibuja como botón, con respaldo Outlook', $ag, 'v:roundrect');
+
 echo "== Escapado dentro del correo (no se puede inyectar HTML) ==\n";
 $sucio = bloques_render([['tipo' => 'texto', 'texto' => '<script>alert(1)</script> & "comillas"']], [], $ctxE);
 no_contiene('el HTML del usuario se escapa',  $sucio, '<script>alert');

@@ -32,6 +32,7 @@ if (is_post()) {
     } else {
         $claves = [
             'app_nombre', 'app_entorno', 'testing_destinatarios',
+            'empresa_nombre', 'empresa_web', 'empresa_telefono', 'empresa_email', 'empresa_whatsapp',
             'smtp_host', 'smtp_port', 'smtp_seguridad', 'smtp_user', 'smtp_from', 'smtp_from_name',
             'imap_host', 'imap_port', 'imap_user',
             'campana_pausa_min', 'campana_pausa_max', 'campana_limite_diario',

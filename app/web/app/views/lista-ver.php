@@ -54,6 +54,25 @@
     </form>
 </div>
 
+<div class="card" style="margin-bottom:1rem">
+    <div class="card-head"><h2>Agregar correos a mano</h2></div>
+    <p class="muted small" style="margin:-.3rem 0 .8rem">
+        Para cuando querés mandarle a unas pocas direcciones puntuales. Pegalas separadas por
+        coma, espacio o una por línea. Si alguna ya existe como contacto del CRM, se enlaza sola.
+    </p>
+    <form method="post">
+        <?= csrf_field() ?>
+        <input type="hidden" name="accion" value="sueltos">
+        <label class="fld">
+            <textarea name="correos" rows="3" required
+                      placeholder="juan@empresa.com, maria@otra.com&#10;pedro@tercera.com"></textarea>
+        </label>
+        <div style="margin-top:.6rem">
+            <button class="btn btn-primary btn-sm"><?= icon('mas', 15) ?>Agregar a la lista</button>
+        </div>
+    </form>
+</div>
+
 <form class="filters card" method="get" action="<?= e(url('lista-ver')) ?>">
     <input type="hidden" name="id" value="<?= (int)$l['id'] ?>">
     <div class="filter-grid">

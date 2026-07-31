@@ -56,44 +56,100 @@
     </div>
 
     <div class="card form-card">
-        <h2 class="sec">Cuenta desde la que salen los correos</h2>
+        <h2 class="sec">Datos de la empresa</h2>
         <p class="muted small" style="margin:-.5rem 0 1rem">
-            Con Google Workspace hay que usar una <strong>contraseña de aplicación</strong>, no la contraseña
-            normal de la cuenta. Se genera desde la seguridad de la cuenta de Google.
+            Son los que usan las plantillas de campaña: el bloque de contacto, el botón de
+            WhatsApp y las variables <code class="mono">{{remitente_empresa}}</code> y
+            <code class="mono">{{empresa_web}}</code>.
         </p>
         <div class="grid-fields">
-            <label class="fld"><span>Servidor</span><input name="smtp_host" value="<?= e($s('smtp_host', 'smtp.gmail.com')) ?>"></label>
-            <label class="fld"><span>Puerto</span><input name="smtp_port" value="<?= e($s('smtp_port', '587')) ?>"></label>
-            <label class="fld"><span>Seguridad</span>
-                <select name="smtp_seguridad">
-                    <option value="tls" <?= $s('smtp_seguridad', 'tls') === 'tls' ? 'selected' : '' ?>>STARTTLS (587)</option>
-                    <option value="ssl" <?= $s('smtp_seguridad') === 'ssl' ? 'selected' : '' ?>>SSL directo (465)</option>
-                </select>
+            <label class="fld"><span>Nombre de la empresa</span>
+                <input name="empresa_nombre" value="<?= e($s('empresa_nombre', 'INTELLIHELP')) ?>" maxlength="120">
             </label>
-            <label class="fld"><span>Usuario</span><input name="smtp_user" value="<?= e($s('smtp_user')) ?>" autocomplete="off"></label>
-            <label class="fld"><span>Contraseña de aplicación</span>
-                <input type="password" name="smtp_pass" value="" autocomplete="new-password"
-                       placeholder="<?= $s('smtp_pass') !== '' ? '•••••• (dejala vacía para no cambiarla)' : '' ?>">
+            <label class="fld"><span>Sitio web</span>
+                <input name="empresa_web" value="<?= e($s('empresa_web')) ?>" maxlength="190" placeholder="intellihelp.tech">
             </label>
-            <label class="fld"><span>Remitente (From)</span><input name="smtp_from" value="<?= e($s('smtp_from')) ?>"></label>
-            <label class="fld"><span>Nombre del remitente</span><input name="smtp_from_name" value="<?= e($s('smtp_from_name', 'INTELLIHELP')) ?>"></label>
+            <label class="fld"><span>Teléfono</span>
+                <input name="empresa_telefono" value="<?= e($s('empresa_telefono')) ?>" maxlength="60">
+            </label>
+            <label class="fld"><span>WhatsApp</span>
+                <input name="empresa_whatsapp" value="<?= e($s('empresa_whatsapp')) ?>" maxlength="60" placeholder="5491150274827">
+                <i class="hint">Sólo números, con código de país y sin el «+». Es el que usa el botón de WhatsApp.</i>
+            </label>
+            <label class="fld wide"><span>Correo de contacto</span>
+                <input name="empresa_email" value="<?= e($s('empresa_email')) ?>" maxlength="190" placeholder="info@intellihelp.tech">
+                <i class="hint">El que se muestra en el correo para que te escriban. No es el mismo que la casilla desde la que se envía.</i>
+            </label>
         </div>
     </div>
 
     <div class="card form-card">
-        <h2 class="sec">Casilla de entrada (rebotes y respuestas)</h2>
+        <h2 class="sec">Cuenta desde la que salen los correos</h2>
+        <div class="flash flash-info" style="margin:-.3rem 0 1rem">
+            <strong>Con Google Workspace hace falta una «contraseña de aplicación»</strong>, no la
+            contraseña con la que entrás a Google. Se genera en
+            <em>Cuenta de Google → Seguridad → Verificación en dos pasos → Contraseñas de aplicaciones</em>
+            y son 16 letras en cuatro grupos.
+        </div>
+        <div class="grid-fields">
+            <label class="fld wide"><span>Dirección de correo de la cuenta</span>
+                <input name="smtp_user" value="<?= e($s('smtp_user')) ?>" autocomplete="off"
+                       placeholder="ithos@intellihelp.tech" type="email">
+                <i class="hint">La casilla con la que el sistema se conecta a Google para enviar. Va la dirección completa.</i>
+            </label>
+            <label class="fld wide"><span>Contraseña de aplicación</span>
+                <input type="password" name="smtp_pass" value="" autocomplete="new-password"
+                       placeholder="<?= $s('smtp_pass') !== '' ? '•••••• · ya está guardada, dejala vacía para no cambiarla' : 'xxxx xxxx xxxx xxxx' ?>">
+                <i class="hint">La de 16 letras que genera Google. Se guarda cifrada y no se vuelve a mostrar.</i>
+            </label>
+
+            <label class="fld wide"><span>Dirección que ve el destinatario</span>
+                <input name="smtp_from" value="<?= e($s('smtp_from')) ?>" type="email"
+                       placeholder="la misma de arriba">
+                <i class="hint">La que aparece como remitente en la bandeja del cliente. Si la dejás vacía se usa la de arriba. Sólo tiene sentido cambiarla si Google tiene configurado un alias.</i>
+            </label>
+            <label class="fld wide"><span>Nombre que ve el destinatario</span>
+                <input name="smtp_from_name" value="<?= e($s('smtp_from_name', 'INTELLIHELP')) ?>">
+                <i class="hint">Lo que se lee en negrita en la bandeja, antes del asunto. Por ejemplo «INTELLIHELP» o «Brian de INTELLIHELP».</i>
+            </label>
+
+            <label class="fld"><span>Servidor de salida</span>
+                <input name="smtp_host" value="<?= e($s('smtp_host', 'smtp.gmail.com')) ?>">
+                <i class="hint">Con Gmail o Workspace: <code class="mono">smtp.gmail.com</code>.</i>
+            </label>
+            <label class="fld"><span>Puerto</span><input name="smtp_port" value="<?= e($s('smtp_port', '587')) ?>"></label>
+            <label class="fld"><span>Seguridad</span>
+                <select name="smtp_seguridad">
+                    <option value="tls" <?= $s('smtp_seguridad', 'tls') === 'tls' ? 'selected' : '' ?>>STARTTLS (puerto 587)</option>
+                    <option value="ssl" <?= $s('smtp_seguridad') === 'ssl' ? 'selected' : '' ?>>SSL directo (puerto 465)</option>
+                </select>
+                <i class="hint">Con Gmail, STARTTLS en el 587.</i>
+            </label>
+        </div>
+    </div>
+
+    <div class="card form-card">
+        <h2 class="sec">Casilla donde llegan los rebotes y las respuestas</h2>
         <p class="muted small" style="margin:-.5rem 0 1rem">
-            Si la dejás vacía se usa la misma cuenta de salida. Es de donde se leen los rebotes
-            (<code class="mono">mailer-daemon</code>, <code class="mono">postmaster</code>) y las respuestas de los clientes.
+            Es la <strong>bandeja de entrada</strong> de la misma cuenta. De ahí el sistema lee los avisos
+            de correo no entregado (<code class="mono">mailer-daemon</code>, <code class="mono">postmaster</code>)
+            y las respuestas de los clientes, para marcarlas en el CRM.
+            <strong>Si la dejás vacía se usa la cuenta de salida</strong>, que es lo habitual.
         </p>
         <div class="grid-fields">
-            <label class="fld"><span>Servidor</span><input name="imap_host" value="<?= e($s('imap_host', 'imap.gmail.com')) ?>"></label>
-            <label class="fld"><span>Puerto</span><input name="imap_port" value="<?= e($s('imap_port', '993')) ?>"></label>
-            <label class="fld"><span>Usuario</span><input name="imap_user" value="<?= e($s('imap_user')) ?>" autocomplete="off"></label>
-            <label class="fld"><span>Contraseña</span>
-                <input type="password" name="imap_pass" value="" autocomplete="new-password"
-                       placeholder="<?= $s('imap_pass') !== '' ? '•••••• (dejala vacía para no cambiarla)' : 'igual que la de salida' ?>">
+            <label class="fld wide"><span>Dirección de correo</span>
+                <input name="imap_user" value="<?= e($s('imap_user')) ?>" autocomplete="off" type="email"
+                       placeholder="la misma de salida">
             </label>
+            <label class="fld wide"><span>Contraseña de aplicación</span>
+                <input type="password" name="imap_pass" value="" autocomplete="new-password"
+                       placeholder="<?= $s('imap_pass') !== '' ? '•••••• · ya está guardada' : 'la misma de salida' ?>">
+            </label>
+            <label class="fld"><span>Servidor de entrada</span>
+                <input name="imap_host" value="<?= e($s('imap_host', 'imap.gmail.com')) ?>">
+                <i class="hint">Con Gmail o Workspace: <code class="mono">imap.gmail.com</code>.</i>
+            </label>
+            <label class="fld"><span>Puerto</span><input name="imap_port" value="<?= e($s('imap_port', '993')) ?>"></label>
         </div>
     </div>
 

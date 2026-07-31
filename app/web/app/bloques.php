@@ -48,6 +48,10 @@ function bloques_tipos(): array
                          'ayuda'  => 'Una imagen con ancho y alineación. Siempre con texto alternativo.'],
         'boton'      => ['nombre' => 'Botón',                'icono' => 'enlace',
                          'ayuda'  => 'Llamado a la acción. Se dibuja para que también se vea en Outlook.'],
+        'agenda'     => ['nombre' => 'Botón «Agendar reunión»', 'icono' => 'agenda',
+                         'ayuda'  => 'Abre tu agenda pública. El enlace se arma solo con el responsable de la campaña.'],
+        'whatsapp'   => ['nombre' => 'Botón de WhatsApp',    'icono' => 'llamadas',
+                         'ayuda'  => 'Abre WhatsApp con un mensaje ya escrito. Sólo hace falta el número y el texto.'],
         'destacado'  => ['nombre' => 'Recuadro destacado',   'icono' => 'alerta',
                          'ayuda'  => 'Bloque con fondo suave para resaltar una idea.'],
         'contacto'   => ['nombre' => 'Datos de contacto',    'icono' => 'contactos',
@@ -250,6 +254,37 @@ function bloque_html(array $b, array $a, array $ctx): string
                 . '<!--<![endif]-->'
                 . '</td></tr></table>', '12px 44px 12px 44px');
 
+        case 'agenda':
+            // El enlace real se resuelve al enviar, con la agenda del responsable
+            // de la campaña. Acá va la variable para no atar la plantilla a una
+            // persona: la misma plantilla sirve para cualquier vendedor.
+            return bloque_html([
+                'tipo'       => 'boton',
+                'texto'      => trim((string)($b['texto'] ?? '')) ?: 'Agendar una reunión',
+                'enlace'     => '{{agenda}}',
+                'fondo'      => $b['fondo'] ?? _c($a['marca'], '#5b2d91'),
+                'color'      => $b['color'] ?? '#ffffff',
+                'alineacion' => $b['alineacion'] ?? 'center',
+            ], $a, $ctx);
+
+        case 'whatsapp':
+            $tel = preg_replace('/\D/', '', (string)($b['telefono'] ?? ($ctx['empresa_whatsapp'] ?? '')));
+            if ($tel === '') { return ''; }
+            $mens = trim((string)($b['mensaje'] ?? '')) ?: 'Hola, me interesa conocer más sobre sus soluciones.';
+            // Formato oficial de api.whatsapp.com: el mensaje va codificado en la
+            // query. El usuario sólo escribe el texto; la dirección la armamos.
+            $enlWa = 'https://api.whatsapp.com/send/?phone=' . $tel
+                   . '&text=' . urlencode($mens)   // urlencode: espacios como «+», igual que los enlaces oficiales de WhatsApp
+                   . '&type=phone_number&app_absent=0';
+            return bloque_html([
+                'tipo'       => 'boton',
+                'texto'      => trim((string)($b['texto'] ?? '')) ?: 'Escribinos por WhatsApp',
+                'enlace'     => $enlWa,
+                'fondo'      => $b['fondo'] ?? '#25D366',
+                'color'      => $b['color'] ?? '#ffffff',
+                'alineacion' => $b['alineacion'] ?? 'center',
+            ], $a, $ctx);
+
         case 'destacado':
             $bg = _c($b['fondo'] ?? '', '#f5f3fa');
             $t  = trim((string)($b['titulo'] ?? ''));
@@ -417,6 +452,17 @@ function bloques_texto(array $bloques, array $ctx = []): string
             case 'boton':
                 $enl = _url($b['enlace'] ?? '');
                 if ($enl !== '') { $out[] = trim((string)($b['texto'] ?? 'Ver más')) . ': ' . $enl; $out[] = ''; }
+                break;
+            case 'agenda':
+                $out[] = (trim((string)($b['texto'] ?? '')) ?: 'Agendar una reunión') . ': {{agenda}}';
+                $out[] = '';
+                break;
+            case 'whatsapp':
+                $tel = preg_replace('/\D/', '', (string)($b['telefono'] ?? ($ctx['empresa_whatsapp'] ?? '')));
+                if ($tel !== '') {
+                    $out[] = (trim((string)($b['texto'] ?? '')) ?: 'WhatsApp') . ': +' . $tel;
+                    $out[] = '';
+                }
                 break;
             case 'destacado':
                 foreach (['titulo', 'texto'] as $k) {

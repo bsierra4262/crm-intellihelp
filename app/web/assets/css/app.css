@@ -389,6 +389,20 @@ body.publica{background:radial-gradient(120% 120% at 50% 0,#f4eefc 0,#f6f5fa 60%
 @media (max-width:820px){ .pub-body{grid-template-columns:1fr} .pub-info{border-right:none;border-bottom:1px solid var(--line)} }
 
 /* ---------- Barra de progreso de campaña ---------- */
+/* ---------- Pasos de una campaña ---------- */
+.pasos-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.15rem;counter-reset:paso}
+.paso{display:flex;align-items:flex-start;gap:.7rem;padding:.65rem .2rem;border-bottom:1px solid var(--line-soft)}
+.paso:last-child{border-bottom:none}
+.paso-n{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;
+  font-size:12px;font-weight:800;background:var(--line-soft);color:var(--muted);margin-top:1px}
+.paso.ok .paso-n{background:var(--accent-050);color:var(--accent-600)}
+.paso.falta .paso-n{background:var(--danger-bg);color:var(--danger)}
+.paso.aviso .paso-n{background:var(--warn-bg);color:var(--warn)}
+.paso-txt{display:flex;flex-direction:column;gap:.1rem;flex:1;min-width:0}
+.paso-txt strong{font-size:13.5px}
+.paso-txt small{font-size:12.5px;color:var(--muted);line-height:1.45}
+.paso .btn{flex:none;align-self:center}
+
 .col-avance{min-width:150px}
 .progreso{height:8px;background:var(--line-soft);border-radius:var(--pill);overflow:hidden;margin:.4rem 0}
 .progreso i{display:block;height:100%;background:var(--primary);border-radius:var(--pill);transition:width .3s}

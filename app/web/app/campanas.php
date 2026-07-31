@@ -369,6 +369,121 @@ function campana_estado(int $id, string $estado): void
         'detalle' => 'La campaña pasó a «' . $estado . '»']);
 }
 
+/**
+ * Enlace de la agenda pública del responsable de una campaña.
+ *
+ * Es lo que reemplaza a `{{agenda}}`. Si el responsable todavía no publicó
+ * ningún tipo de reunión devuelve cadena vacía, y quien llama tiene que
+ * avisarlo: un botón «Agendar» sin enlace es peor que no tener botón.
+ */
+function agenda_de_usuario(?int $usuarioId, ?int $campanaId = null): string
+{
+    if (!$usuarioId) { return ''; }
+    $t = q1('SELECT t.slug, u.email FROM agenda_tipos t
+             JOIN usuarios u ON u.id = t.usuario_id
+             WHERE t.usuario_id = ? AND t.activo = 1
+             ORDER BY t.id LIMIT 1', [$usuarioId]);
+    if (!$t) { return ''; }
+    return url_abs('r/' . explode('@', (string)$t['email'])[0] . '/' . $t['slug'])
+         . ($campanaId ? '?c=' . $campanaId : '');
+}
+
+/**
+ * Revisa si la campaña está lista para salir y devuelve los pasos pendientes.
+ *
+ * Esta es la lista que se muestra en la pantalla de la campaña: en vez de un
+ * error suelto cuando algo falla, se ve de antemano qué falta, por qué hace
+ * falta y adónde ir a resolverlo.
+ *
+ * @return array<int,array{clave:string,ok:bool,titulo:string,detalle:string,accion:?string,enlace:?string,bloqueante:bool}>
+ */
+function campana_pasos(array $c): array
+{
+    $pasos = [];
+    $add = static function (string $clave, bool $ok, string $titulo, string $detalle,
+                            ?string $accion = null, ?string $enlace = null, bool $bloq = true) use (&$pasos): void {
+        $pasos[] = compact('clave', 'ok', 'titulo', 'detalle', 'accion', 'enlace') + ['bloqueante' => $bloq];
+    };
+
+    // 1. Plantilla
+    $add('plantilla', !empty($c['plantilla_id']),
+        'Elegir qué se manda',
+        !empty($c['plantilla_id'])
+            ? 'Plantilla: ' . ($c['plantilla'] ?? '')
+            : 'Falta la plantilla con el diseño y el texto del correo.',
+        'Elegir plantilla', url('campana-form?id=' . (int)$c['id']));
+
+    // 2. Destinatarios
+    $enCola = (int) qv("SELECT COUNT(*) FROM envios WHERE campana_id = ? AND estado <> 'omitido'", [(int)$c['id']]);
+    $enLista = !empty($c['lista_id'])
+        ? (int) qv('SELECT COUNT(*) FROM lista_miembros WHERE lista_id = ?', [(int)$c['lista_id']])
+        : 0;
+    $add('lista', $enLista > 0,
+        'Elegir a quién se le manda',
+        $enLista > 0
+            ? 'Lista «' . ($c['lista'] ?? '') . '» con ' . number_format($enLista, 0, ',', '.') . ' destinatarios.'
+            : 'Falta una lista con destinatarios. Se arma desde Listas, cargando contactos del CRM con un filtro.',
+        'Ver listas', url('listas'));
+
+    // 3. Cuenta de correo
+    $cuenta = !empty($c['cuenta_correo_id'])
+        ? cuenta_correo_get((int)$c['cuenta_correo_id'])
+        : cuenta_correo_predeterminada();
+    $cuentaOk = $cuenta && (int)$cuenta['activo'] === 1;
+    $add('cuenta', $cuentaOk,
+        'Desde qué casilla sale',
+        $cuentaOk
+            ? 'Sale desde «' . $cuenta['nombre'] . '» (' . $cuenta['remitente'] . '), '
+              . 'hasta ' . (int)$cuenta['limite_diario'] . ' por día.'
+            : (smtp_configurado()
+                ? 'No hay ninguna cuenta activa elegida. Se puede usar la de Ajustes, pero conviene cargar una cuenta propia.'
+                : 'Falta configurar la cuenta desde la que salen los correos.'),
+        'Cuentas de correo', url('cuentas-correo'), !smtp_configurado());
+
+    // 4. La agenda, sólo si la plantilla la usa
+    $usaAgenda = !empty($c['cuerpo_html']) && str_contains((string)$c['cuerpo_html'], '{{agenda}}');
+    if ($usaAgenda) {
+        $enlace = agenda_de_usuario((int)($c['propietario_id'] ?? 0));
+        $add('agenda', $enlace !== '',
+            'Publicar tu agenda',
+            $enlace !== ''
+                ? 'El botón «Agendar» va a apuntar a ' . $enlace
+                : 'La plantilla tiene un botón de agenda, pero ' . ($c['propietario'] ?? 'el responsable')
+                  . ' todavía no publicó ningún tipo de reunión: el botón saldría sin enlace.',
+            'Crear un tipo de reunión', url('agenda-form'));
+    }
+
+    // 5. Modo de trabajo
+    if (es_testing()) {
+        $permitidos = array_filter(array_map('trim', explode(',', (string)setting_get('testing_destinatarios', ''))));
+        $add('modo', count($permitidos) > 0,
+            'Modo prueba activo',
+            count($permitidos) > 0
+                ? 'Sólo van a recibir: ' . implode(', ', $permitidos) . '. El resto se omite.'
+                : 'Está en modo prueba y no hay destinatarios de prueba cargados: no se va a enviar nada.',
+            'Ir a Ajustes', url('ajustes'), count($permitidos) === 0);
+    }
+
+    // 6. Cola preparada
+    $add('cola', $enCola > 0,
+        'Preparar la cola',
+        $enCola > 0
+            ? number_format($enCola, 0, ',', '.') . ' correos en cola.'
+            : 'Todavía no se armó la cola de envío. Al prepararla se descartan los repetidos, los dados de baja y los que ya rebotaron.',
+        null, null);
+
+    return $pasos;
+}
+
+/** ¿Se puede arrancar la campaña? */
+function campana_lista_para_enviar(array $c): bool
+{
+    foreach (campana_pasos($c) as $p) {
+        if ($p['bloqueante'] && !$p['ok'] && $p['clave'] !== 'cola') { return false; }
+    }
+    return true;
+}
+
 /** ¿Estamos dentro de la ventana horaria permitida de la campaña? */
 function campana_en_horario(array $c): bool
 {
@@ -396,17 +511,7 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
     // Enlace a la agenda del responsable de la campaña. Lleva el id de la
     // campaña pegado (?c=) para que la reunión que salga de ahí quede atribuida
     // a esta campaña y se pueda medir cuántas reuniones trajo.
-    $agenda = '';
-    if (!empty($c['propietario_id'])) {
-        $tipo = q1('SELECT t.slug, u.email FROM agenda_tipos t
-                    JOIN usuarios u ON u.id = t.usuario_id
-                    WHERE t.usuario_id = ? AND t.activo = 1 ORDER BY t.id LIMIT 1',
-                   [(int)$c['propietario_id']]);
-        if ($tipo) {
-            $agenda = url_abs('r/' . explode('@', (string)$tipo['email'])[0] . '/' . $tipo['slug'])
-                    . '?c=' . (int)$c['id'];
-        }
-    }
+    $agenda = agenda_de_usuario((int)($c['propietario_id'] ?? 0), (int)$c['id']);
 
     $partes = preg_split('/\s+/', trim((string)$envio['nombre'])) ?: [];
     $datos = [

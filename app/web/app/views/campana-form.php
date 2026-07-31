@@ -98,8 +98,12 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
             <label class="fld"><span>Responder a</span>
                 <input type="email" name="responder_a" value="<?= $v('responder_a') ?>" maxlength="190">
             </label>
-            <label class="fld"><span>Con copia a</span>
-                <input name="copia_a" value="<?= $v('copia_a') ?>" maxlength="500" placeholder="correos separados por coma">
+            <label class="fld wide"><span>Con copia (CC)</span>
+                <input name="copia_a" value="<?= $v('copia_a') ?>" maxlength="500"
+                       placeholder="ventas@intellihelp.tech, gerencia@intellihelp.tech">
+                <i class="hint">Estas direcciones reciben <strong>una copia de cada correo</strong> de la campaña.
+                    Sirve para que el equipo vea lo que sale. Separalas con coma. Ojo: si la campaña tiene
+                    500 destinatarios, quien esté en copia recibe 500 correos.</i>
             </label>
             <label class="fld"><span>Responsable</span>
                 <select name="propietario_id">

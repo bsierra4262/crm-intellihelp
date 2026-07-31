@@ -28,6 +28,31 @@ if (is_post() && ($_POST['accion'] ?? '') === 'cargar') {
     redirect('lista-ver?id=' . $id);
 }
 
+// Agregar correos escritos a mano. Es el caso «quiero mandarle a este, a este
+// y a este otro» sin tener que armar un filtro ni cargarlos como contactos.
+if (is_post() && ($_POST['accion'] ?? '') === 'sueltos') {
+    verify_csrf();
+    $texto = (string)($_POST['correos'] ?? '');
+    $n = 0; $malos = 0;
+    foreach (preg_split('/[\s,;]+/', $texto) ?: [] as $em) {
+        $em = normalizar_email($em);
+        if ($em === '') { continue; }
+        if (!email_valido($em)) { $malos++; continue; }
+        $ct = q1('SELECT id, nombre_completo FROM contactos WHERE email = ? AND eliminado_en IS NULL LIMIT 1', [$em]);
+        $st = q('INSERT IGNORE INTO lista_miembros (lista_id, contacto_id, email, nombre)
+                 VALUES (?, ?, ?, ?)',
+                [$id, $ct ? (int)$ct['id'] : null, $em, $ct['nombre_completo'] ?? null]);
+        $n += $st->rowCount();
+    }
+    log_app('lista.agregar_sueltos', ['entidad' => 'lista', 'entidad_id' => $id,
+        'detalle' => $n . ' correos agregados a mano']);
+    flash($n > 0
+        ? "Se agregaron $n correos." . ($malos ? " $malos no eran válidos y se descartaron." : '')
+        : 'No se agregó ninguno: o ya estaban en la lista, o no eran direcciones válidas.',
+        $n > 0 ? 'success' : 'info');
+    redirect('lista-ver?id=' . $id);
+}
+
 // Quitar un miembro suelto.
 if (is_post() && ($_POST['accion'] ?? '') === 'quitar') {
     verify_csrf();

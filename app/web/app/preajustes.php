@@ -41,7 +41,11 @@ function plantillas_preajustes(): array
                 ['tipo' => 'destacado',
                  'titulo' => 'Contactanos, te asesoramos sin cargo.',
                  'texto'  => 'Conversemos hoy mismo cómo podemos sumar a tu equipo.'],
-                ['tipo' => 'boton', 'texto' => 'Agendar una reunión', 'enlace' => '{{agenda}}',
+                // Los dos botones de la campaña original: WhatsApp y reunión.
+                ['tipo' => 'whatsapp', 'texto' => 'Contactanos por WhatsApp',
+                 'mensaje' => 'Hola, me interesa conocer más sobre sus soluciones.',
+                 'fondo' => '#25D366', 'color' => '#ffffff'],
+                ['tipo' => 'agenda', 'texto' => 'Agendar reunión',
                  'fondo' => '#5b2d91', 'color' => '#ffffff'],
                 ['tipo' => 'contacto'],
                 ['tipo' => 'firma', 'cierre' => 'Saludos cordiales,', 'firma' => '{{remitente}}',
@@ -66,7 +70,7 @@ function plantillas_preajustes(): array
                           . "resolver algo que hacemos todos los días, y quería presentarme sin ocuparte tiempo.\n\n"
                           . "Si te interesa, te propongo una charla de 20 minutos para entender tu situación y "
                           . "contarte si tiene sentido que trabajemos juntos. Si no, no te molesto más."],
-                ['tipo' => 'boton', 'texto' => 'Reservar 20 minutos', 'enlace' => '{{agenda}}',
+                ['tipo' => 'agenda', 'texto' => 'Reservar 20 minutos',
                  'fondo' => '#663399', 'color' => '#ffffff', 'alineacion' => 'left'],
                 ['tipo' => 'texto', 'texto' => 'Si preferís, respondeme este correo y coordinamos por acá.'],
                 ['tipo' => 'firma', 'cierre' => 'Gracias por tu tiempo,', 'firma' => '{{remitente}}',
@@ -94,7 +98,7 @@ function plantillas_preajustes(): array
                 ['tipo' => 'lista', 'texto' =>
                     "Qué es y para qué sirve.\nEn qué se nota el cambio.\nCómo lo implementamos, paso a paso."],
                 ['tipo' => 'separador'],
-                ['tipo' => 'boton', 'texto' => 'Quiero saber más', 'enlace' => '{{agenda}}',
+                ['tipo' => 'agenda', 'texto' => 'Quiero saber más',
                  'fondo' => '#663399', 'color' => '#ffffff'],
                 ['tipo' => 'firma', 'cierre' => 'Quedamos a disposición,', 'firma' => '{{remitente}}',
                  'cargo' => '{{remitente_empresa}}'],
@@ -118,7 +122,7 @@ function plantillas_preajustes(): array
                 ['tipo' => 'destacado',
                  'titulo' => 'Elegí vos el día y la hora',
                  'texto'  => 'Se abre mi agenda con los horarios libres y queda confirmado al instante, con el enlace de la videollamada.'],
-                ['tipo' => 'boton', 'texto' => 'Ver horarios disponibles', 'enlace' => '{{agenda}}',
+                ['tipo' => 'agenda', 'texto' => 'Ver horarios disponibles',
                  'fondo' => '#663399', 'color' => '#ffffff'],
                 ['tipo' => 'texto', 'texto' => 'Si esta semana no te sirve, avisame y lo vemos más adelante.'],
                 ['tipo' => 'firma', 'cierre' => 'Un saludo,', 'firma' => '{{remitente}}',

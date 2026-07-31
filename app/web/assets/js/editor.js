@@ -66,6 +66,23 @@
             ['color', 'color', 'Color del texto'],
             ['alineacion', 'alineacion', 'Alineación']
         ],
+        agenda: [
+            ['texto', 'texto', 'Texto del botón', { ph: 'Agendar una reunión' }],
+            ['fondo', 'color', 'Color del botón'],
+            ['color', 'color', 'Color del texto'],
+            ['alineacion', 'alineacion', 'Alineación']
+        ],
+        whatsapp: [
+            ['telefono', 'texto', 'Número de WhatsApp',
+             { ph: '5491150274827', ayuda: 'Sólo números, con código de país y sin el «+». Si lo dejás vacío se usa el de Ajustes.' }],
+            ['mensaje', 'area', 'Mensaje que ya viene escrito',
+             { filas: 3, ph: 'Hola, me interesa conocer más sobre sus soluciones.',
+               ayuda: 'Es lo que aparece tipeado cuando se abre WhatsApp. Sólo escribí el texto: la dirección se arma sola.' }],
+            ['texto', 'texto', 'Texto del botón', { ph: 'Escribinos por WhatsApp' }],
+            ['fondo', 'color', 'Color del botón'],
+            ['color', 'color', 'Color del texto'],
+            ['alineacion', 'alineacion', 'Alineación']
+        ],
         destacado: [
             ['titulo', 'texto', 'Título'],
             ['texto', 'area', 'Texto'],
@@ -99,6 +116,8 @@
     ];
 
     function resumen(b) {
+        if (b.tipo === 'whatsapp') { return (b.texto || 'WhatsApp') + ' → ' + (b.telefono || 'el de Ajustes'); }
+        if (b.tipo === 'agenda')   { return (b.texto || 'Agendar una reunión') + ' → tu agenda pública'; }
         var t = (b.texto || b.titulo || b.volanta || b.alt || b.derecha || b.cierre || '').toString();
         t = t.replace(/\s+/g, ' ').trim();
         return t.length > 70 ? t.slice(0, 69) + '…' : t;
@@ -266,7 +285,13 @@
             if (t === 'texto')  { nuevo.texto = 'Escribí acá tu mensaje.'; }
             if (t === 'titulo') { nuevo.texto = 'Un título'; nuevo.nivel = 2; }
             if (t === 'lista')  { nuevo.texto = 'Primer punto\nSegundo punto'; }
-            if (t === 'boton')  { nuevo.texto = 'Agendar una reunión'; nuevo.enlace = '{{agenda}}'; }
+            if (t === 'boton')  { nuevo.texto = 'Ver más'; nuevo.enlace = ''; }
+            if (t === 'agenda') { nuevo.texto = 'Agendar una reunión'; }
+            if (t === 'whatsapp') {
+                nuevo.texto = 'Escribinos por WhatsApp';
+                nuevo.mensaje = 'Hola, me interesa conocer más sobre sus soluciones.';
+                nuevo.fondo = '#25D366'; nuevo.color = '#ffffff';
+            }
             if (t === 'firma')  { nuevo.cierre = 'Saludos cordiales,'; nuevo.firma = '{{remitente}}'; }
             if (t === 'espacio'){ nuevo.alto = 20; }
             estado.bloques.push(nuevo);

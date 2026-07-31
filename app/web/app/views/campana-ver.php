@@ -35,6 +35,51 @@ $boton = function (string $accion, string $etiqueta, string $ic, string $clase =
     </div>
 </div>
 
+<?php
+$pasos = campana_pasos($c);
+$faltan = array_filter($pasos, fn($p) => !$p['ok']);
+?>
+<div class="card pasos" style="margin-bottom:1rem">
+    <div class="card-head">
+        <h2>Cómo arrancar esta campaña</h2>
+        <span class="small <?= $faltan ? 'warn' : 'muted' ?>">
+            <?= $faltan ? count($faltan) . ' paso(s) pendiente(s)' : 'todo listo' ?>
+        </span>
+    </div>
+    <ol class="pasos-lista">
+        <?php foreach ($pasos as $i => $p): ?>
+            <li class="paso <?= $p['ok'] ? 'ok' : ($p['bloqueante'] ? 'falta' : 'aviso') ?>">
+                <span class="paso-n"><?= $p['ok'] ? '✓' : $i + 1 ?></span>
+                <span class="paso-txt">
+                    <strong><?= e($p['titulo']) ?></strong>
+                    <small><?= e($p['detalle']) ?></small>
+                </span>
+                <?php if (!$p['ok'] && $p['accion']): ?>
+                    <a class="btn btn-ghost btn-sm" href="<?= e($p['enlace']) ?>"><?= e($p['accion']) ?></a>
+                <?php endif; ?>
+            </li>
+        <?php endforeach; ?>
+        <li class="paso <?= $c['estado'] === 'enviando' ? 'ok' : 'falta' ?>">
+            <span class="paso-n"><?= $c['estado'] === 'enviando' ? '✓' : count($pasos) + 1 ?></span>
+            <span class="paso-txt">
+                <strong>Arrancar</strong>
+                <small>
+                    <?php if ($c['estado'] === 'enviando'): ?>
+                        La campaña está enviando. Sale un correo cada <?= (int)$c['pausa_min_seg'] ?>–<?= (int)$c['pausa_max_seg'] ?> segundos,
+                        hasta <?= (int)$c['limite_diario'] ?> por día. Podés cerrar el navegador: sigue sola.
+                    <?php elseif ($c['estado'] === 'completada'): ?>
+                        La campaña terminó.
+                    <?php elseif (campana_lista_para_enviar($c)): ?>
+                        Ya está todo listo. Al iniciar se prepara la cola y empieza a enviar.
+                    <?php else: ?>
+                        Primero hay que resolver los pasos de arriba.
+                    <?php endif; ?>
+                </small>
+            </span>
+        </li>
+    </ol>
+</div>
+
 <?php if ($testing && in_array($c['estado'], ['enviando', 'programada'], true)): ?>
     <div class="flash flash-info"><strong>Modo prueba:</strong> sólo salen correos a los destinatarios internos de Ajustes.</div>
 <?php endif; ?>
