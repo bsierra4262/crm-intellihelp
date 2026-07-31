@@ -14,15 +14,37 @@
 <?php endif; ?>
 
 <div class="card mb-4">
+    <div class="card-head"><h2>Cómo se usa</h2></div>
+    <p class="muted small card-intro">
+        La clave sola no alcanza: hacen falta la dirección y el encabezado. Antes estaban
+        únicamente en el código, así que se generaba una clave y no había forma de saber
+        adónde mandarla.
+    </p>
+    <div class="kv">
+        <?php
+        dato('Dirección', url_abs('api/estado'));
+        dato('Encabezado', 'X-API-Key: <tu-clave>');
+        dato('Alternativa', 'Authorization: Bearer <tu-clave>');
+        dato('Método', 'GET');
+        ?>
+    </div>
+    <p class="muted small mt-3">
+        Ejemplo:
+        <code class="mono">curl -H "X-API-Key: TU_CLAVE" <?= e(url_abs('api/estado')) ?></code>
+    </p>
+</div>
+
+<div class="card mb-4">
     <div class="card-head"><h2>Nueva clave</h2></div>
     <form method="post" class="urow">
         <?= csrf_field() ?>
         <input type="hidden" name="accion" value="crear">
         <input name="nombre" placeholder="Para qué sistema es" maxlength="120" required class="w-xl">
-        <select name="scope" class="w-md">
-            <option value="lectura">Sólo lectura</option>
-            <option value="root">Acceso total</option>
-        </select>
+        <?php /* Por ahora la API es sólo de lectura y el endpoint no distingue
+                 permisos: ofrecer «Acceso total» prometía algo que no cambiaba
+                 nada. Cuando haya escritura, vuelve el selector. */ ?>
+        <input type="hidden" name="scope" value="lectura">
+        <span class="chip">Sólo lectura</span>
         <button class="btn btn-primary btn-sm"><?= icon('clave', 15) ?>Generar</button>
     </form>
 </div>

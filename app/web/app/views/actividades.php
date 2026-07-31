@@ -99,6 +99,16 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
                                 <input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
                                 <button class="act" title="Marcar como completada"><?= icon('ok', 16) ?></button>
                             </form>
+                        <?php else: ?>
+                            <?php /* Reabrir ya estaba soportado en el servidor y no
+                                     había ningún botón: una actividad completada por
+                                     error quedaba así para siempre. */ ?>
+                            <form class="inline-form" method="post" action="<?= e(url('actividad-completar')) ?>">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
+                                <input type="hidden" name="reabrir" value="1">
+                                <button class="act" title="Reabrir la actividad"><?= icon('refrescar', 16) ?></button>
+                            </form>
                         <?php endif; ?>
                         <a class="act" href="<?= e(url('actividad-form?id=' . (int)$a['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">

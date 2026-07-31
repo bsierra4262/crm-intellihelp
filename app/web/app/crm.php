@@ -161,7 +161,7 @@ function cuenta_asegurar(string $nombre, array $extra = [], ?int $usuarioId = nu
         // Completar los huecos sin pisar lo que ya está cargado.
         $sets = [];
         $vals = [];
-        foreach (['sitio_web', 'telefono', 'localidad', 'provincia', 'pais', 'codigo_postal', 'calle'] as $campo) {
+        foreach (['sitio_web', 'telefono', 'localidad', 'provincia', 'pais', 'codigo_postal', 'calle', 'sector'] as $campo) {
             if (!empty($extra[$campo]) && empty($c[$campo])) {
                 $sets[] = "$campo = ?";
                 $vals[] = $extra[$campo];
@@ -174,8 +174,8 @@ function cuenta_asegurar(string $nombre, array $extra = [], ?int $usuarioId = nu
         return (int)$c['id'];
     }
     q('INSERT INTO cuentas (nombre, propietario_id, sitio_web, telefono, calle, localidad,
-                            provincia, codigo_postal, pais, zoho_id, creado_por)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+                            provincia, codigo_postal, pais, sector, zoho_id, creado_por)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
         $nombre,
         $extra['propietario_id'] ?? null,
         $extra['sitio_web'] ?? null,
@@ -185,6 +185,7 @@ function cuenta_asegurar(string $nombre, array $extra = [], ?int $usuarioId = nu
         $extra['provincia'] ?? null,
         $extra['codigo_postal'] ?? null,
         $extra['pais'] ?? null,
+        $extra['sector'] ?? null,
         $extra['zoho_id'] ?? null,
         $usuarioId ?? current_user_id(),
     ]);
@@ -597,6 +598,12 @@ function tablas_papelera(): array
         'posible_cliente' => ['tabla' => 'posibles_clientes', 'etiqueta' => 'Posible cliente'],
         'negocio'         => ['tabla' => 'negocios',          'etiqueta' => 'Negocio'],
         'actividad'       => ['tabla' => 'actividades',       'etiqueta' => 'Actividad'],
+        // Estas tres se podían crear y no borrar: la única salida era entrar a
+        // la base. Van a la papelera como todo lo demás, con sus 60 días de
+        // gracia antes del borrado definitivo.
+        'campana'         => ['tabla' => 'campanas',          'etiqueta' => 'Campaña'],
+        'lista'           => ['tabla' => 'listas',            'etiqueta' => 'Lista'],
+        'plantilla'       => ['tabla' => 'plantillas',        'etiqueta' => 'Plantilla'],
     ];
 }
 

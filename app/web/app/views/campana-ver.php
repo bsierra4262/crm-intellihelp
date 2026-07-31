@@ -31,6 +31,16 @@ $boton = function (string $accion, string $etiqueta, string $ic, string $clase =
         <?php elseif ($c['estado'] === 'enviando'): ?>
             <?php $boton('pausar', 'Pausar', 'reloj', 'btn-ghost'); ?>
         <?php endif; ?>
+        <?php if (in_array($c['estado'], ['enviando', 'pausada', 'programada'], true)): ?>
+            <?php /* Cancelar existía en el servidor y no había ningún botón que
+                     lo disparara: una campaña arrancada por error sólo se podía
+                     pausar, y quedaba ahí para siempre. */ ?>
+            <?php $boton('cancelar', 'Cancelar campaña', 'x', 'btn-ghost', [
+                'titulo' => 'Cancelar la campaña',
+                'texto'  => 'Los correos que todavía no salieron se descartan y la campaña no se puede reanudar. '
+                          . 'Lo que ya se envió no se puede deshacer.',
+                'ok'     => 'Cancelar la campaña']); ?>
+        <?php endif; ?>
         <a class="btn btn-ghost" href="<?= e(url('campana-form?id=' . (int)$c['id'])) ?>"><?= icon('editar', 16) ?>Editar</a>
     </div>
 </div>

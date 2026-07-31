@@ -66,6 +66,8 @@ function rutas_a_probar(): array
         'ajustes'         => [],
         'cron'            => [],
         'api-keys'        => [],
+        'embudos'         => [],
+        'reserva-mover'   => ['_id_de' => 'agenda_reservas'],
 
         // Fichas de detalle. El listado y la ficha no comparten código, y las
         // que se rompieron fueron las fichas: `campana-ver` pedía la vista

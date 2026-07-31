@@ -41,6 +41,7 @@ $rutas = [
     'negocio-ver'     => ['public' => false],
     'embudo'          => ['public' => false],
     'negocio-etapa'   => ['public' => false],
+    'embudos'         => ['public' => false, 'admin' => true],
 
     'actividades'     => ['public' => false],
     'actividad-form'  => ['public' => false],
@@ -73,6 +74,7 @@ $rutas = [
     'importar'        => ['public' => false, 'admin' => true],
     'registro-eliminar' => ['public' => false],
     'nota-guardar'    => ['public' => false],
+    'nota-eliminar'   => ['public' => false],
     'buscar'          => ['public' => false],
 
     // --- Público (sin sesión): agenda de reuniones y baja de suscripción ---

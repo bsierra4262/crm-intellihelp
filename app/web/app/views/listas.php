@@ -29,6 +29,17 @@
                     <td data-label="Descripción" class="prio-2"><?= e(recortar($l['descripcion'], 60) ?: '—') ?></td>
                     <td data-label="Creada" class="prio-3"><?= fecha_corta($l['creado_en']) ?></td>
                     <td class="acts" data-label="Acciones">
+                        <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="entidad" value="lista">
+                            <input type="hidden" name="id" value="<?= (int)$l['id'] ?>">
+                            <input type="hidden" name="volver" value="listas">
+                            <button class="act danger" title="Enviar a la papelera" data-peligro
+                                    data-confirmar-titulo="Enviar a la papelera"
+                                    data-confirmar="La lista &laquo;<?= e($l['nombre']) ?>&raquo; deja de estar a la vista. Los contactos no se borran. Se puede restaurar durante 60 días."
+                                    data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
+                        </form>
+
                         <a class="act" href="<?= e(url('lista-ver?id=' . (int)$l['id'])) ?>" title="Ver miembros"><?= icon('contactos', 16) ?></a>
                         <a class="act" href="<?= e(url('lista-form?id=' . (int)$l['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
                     </td>

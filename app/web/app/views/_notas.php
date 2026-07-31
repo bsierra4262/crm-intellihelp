@@ -36,6 +36,16 @@ $entId = (int)($_GET['id'] ?? 0);
                     <div class="tl-when"><?= fecha_hora($n['creado_en']) ?> · <?= e($n['autor'] ?: 'sistema') ?></div>
                     <?php if ($n['titulo']): ?><div class="tl-title"><?= e($n['titulo']) ?></div><?php endif; ?>
                     <div class="tl-detail cuerpo"><?= e($n['cuerpo']) ?></div>
+                    <?php /* Borrar una nota existía como función y no la llamaba
+                             nadie: una nota escrita por error no se podía sacar. */ ?>
+                    <form class="inline-form" method="post" action="<?= e(url('nota-eliminar')) ?>">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="id" value="<?= (int)$n['id'] ?>">
+                        <button class="act danger" title="Borrar la nota" data-peligro
+                                data-confirmar-titulo="Borrar la nota"
+                                data-confirmar="La nota se borra definitivamente. Esto no va a la papelera."
+                                data-confirmar-ok="Borrar"><?= icon('papelera', 14) ?></button>
+                    </form>
                 </div>
             <?php endforeach; ?>
         </div>

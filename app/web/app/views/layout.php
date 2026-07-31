@@ -3,7 +3,9 @@
 /** @var string $content @var string $title */
 $u       = auth_user();
 $ruta    = current_route();
-$appName = $GLOBALS['CONFIG']['app']['name'] ?? 'CRM INTELLIHELP';
+// Manda lo cargado en Ajustes; el config del servidor queda de respaldo. Antes
+// el campo de Ajustes se guardaba y no lo leía nadie.
+$appName = (string) (setting_get('app_nombre', '') ?: ($GLOBALS['CONFIG']['app']['name'] ?? 'CRM INTELLIHELP'));
 
 // La barra lleva SÓLO el trabajo diario. Todo lo administrativo va al menú
 // «Más»: con catorce solapas sueltas la barra no entraba ni en una pantalla de
@@ -27,6 +29,7 @@ $seccionDe = [
     'cuenta-form'   => 'cuentas',   'cuenta-ver'   => 'cuentas',
     'posible-form'  => 'posibles',  'posible-ver'  => 'posibles', 'posible-convertir' => 'posibles',
     'negocio-form'  => 'embudo',    'negocio-ver'  => 'embudo',   'negocios' => 'embudo',
+    'embudos'       => 'embudos',
     'actividad-form' => 'actividades',
     'campana-form'  => 'campanas',  'campana-ver'  => 'campanas',
     'plantillas'    => 'campanas',  'plantilla-form' => 'campanas',
@@ -42,6 +45,7 @@ if ($u && ($u['rol'] ?? '') === 'admin') {
         'cuentas-correo' => ['Cuentas de correo', 'campanas'],
         'imagenes'       => ['Imágenes',        'subir'],
         '-'              => null,
+        'embudos'  => ['Embudos y etapas', 'embudo'],
         'usuarios' => ['Usuarios',       'usuarios'],
         'papelera' => ['Papelera',       'papelera'],
         '--'       => null,

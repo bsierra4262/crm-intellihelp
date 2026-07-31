@@ -491,6 +491,12 @@ function campana_en_horario(array $c): bool
         return true;
     }
     $ahora = date('H:i:s');
+    // Una ventana que cruza la medianoche (22:00 a 06:00) se lee al revés: el
+    // «desde» es mayor que el «hasta». Con la comparación directa nunca se
+    // cumplían las dos condiciones a la vez y la campaña no salía nunca.
+    if ($c['enviar_desde'] > $c['enviar_hasta']) {
+        return $ahora >= $c['enviar_desde'] || $ahora <= $c['enviar_hasta'];
+    }
     return $ahora >= $c['enviar_desde'] && $ahora <= $c['enviar_hasta'];
 }
 
@@ -887,9 +893,18 @@ function purgar_papelera(?int $dias = null): array
     $dias = $dias ?? dias_papelera();
     $out  = [];
     foreach (tablas_papelera() as $entidad => $def) {
+        // Una empresa con contactos vivos NO se borra. La clave foránea deja
+        // `cuenta_id` en NULL, así que borrarla desengancharía en silencio a
+        // contactos que nadie eliminó, y sin forma de saber a qué empresa
+        // pertenecían. Se queda en la papelera hasta que se resuelva a mano.
+        $protegidos = '';
+        if ($def['tabla'] === 'cuentas') {
+            $protegidos = ' AND id NOT IN (SELECT DISTINCT cuenta_id FROM contactos
+                                           WHERE cuenta_id IS NOT NULL AND eliminado_en IS NULL)';
+        }
         $st = q("DELETE FROM {$def['tabla']}
                  WHERE eliminado_en IS NOT NULL
-                   AND eliminado_en < DATE_SUB(NOW(), INTERVAL ? DAY)", [$dias]);
+                   AND eliminado_en < DATE_SUB(NOW(), INTERVAL ? DAY)" . $protegidos, [$dias]);
         $n = $st->rowCount();
         if ($n > 0) {
             $out[$entidad] = $n;

@@ -132,9 +132,26 @@ function cuenta_probar(int $id, ?string &$err = null): bool
     $fp = smtp_abrir($err, cuenta_a_config($c));
     if ($fp) {
         smtp_cerrar($fp);
-        q('UPDATE cuentas_correo SET verificada_en = NOW(), ultimo_error = NULL WHERE id = ?', [$id]);
+
+        // También la casilla de entrada. Antes se probaba sólo la salida, así
+        // que una contraseña mal cargada en la parte de entrada daba «cuenta
+        // verificada» y los rebotes no se leían nunca.
+        $errIn = null;
+        $imap  = cuenta_a_imap($c);
+        $entrada = (!empty($imap['user']) && !empty($imap['pass']))
+                 ? imap_probar($errIn, $imap)
+                 : true;
+
+        q('UPDATE cuentas_correo SET verificada_en = NOW(), ultimo_error = ? WHERE id = ?',
+          [$entrada ? null : recortar('Casilla de entrada: ' . $errIn, 250), $id]);
         log_app('cuenta_correo.probar', ['entidad' => 'cuenta_correo', 'entidad_id' => $id,
-            'detalle' => 'Conexión correcta con ' . $c['remitente']]);
+            'detalle' => 'Salida correcta con ' . $c['remitente']
+                       . ($entrada ? ' · entrada correcta' : ' · la entrada falló: ' . $errIn)]);
+        if (!$entrada) {
+            $err = 'El envío funciona, pero no se pudo abrir la casilla de entrada: ' . $errIn
+                 . ' Sin eso no se detectan los rebotes.';
+            return false;
+        }
         return true;
     }
     q('UPDATE cuentas_correo SET ultimo_error = ? WHERE id = ?', [recortar($err, 250), $id]);

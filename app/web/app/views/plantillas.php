@@ -56,6 +56,17 @@
                     </td>
                     <td data-label="Actualizada" class="prio-3"><?= fecha_hora($p['actualizado_en']) ?></td>
                     <td class="acts" data-label="Acciones">
+                        <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="entidad" value="plantilla">
+                            <input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
+                            <input type="hidden" name="volver" value="plantillas">
+                            <button class="act danger" title="Enviar a la papelera" data-peligro
+                                    data-confirmar-titulo="Enviar a la papelera"
+                                    data-confirmar="La plantilla &laquo;<?= e($p['nombre']) ?>&raquo; deja de estar a la vista. Las campañas que ya la usaron no se tocan. Se puede restaurar durante 60 días."
+                                    data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
+                        </form>
+
                         <a class="act" href="<?= e(url('plantilla-form?id=' . (int)$p['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
                         <a class="act" href="<?= e(url('plantilla-vista?id=' . (int)$p['id'])) ?>" target="_blank" title="Ver como lo recibe el cliente"><?= icon('enlace', 16) ?></a>
                     </td>

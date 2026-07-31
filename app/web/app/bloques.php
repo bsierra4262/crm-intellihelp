@@ -289,7 +289,7 @@ function bloque_html(array $b, array $a, array $ctx): string
             ], $a, $ctx);
 
         case 'whatsapp':
-            $tel = preg_replace('/\D/', '', (string)($b['telefono'] ?? ($ctx['empresa_whatsapp'] ?? '')));
+            $tel = preg_replace('/\D/', '', (string)(($b['telefono'] ?? '') ?: ($ctx['empresa_whatsapp'] ?? '')));
             if ($tel === '') { return ''; }
             $mens = trim((string)($b['mensaje'] ?? '')) ?: 'Hola, me interesa conocer más sobre sus soluciones.';
             // Formato oficial de api.whatsapp.com: el mensaje va codificado en la
@@ -552,6 +552,34 @@ function bloques_verificar(array $bloques, string $asunto, string $html, string 
 {
     $errores = [];
     $avisos  = [];
+
+    // --- Bloques que no se van a dibujar ---
+    // Un bloque al que le falta el dato esencial devuelve cadena vacía y
+    // desaparece del correo sin decir nada: quien lo armó lo ve en la lista de
+    // la izquierda, no lo ve en la vista previa y no entiende por qué. Se avisa
+    // acá, que es donde se mira antes de mandar.
+    foreach ($bloques as $i => $b) {
+        $n = $i + 1;
+        $tipo = (string)($b['tipo'] ?? '');
+        if ($tipo === 'boton' && _url($b['enlace'] ?? $b['url'] ?? '') === '') {
+            $errores[] = ['El botón ' . $n . ' no tiene enlace',
+                          'Sin dirección adonde ir, el botón no se dibuja y desaparece del correo. '
+                        . 'Cargale el enlace o borrá el bloque.'];
+        }
+        if ($tipo === 'imagen' && trim((string)($b['src'] ?? '')) === '') {
+            $errores[] = ['La imagen ' . $n . ' está vacía',
+                          'No se eligió ningún archivo, así que ese bloque no sale en el correo.'];
+        }
+        if ($tipo === 'whatsapp'
+            && trim((string)($b['telefono'] ?? '')) === ''
+            && trim((string) (function_exists('setting_get') ? setting_get('empresa_whatsapp', '') : '')) === '') {
+            $errores[] = ['El botón de WhatsApp ' . $n . ' no tiene número',
+                          'Ponele un número al bloque, o cargá el de la empresa en Ajustes → Datos de la empresa.'];
+        }
+        if ($tipo === 'lista' && trim((string)($b['texto'] ?? '')) === '') {
+            $avisos[] = ['La lista ' . $n . ' está vacía', 'No tiene puntos cargados, así que no se dibuja.'];
+        }
+    }
 
     // --- Tamaño ---
     $bytes = strlen($html);

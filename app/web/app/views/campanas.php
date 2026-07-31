@@ -85,6 +85,17 @@
                     <td data-label="Reuniones" class="num prio-3"><?= (int)$c['reuniones'] ?></td>
                     <td data-label="Responsable" class="prio-4"><?= e($c['propietario'] ?: '—') ?></td>
                     <td class="acts" data-label="Acciones">
+                        <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="entidad" value="campana">
+                            <input type="hidden" name="id" value="<?= (int)$c['id'] ?>">
+                            <input type="hidden" name="volver" value="campanas">
+                            <button class="act danger" title="Enviar a la papelera" data-peligro
+                                    data-confirmar-titulo="Enviar a la papelera"
+                                    data-confirmar="&laquo;<?= e($c['nombre']) ?>&raquo; deja de estar a la vista. Lo que ya se envió no se toca. Se puede restaurar durante 60 días."
+                                    data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
+                        </form>
+
                         <a class="act" href="<?= e(url('campana-ver?id=' . (int)$c['id'])) ?>" title="Ver"><?= icon('reportes', 16) ?></a>
                         <a class="act" href="<?= e(url('campana-form?id=' . (int)$c['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
                     </td>
