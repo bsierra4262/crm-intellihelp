@@ -102,7 +102,12 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
             </label>
             <label class="fld"><span>Responder a</span>
                 <input type="email" name="responder_a" value="<?= $v('responder_a') ?>" maxlength="190">
-                <i class="hint">Adónde llega la respuesta cuando el cliente aprieta Responder. Sirve cuando la campaña sale de una casilla técnica que nadie mira y querés que te contesten a vos. Si lo dejás vacío, se responde a la casilla desde la que salió.</i>
+                <i class="hint">Adónde llega la respuesta cuando el cliente aprieta Responder.
+                    <strong>Ojo:</strong> el sistema detecta las respuestas leyendo la casilla de la
+                    cuenta que envía. Si acá ponés otra dirección, la respuesta le va a llegar a esa
+                    persona pero el CRM <strong>no la va a registrar ni te va a avisar</strong>.
+                    Dejalo vacío salvo que sepas lo que estás haciendo: así las respuestas caen donde
+                    el sistema las mira, y él te avisa a vos.</i>
             </label>
             <label class="fld wide"><span>Con copia (CC)</span>
                 <input name="copia_a" value="<?= $v('copia_a') ?>" maxlength="500"

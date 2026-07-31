@@ -483,6 +483,24 @@ ok('sigue mirando después de terminar, más despacio',
    str_contains($vivo, 'reprogramar(') && str_contains($vivo, 'LENTO'));
 ok('no consulta con la pestaña en segundo plano', str_contains($vivo, 'doc.hidden'));
 
+echo "== Las respuestas tienen que poder detectarse ==\n";
+// El sistema detecta una respuesta leyendo UNA casilla concreta. Si el
+// «Responder a» apunta a otra dirección, la respuesta le llega a esa persona y
+// el CRM no se entera nunca: no marca el envío, no avisa y no queda registrada.
+// Pasó de verdad, y no se nota hasta que alguien pregunta por qué no aparece
+// ninguna respuesta.
+ok('la campaña avisa si las respuestas van a caer en otra casilla',
+   str_contains($campanas, "'respuestas'") && str_contains($campanas, 'cuenta_a_imap($cuenta)'));
+ok('y la pantalla de cuentas avisa donde nace el problema',
+   str_contains((string) @file_get_contents($WEB . '/app/views/cuentas-correo.php'), '$malConfig'));
+ok('el campo explica la consecuencia, no sólo qué hace',
+   preg_match('/name="responder_a".*?no la va a registrar/s',
+              (string) @file_get_contents($WEB . '/app/views/campana-form.php')) === 1);
+// El globo del contador se veía con un cero adentro: la regla propia de
+// `display` pisaba el `hidden` del navegador.
+ok('el globo de alertas se esconde cuando no hay ninguna',
+   str_contains($CSS, '.alertas-n[hidden]{display:none}'));
+
 echo "== El avance mide lo resuelto, no sólo lo entregado ==\n";
 // Una campaña que entregó 3 y rebotó 3 terminó su trabajo con los 6: no queda
 // nada en la cola. Mostrar «3 de 6» hacía parecer que se había quedado a mitad

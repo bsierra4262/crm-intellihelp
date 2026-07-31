@@ -19,6 +19,30 @@ $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
     es por remitente</strong> — si una campaña sale mal, se quema esa casilla y no las demás.
 </div>
 
+<?php
+/* Una cuenta cuyo «Responder a» apunta a una casilla que el sistema NO lee deja
+   las respuestas invisibles: le llegan a esa persona y el CRM no las registra,
+   no marca el envío como respondido y no avisa. Es un error de configuración
+   que no se nota hasta que alguien pregunta por qué no aparece ninguna
+   respuesta, así que se avisa acá, que es donde nace. */
+$malConfig = [];
+foreach ($rows as $rc) {
+    if (empty($rc['activo'])) { continue; }
+    $lee = normalizar_email((string)(cuenta_a_imap($rc)['user'] ?? ''));
+    $vuelve = normalizar_email((string)($rc['responder_a'] ?? '')) ?: normalizar_email((string)$rc['remitente']);
+    if ($lee !== '' && $vuelve !== $lee) { $malConfig[] = [$rc, $vuelve, $lee]; }
+}
+?>
+<?php foreach ($malConfig as [$rc, $vuelve, $lee]): ?>
+    <div class="flash flash-warn">
+        <strong>«<?= e($rc['nombre']) ?>»: las respuestas no se van a detectar.</strong>
+        Quien conteste un correo de esta cuenta le va a escribir a <strong><?= e($vuelve) ?></strong>,
+        pero el sistema lee <strong><?= e($lee) ?></strong>. Esas respuestas le van a llegar a esa
+        persona y el CRM <strong>no las va a registrar ni te va a avisar</strong>.
+        Dejá «Responder a» vacío, o poné <?= e($lee) ?>.
+    </div>
+<?php endforeach; ?>
+
 <div class="card table-card mb-4">
     <div class="table-scroll">
         <table class="grid">

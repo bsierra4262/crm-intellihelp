@@ -472,6 +472,29 @@ function campana_pasos(array $c): array
                 : 'Falta configurar la cuenta desde la que salen los correos.'),
         'Cuentas de correo', url('cuentas-correo'), !smtp_configurado());
 
+    // 3b. ¿Vamos a poder VER las respuestas?
+    //
+    // El sistema detecta una respuesta leyendo una casilla concreta. Si el
+    // «Responder a» de la campaña apunta a otra dirección, la respuesta le llega
+    // a esa persona y el CRM no se entera nunca: no marca el envío como
+    // respondido, no avisa y no queda registrada. Pasó de verdad.
+    if ($cuentaOk) {
+        $leemos = normalizar_email((string)(cuenta_a_imap($cuenta)['user'] ?? ''));
+        $vuelveA = normalizar_email((string)(($c['responder_a'] ?? '') ?: ($cuenta['responder_a'] ?? '')))
+                ?: normalizar_email((string)$cuenta['remitente']);
+        $seVe = $leemos !== '' && $vuelveA === $leemos;
+        $add('respuestas', $seVe,
+            'Las respuestas se van a detectar',
+            $seVe
+                ? 'Quien responda escribe a ' . $vuelveA . ', que es la casilla que el sistema lee. '
+                . 'Cada respuesta marca el envío y te avisa.'
+                : 'Las respuestas van a llegar a ' . ($vuelveA ?: 'ninguna parte')
+                . ', pero el sistema lee ' . ($leemos ?: 'ninguna casilla') . '. '
+                . 'Van a llegarle a esa persona y el CRM NO las va a registrar ni te va a avisar. '
+                . 'Dejá «Responder a» vacío, o poné ' . $leemos . '.',
+            'Corregirlo', url('campana-form?id=' . (int)$c['id']), false);
+    }
+
     // 4. La agenda, sólo si la plantilla la usa
     $usaAgenda = !empty($c['cuerpo_html']) && str_contains((string)$c['cuerpo_html'], '{{agenda}}');
     if ($usaAgenda) {
