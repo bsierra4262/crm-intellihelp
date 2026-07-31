@@ -227,8 +227,18 @@ function campanas_listar(array $f = []): array
     $where = 'WHERE ' . implode(' AND ', $w);
     $total = (int) qv("SELECT COUNT(*) FROM campanas c $where", $p);
     $pg    = paginar($total, $f['page'] ?? 1, 25);
+    // Los contadores se leen de la cola en el momento, no de las columnas
+    // guardadas en la campaña. Esas columnas se actualizan durante el envío,
+    // pero si el proceso se corta a mitad quedan viejas y la pantalla miente.
+    // Contar sobre `envios` siempre dice la verdad, y es barato: la columna
+    // está indexada y las campañas son pocas.
     $rows  = q("SELECT c.*, l.nombre AS lista, pl.nombre AS plantilla, u.nombre AS propietario,
-                       cat.nombre AS categoria, cat.color AS categoria_color
+                       cat.nombre AS categoria, cat.color AS categoria_color,
+                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado <> 'omitido') AS total,
+                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = 'enviado') AS enviados,
+                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado IN ('rebotado','rechazado')) AS rebotados,
+                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.respondido_en IS NOT NULL) AS respondidos,
+                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = 'error') AS errores
                 FROM campanas c
                 LEFT JOIN listas l     ON l.id  = c.lista_id
                 LEFT JOIN plantillas pl ON pl.id = c.plantilla_id
@@ -242,7 +252,13 @@ function campana_get(int $id): ?array
 {
     return q1('SELECT c.*, l.nombre AS lista, pl.nombre AS plantilla, pl.asunto AS plantilla_asunto,
                       pl.cuerpo_html, pl.cuerpo_texto, u.nombre AS propietario,
-                      cat.nombre AS categoria, cat.color AS categoria_color
+                      cat.nombre AS categoria, cat.color AS categoria_color,
+                      (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado <> "omitido") AS total,
+                      (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = "enviado") AS enviados,
+                      (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado IN ("rebotado","rechazado")) AS rebotados,
+                      (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.respondido_en IS NOT NULL) AS respondidos,
+                      (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = "error") AS errores,
+                      (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.abierto_en IS NOT NULL) AS aperturas
                FROM campanas c
                LEFT JOIN listas l      ON l.id  = c.lista_id
                LEFT JOIN plantillas pl ON pl.id = c.plantilla_id
@@ -762,6 +778,12 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240): array
                 unset($sesiones[$clave]);
             }
 
+            // El avance se actualiza acá, después de cada correo, y no al
+            // terminar la campaña. Una corrida puede durar varios minutos: en
+            // todo ese rato la pantalla mostraba «0 de 6» mientras los correos
+            // salían de verdad, y parecía que el envío no había arrancado.
+            campana_recontar($cid);
+
             // Pausa aleatoria antes del siguiente de ESTA campaña. Es lo que
             // hace que el ritmo parezca humano y no una máquina.
             $pausa = random_int((int)$c['pausa_min_seg'], (int)$c['pausa_max_seg']);
@@ -786,6 +808,17 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240): array
         }
 
         campana_recontar($cid);
+
+        // Si no quedó nada por mandar, la campaña se cierra ACÁ mismo. Antes
+        // había que esperar a la corrida siguiente del cron para que pasara de
+        // «Enviando» a «Completada»: con la cola vacía y el avance al 100 %
+        // seguía diciendo que estaba enviando, y no era cierto.
+        $faltan = (int) qv("SELECT COUNT(*) FROM envios
+                            WHERE campana_id = ? AND estado IN ('pendiente','enviando')", [$cid]);
+        if ($faltan === 0) {
+            campana_estado($cid, 'completada');
+        }
+
         $res['campanas'][] = $cid;
     }
 

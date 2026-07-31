@@ -418,6 +418,25 @@ ok('los formularios avisan en vez de descartar en silencio',
 ok('los campos de texto llevan su tope de caracteres',
    substr_count($vistas2, 'maxlength=') >= 30);
 
+echo "== El avance se ve en tiempo real ==\n";
+// Una corrida puede durar varios minutos. El avance se actualizaba recién al
+// terminar toda la campaña, así que durante todo ese rato la pantalla decía
+// «0 de 6» mientras los correos salían de verdad: parecía que el envío no
+// había arrancado nunca.
+ok('el avance se actualiza después de cada correo',
+   preg_match('/campana_recontar\(\$cid\);\s*\n\s*\n\s*\/\/ Pausa aleatoria/', $campanas) === 1);
+// Y los números que se muestran se cuentan sobre la cola, no sobre las columnas
+// guardadas: si el proceso se corta a mitad esas columnas quedan viejas y la
+// pantalla miente. La cola no puede mentir.
+ok('el listado cuenta sobre la cola, no sobre un contador guardado',
+   str_contains($campanas, "AND e.estado = 'enviado') AS enviados"));
+ok('la ficha de la campaña también',
+   str_contains($campanas, 'AND e.estado = "enviado") AS enviados'));
+// Con la cola vacía la campaña tiene que cerrarse en la misma corrida, no en la
+// siguiente: mostraba «Enviando» con el avance al 100 %, y no era cierto.
+ok('la campaña se cierra al terminar la corrida',
+   str_contains($campanas, '$faltan === 0') && str_contains($campanas, "campana_estado(\$cid, 'completada')"));
+
 echo "== Reinicio de la instalación de pruebas ==\n";
 // Tiene que poder correrse muchas veces y dejar siempre lo mismo: es lo que
 // permite repetir el circuito completo de una campaña desde cero.
