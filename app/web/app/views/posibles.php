@@ -107,7 +107,7 @@ $colorEstado = [
                     <td data-label="Correo" class="prio-2">
                         <?= $p['email'] ? '<a href="mailto:' . e($p['email']) . '">' . e(recortar($p['email'], 28)) . '</a>' : '<span class="muted">—</span>' ?>
                     </td>
-                    <td data-label="Teléfono" class="prio-3"><?= e($p['telefono'] ?: $p['movil'] ?: $p['conmutador'] ?: '—') ?></td>
+                    <td data-label="Teléfono" class="prio-3"><?= e(telefono_formato($p['telefono'] ?: $p['movil'] ?: $p['conmutador']) ?: '—') ?></td>
                     <td data-label="Fuente" class="prio-4"><?= e($p['fuente'] ?: '—') ?></td>
                     <td data-label="Propietario" class="prio-4"><?= e($p['propietario'] ?: '—') ?></td>
                     <td class="acts" data-label="Acciones">

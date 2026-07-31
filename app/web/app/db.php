@@ -15,9 +15,17 @@ function db(): PDO
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES   => false,
     ]);
-    // La base guarda y devuelve fechas en hora de Buenos Aires, igual que PHP:
-    // así NOW() y date() nunca discrepan.
-    $pdo->exec("SET time_zone = '-03:00'");
+    // La base tiene que hablar la MISMA hora que PHP. El servidor corre en UTC,
+    // así que sin esto `NOW()` daría tres horas más que `date()`: los
+    // recordatorios de reuniones saldrían a destiempo y la agenda pública
+    // ofrecería horarios que ya pasaron.
+    //
+    // El desfase se calcula desde la zona configurada en PHP en vez de dejarlo
+    // escrito a mano: si algún día se cambia la zona de la aplicación, la base
+    // la sigue sola. No se usa el nombre de la zona («America/Argentina/...»)
+    // porque este hosting no da permiso para leer la tabla de zonas de MySQL.
+    $desfase = (new DateTime('now', new DateTimeZone(date_default_timezone_get())))->format('P');
+    $pdo->exec("SET time_zone = '" . $desfase . "'");
     return $pdo;
 }
 

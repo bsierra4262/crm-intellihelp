@@ -76,7 +76,7 @@
                     <td data-label="Tipo" class="prio-2">
                         <?= $c['tipo'] ? '<span class="badge badge-info">' . e($c['tipo']) . '</span>' : '<span class="muted">—</span>' ?>
                     </td>
-                    <td data-label="Teléfono" class="prio-3"><?= e($c['telefono'] ?: '—') ?></td>
+                    <td data-label="Teléfono" class="prio-3"><?= e(telefono_formato($c['telefono']) ?: '—') ?></td>
                     <td data-label="Localidad" class="prio-3"><?= e($c['localidad'] ?: $c['provincia'] ?: '—') ?></td>
                     <td data-label="Sitio web" class="prio-4">
                         <?php if ($c['sitio_web']): ?>

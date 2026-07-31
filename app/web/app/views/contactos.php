@@ -107,7 +107,7 @@
                         <?php if ($c['email']): ?><a href="mailto:<?= e($c['email']) ?>"><?= e(recortar($c['email'], 30)) ?></a>
                         <?php else: ?><span class="muted">—</span><?php endif; ?>
                     </td>
-                    <td data-label="Teléfono" class="prio-3"><?= e($c['telefono'] ?: $c['movil'] ?: $c['conmutador'] ?: '—') ?></td>
+                    <td data-label="Teléfono" class="prio-3"><?= e(telefono_formato($c['telefono'] ?: $c['movil'] ?: $c['conmutador']) ?: '—') ?></td>
                     <td data-label="Localidad" class="prio-4"><?= e($c['localidad'] ?: $c['provincia'] ?: '—') ?></td>
                     <td data-label="Propietario" class="prio-4"><?= e($c['propietario'] ?: '—') ?></td>
                     <td class="acts" data-label="Acciones">

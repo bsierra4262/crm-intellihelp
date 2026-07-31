@@ -35,6 +35,34 @@ if (is_post()) {
     $d['usuario_id'] = $uid;
     if (trim((string)($d['nombre'] ?? '')) === '') { $errores['nombre'] = 'Poné un nombre.'; }
     if (empty($d['dias'])) { $errores['dias'] = 'Marcá al menos un día de la semana.'; }
+
+    // El horario de cada día tiene que ir de menor a mayor. Antes, si estaba al
+    // revés, la fila se descartaba sin decir nada y la pantalla avisaba que se
+    // había guardado: ese día quedaba sin horarios y nadie entendía por qué.
+    $diasNombre = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    foreach ((array)($d['dias'] ?? []) as $dia) {
+        $desde = (string)($d['desde'][$dia] ?? '');
+        $hasta = (string)($d['hasta'][$dia] ?? '');
+        if ($desde !== '' && $hasta !== '' && $desde >= $hasta) {
+            $errores['dias'] = 'En ' . ($diasNombre[(int)$dia] ?? 'ese día')
+                             . ' la hora de fin tiene que ser posterior a la de inicio.';
+            break;
+        }
+    }
+
+    // Dos tipos con el mismo nombre generan el mismo enlace público y chocan
+    // contra la restricción de la base: antes eso salía como un error 500.
+    if (!isset($errores['nombre'])) {
+        $slug = slugificar((string)(($d['slug'] ?? null) ?: $d['nombre'] ?? ''));
+        $rep  = qv('SELECT id FROM agenda_tipos WHERE usuario_id = ? AND slug = ?'
+                 . ($id ? ' AND id <> ?' : ''),
+                   $id ? [$uid, $slug, $id] : [$uid, $slug]);
+        if ($rep) {
+            $errores['nombre'] = 'Ya tenés un tipo de reunión con ese nombre, y el enlace público '
+                               . 'sería el mismo. Poné otro nombre.';
+        }
+    }
+
     if (!$errores) {
         $nuevoId = agenda_tipo_guardar($d, $id ?: null);
         flash($id ? 'Tipo de reunión actualizado.' : 'Tipo de reunión creado. Ya podés compartir el enlace.', 'success');

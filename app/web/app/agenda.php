@@ -259,6 +259,82 @@ function agenda_reservar(array $tipo, array $d): array
     return $reserva;
 }
 
+/**
+ * Mueve una reunión a otro horario.
+ *
+ * La reserva vieja queda como «reprogramada» y se crea una nueva «confirmada»
+ * con el horario nuevo. Se hace así, y no pisando la fila, por dos motivos: la
+ * disponibilidad se calcula sobre las confirmadas, así que el hueco viejo se
+ * libera solo y el nuevo se ocupa; y queda el historial de que esa reunión se
+ * movió, que es justo lo que el filtro «Reprogramadas» mostraba vacío porque
+ * nada generaba ese estado.
+ *
+ * El evento de Google es el mismo: se mueve, no se borra y se vuelve a crear,
+ * así la reunión no desaparece del calendario de quien ya la había aceptado.
+ *
+ * @return array la reserva nueva
+ */
+function agenda_reprogramar(string $token, int $nuevoInicio): array
+{
+    $r = q1("SELECT * FROM agenda_reservas WHERE token = ? AND estado = 'confirmada'", [$token]);
+    if (!$r)                    { throw new RuntimeException('Esa reunión ya no está activa.'); }
+    if ($nuevoInicio < time())  { throw new RuntimeException('Ese horario ya pasó.'); }
+
+    $tipo = agenda_tipo_get((int)$r['tipo_id']);
+    if (!$tipo) { throw new RuntimeException('El tipo de reunión ya no existe.'); }
+    $fin = $nuevoInicio + ((int)$tipo['duracion_min'] * 60);
+
+    // Que no se pise con otra reunión ya tomada (sin contar la que se mueve).
+    $choque = qv("SELECT 1 FROM agenda_reservas
+                  WHERE usuario_id = ? AND estado = 'confirmada' AND id <> ?
+                    AND inicia_el < ? AND termina_el > ?",
+                 [(int)$r['usuario_id'], (int)$r['id'],
+                  date('Y-m-d H:i:s', $fin), date('Y-m-d H:i:s', $nuevoInicio)]);
+    if ($choque) { throw new RuntimeException('Ya hay otra reunión en ese horario.'); }
+
+    if (!empty($r['gcal_event_id'])) {
+        try {
+            if (!gcal_mover_evento((int)$r['usuario_id'], (string)$r['gcal_event_id'], $nuevoInicio, $fin)) {
+                log_app('agenda.gcal_mover_error', ['tipo' => 'error', 'entidad' => 'reserva',
+                    'entidad_id' => (int)$r['id'],
+                    'detalle' => 'La reunión se movió en el CRM pero Google no aceptó el cambio: '
+                               . 'hay que corregirla a mano en el calendario.']);
+            }
+        } catch (\Throwable $e) {
+            log_app('agenda.gcal_mover_error', ['tipo' => 'error', 'entidad' => 'reserva',
+                'entidad_id' => (int)$r['id'], 'detalle' => $e->getMessage()]);
+        }
+    }
+
+    q("UPDATE agenda_reservas SET estado = 'reprogramada' WHERE id = ?", [(int)$r['id']]);
+
+    $nuevoToken = token32();
+    q('INSERT INTO agenda_reservas (tipo_id, usuario_id, token, inicia_el, termina_el,
+                                    invitado_nombre, invitado_email, invitado_empresa, invitado_telefono,
+                                    comentario, campana_id, contacto_id, actividad_id, gcal_event_id, meet_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+        (int)$r['tipo_id'], (int)$r['usuario_id'], $nuevoToken,
+        date('Y-m-d H:i:s', $nuevoInicio), date('Y-m-d H:i:s', $fin),
+        $r['invitado_nombre'], $r['invitado_email'], $r['invitado_empresa'], $r['invitado_telefono'],
+        $r['comentario'], $r['campana_id'], $r['contacto_id'], $r['actividad_id'],
+        $r['gcal_event_id'], $r['meet_url'],
+    ]);
+    $nueva = q1('SELECT * FROM agenda_reservas WHERE id = ?', [last_id()]) ?? [];
+
+    if (!empty($r['actividad_id'])) {
+        q('UPDATE actividades SET inicia_el = ?, termina_el = ? WHERE id = ?',
+          [date('Y-m-d H:i:s', $nuevoInicio), date('Y-m-d H:i:s', $fin), (int)$r['actividad_id']]);
+    }
+
+    log_app('agenda.reprogramada', ['tipo' => 'accion', 'entidad' => 'reserva',
+        'entidad_id' => (int)$nueva['id'],
+        'detalle' => $r['invitado_nombre'] . ': de ' . fecha_hora((string)$r['inicia_el'])
+                   . ' a ' . fecha_hora(date('Y-m-d H:i:s', $nuevoInicio))]);
+
+    agenda_avisar($nueva, $tipo, 'confirmacion');
+    return $nueva;
+}
+
 /** Cancela una reserva (desde el enlace del correo o desde el CRM). */
 function agenda_cancelar(string $token, string $motivo = ''): bool
 {
@@ -318,7 +394,15 @@ function agenda_ics(array $reserva, array $tipo, string $metodo = 'REQUEST'): st
     // es lo que permite que una cancelación pise a la invitación original en
     // vez de aparecer como un evento nuevo.
     $uid   = 'reserva-' . (int)$reserva['id'] . '-' . $reserva['token'] . '@intellihelp.tech';
-    $orgEm = (string)($tipo['usuario_email'] ?? setting_get('empresa_email', 'info@intellihelp.tech'));
+
+    // El organizador tiene que ser la MISMA dirección desde la que sale el
+    // correo. Outlook y Exchange comparan las dos y descartan la invitación
+    // cuando no coinciden: se veía el adjunto pero no aparecían los botones
+    // para aceptar. El nombre que se muestra sigue siendo el de la persona con
+    // la que es la reunión.
+    $smtp  = smtp_cfg();
+    $orgEm = normalizar_email((string)(($smtp['from'] ?? '') ?: ($smtp['user'] ?? '')))
+          ?: (string)($tipo['usuario_email'] ?? setting_get('empresa_email', 'info@intellihelp.tech'));
     $meet  = (string)($reserva['meet_url'] ?? '');
     $lugar = $meet !== '' ? 'Google Meet' : 'A confirmar';
 
@@ -419,8 +503,10 @@ function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacio
             $bloques[] = ['tipo' => 'texto',
                           'texto' => 'Te vamos a mandar el enlace de la videollamada antes de la reunión.'];
         }
-        $bloques[] = ['tipo' => 'texto',
-                      'texto' => 'La invitación va adjunta a este correo: aceptala y te queda en tu calendario.'];
+        if ($clase === 'confirmacion') {
+            $bloques[] = ['tipo' => 'texto',
+                          'texto' => 'La invitación va adjunta a este correo: aceptala y te queda en tu calendario.'];
+        }
         $bloques[] = ['tipo' => 'texto', 'texto' => 'Si no podés asistir, cancelala acá: ' . $cancel];
     }
 
@@ -432,20 +518,30 @@ function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacio
                 'acento' => '#9CC930', 'texto' => '#3a3f4b', 'titulo' => '#161922',
                 'preencabezado' => $cuando];
 
-    $html  = bloques_render($bloques, $ajustes);
-    $texto = bloques_texto($bloques);
+    // Sin este contexto el correo sale sin logo y el bloque de contacto queda
+    // vacío, aunque los datos estén cargados en Ajustes.
+    $ctx   = contexto_marca();
+    $html  = bloques_render($bloques, $ajustes, $ctx);
+    $texto = bloques_texto($bloques, $ctx);
 
     // La invitación no se manda con la cancelación desde el CRM porque ahí ya
     // se avisó por Google; acá va el CANCEL para que se borre del calendario
     // de quien la había aceptado.
-    $extra = ['texto' => $texto];
-    if ($clase === 'cancelacion') {
-        $extra['ics'] = agenda_ics($reserva, $tipo, 'CANCEL');
-        $extra['ics_metodo'] = 'CANCEL';
-    } else {
-        $extra['ics'] = agenda_ics($reserva, $tipo, 'REQUEST');
-        $extra['ics_metodo'] = 'REQUEST';
-    }
+    // El método de la invitación cambia según el aviso:
+    //   confirmación → REQUEST: es la invitación de verdad, con los botones
+    //                  «Sí / No / Quizás».
+    //   recordatorio → PUBLISH: informativo. Con REQUEST el cliente volvía a
+    //                  pedirle al invitado que aceptara algo que ya había
+    //                  aceptado, y en Outlook aparecía como una invitación
+    //                  nueva y duplicada.
+    //   cancelación  → CANCEL: saca la reunión del calendario de quien la
+    //                  tenía aceptada.
+    $metodo = match ($clase) {
+        'cancelacion'  => 'CANCEL',
+        'recordatorio' => 'PUBLISH',
+        default        => 'REQUEST',
+    };
+    $extra = ['texto' => $texto, 'ics' => agenda_ics($reserva, $tipo, $metodo), 'ics_metodo' => $metodo];
 
     // Responder al correo tiene que llegarle a la persona con la que es la
     // reunión, no a la casilla del sistema: si alguien contesta «no puedo, lo

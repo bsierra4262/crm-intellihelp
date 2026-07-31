@@ -39,7 +39,7 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
             </label>
 
             <label class="fld"><span>Importe</span>
-                <input name="importe" value="<?= $v('importe', '0') ?>" inputmode="decimal">
+                <input type="number" name="importe" value="<?= $v('importe', '0') ?>" inputmode="decimal" step="0.01" min="0">
             </label>
             <label class="fld"><span>Moneda</span>
                 <select name="moneda">

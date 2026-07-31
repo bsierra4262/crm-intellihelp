@@ -79,7 +79,7 @@ foreach ($negocios as $n) {
                                 <td data-label="Persona"><a href="<?= e(url('contacto-ver?id=' . (int)$p['id'])) ?>"><strong><?= e($p['nombre_completo']) ?></strong></a></td>
                                 <td data-label="Cargo"><?= e(recortar($p['cargo'], 30) ?: '—') ?></td>
                                 <td data-label="Correo"><?= $p['email'] ? '<a href="mailto:' . e($p['email']) . '">' . e(recortar($p['email'], 28)) . '</a>' : '—' ?></td>
-                                <td data-label="Teléfono" class="prio-2"><?= e($p['telefono'] ?: $p['movil'] ?: '—') ?></td>
+                                <td data-label="Teléfono" class="prio-2"><?= e(telefono_formato($p['telefono'] ?: $p['movil']) ?: '—') ?></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>

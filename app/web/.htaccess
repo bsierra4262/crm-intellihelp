@@ -29,7 +29,10 @@ Options -Indexes
     RewriteRule ^ - [L]
 
     # Todo lo demás -> front controller
-    RewriteRule ^([A-Za-z0-9/_-]*)$ index.php?r=$1 [L,QSA]
+    # El punto va incluido: el enlace público de la agenda lleva la parte del
+    # correo del vendedor (/r/juan.perez/demo-30) y, sin el punto, el servidor
+    # devolvía su propio 404 antes de que la aplicación viera nada.
+    RewriteRule ^([A-Za-z0-9./_-]*)$ index.php?r=$1 [L,QSA]
 </IfModule>
 
 # Proteger archivos sensibles

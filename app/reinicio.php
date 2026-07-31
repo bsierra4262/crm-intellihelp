@@ -145,6 +145,21 @@ function reinicio_sembrar(): array
         return ['No hay ningún usuario cargado todavía: entrá una vez con Google y volvé a correrlo.'];
     }
 
+    // ---- Datos de la empresa ----
+    // Son los que usan las plantillas: el bloque de contacto, el botón de
+    // WhatsApp y las variables {{remitente_empresa}} y {{empresa_web}}. Se
+    // dejan cargados para no tener que escribirlos cada vez que se reinicia.
+    $empresa = [
+        'empresa_nombre'   => 'INTELLIHELP',
+        'empresa_web'      => 'intellihelp.tech',
+        'empresa_telefono' => '1177006868',
+        'empresa_whatsapp' => '5491150274827',
+        'empresa_email'    => 'info@intellihelp.tech',
+    ];
+    foreach ($empresa as $k => $v) { setting_set($k, $v); }
+    $out[] = 'Datos de la empresa: ' . $empresa['empresa_nombre'] . ' · ' . $empresa['empresa_web']
+           . ' · WhatsApp ' . telefono_formato($empresa['empresa_whatsapp']);
+
     $cuentaId = cuenta_asegurar('INTELLIHELP S.A.', [
         'sitio_web' => 'https://intellihelp.tech',
         'sector'    => 'Tecnología',
@@ -153,44 +168,101 @@ function reinicio_sembrar(): array
     ], $duenio);
     $out[] = 'Empresa: INTELLIHELP S.A. (id ' . (int)$cuentaId . ')';
 
-    $email = 'bsierra@intellihelp.tech';
-    $ya = q1('SELECT id FROM contactos WHERE email = ? AND eliminado_en IS NULL LIMIT 1', [$email]);
-    $datos = [
-        'nombre'         => 'Brian',
-        'apellido'       => 'Sierra',
-        'email'          => $email,
-        'cargo'          => 'Responsable de Sistemas',
-        'telefono'       => '5491150274827',
-        'cuenta_id'      => $cuentaId,
-        'sitio_web'      => 'https://intellihelp.tech',
-        'provincia'      => 'Buenos Aires',
-        'pais'           => 'Argentina',
-        'fuente'         => 'Otro',
-        'propietario_id' => $duenio,
-        'descripcion'    => 'Contacto de prueba: sirve para mandarse una campaña y ver cómo llega.',
+    // ---- Contactos de prueba ----
+    //
+    // La idea es poder mandar UNA campaña y ver el circuito completo: los que
+    // llegan bien y los distintos motivos por los que un correo vuelve.
+    //
+    // Los dos ficticios usan alias con «+» de la casilla real. Google los
+    // entrega en la misma bandeja, así que son contactos distintos en el CRM
+    // —con su nombre, su empresa y su cargo— pero los correos llegan de verdad
+    // y se pueden leer. Con direcciones inventadas no llegaría nada y no se
+    // podría comprobar nada.
+    //
+    // Los de rebote apuntan a lugares que NO existen a propósito, cada uno con
+    // un motivo distinto, que es lo que permite ver cómo reacciona el sistema:
+    // el rebote definitivo archiva el contacto y lo da de baja; el pasajero
+    // sólo lo marca y lo reintenta.
+    $gente = [
+        [
+            'nombre' => 'Brian', 'apellido' => 'Sierra', 'email' => 'bsierra@intellihelp.tech',
+            'cargo' => 'Responsable de Sistemas', 'telefono' => '5491150274827',
+            'nota' => 'Vos. El correo llega de verdad.',
+        ],
+        [
+            'nombre' => 'Laura', 'apellido' => 'Gómez', 'email' => 'bsierra+laura@intellihelp.tech',
+            'cargo' => 'Gerenta de Recursos Humanos', 'telefono' => '5491145678901',
+            'nota' => 'Contacto ficticio. Llega a tu misma bandeja (alias con «+»).',
+        ],
+        [
+            'nombre' => 'Martín', 'apellido' => 'Ferreyra', 'email' => 'bsierra+martin@intellihelp.tech',
+            'cargo' => 'Jefe de Compras', 'telefono' => '5491139876543',
+            'nota' => 'Contacto ficticio. Llega a tu misma bandeja (alias con «+»).',
+        ],
+        [
+            'nombre' => 'Casilla', 'apellido' => 'Inexistente',
+            'email' => 'no-existe-esta-casilla-crm@intellihelp.tech',
+            'cargo' => 'Prueba de rebote', 'telefono' => '',
+            'nota' => 'REBOTE DEFINITIVO: la casilla no existe en un dominio que sí existe. '
+                    . 'Google responde «user unknown». El contacto se archiva solo y se da de baja.',
+        ],
+        [
+            'nombre' => 'Dominio', 'apellido' => 'Inexistente',
+            'email' => 'contacto@dominio-que-no-existe-crm-ith.com',
+            'cargo' => 'Prueba de rebote', 'telefono' => '',
+            'nota' => 'REBOTE DEFINITIVO: el dominio no existe. El sistema lo detecta por el '
+                    . 'código 5xx y archiva el contacto.',
+        ],
+        [
+            'nombre' => 'Dominio', 'apellido' => 'Sin correo',
+            'email' => 'alguien@example.com',
+            'cargo' => 'Prueba de rebote', 'telefono' => '',
+            'nota' => 'REBOTE DEFINITIVO: example.com existe pero está reservado y no recibe correo.',
+        ],
     ];
-    $contactoId = contacto_guardar($datos, $ya ? (int)$ya['id'] : null);
-    $out[] = 'Contacto: Brian Sierra <' . $email . '> (id ' . $contactoId . ')';
 
-    // Lista con ese único destinatario, para probar un envío de punta a punta.
-    $lista = q1("SELECT id FROM listas WHERE nombre = 'Prueba interna' AND eliminado_en IS NULL LIMIT 1");
+    $ids = [];
+    foreach ($gente as $g) {
+        $ya = q1('SELECT id FROM contactos WHERE email = ? AND eliminado_en IS NULL LIMIT 1', [$g['email']]);
+        $ids[$g['email']] = contacto_guardar([
+            'nombre'         => $g['nombre'],
+            'apellido'       => $g['apellido'],
+            'email'          => $g['email'],
+            'cargo'          => $g['cargo'],
+            'telefono'       => $g['telefono'],
+            'cuenta_id'      => $cuentaId,
+            'provincia'      => 'Buenos Aires',
+            'pais'           => 'Argentina',
+            'fuente'         => 'Otro',
+            'propietario_id' => $duenio,
+            'descripcion'    => $g['nota'],
+        ], $ya ? (int)$ya['id'] : null);
+    }
+    $out[] = 'Contactos: ' . count($gente) . ' cargados (2 que llegan, 3 que rebotan, más vos)';
+
+    // ---- Lista de prueba ----
+    $lista = q1("SELECT id FROM listas WHERE nombre = 'Prueba del circuito' AND eliminado_en IS NULL LIMIT 1");
     if (!$lista) {
         q("INSERT INTO listas (nombre, descripcion, creado_por)
-           VALUES ('Prueba interna', 'Una sola dirección, para probar cómo llega una campaña.', ?)", [$duenio]);
+           VALUES ('Prueba del circuito',
+                   'Mandale una campaña a esta lista y vas a ver las tres cosas: los que llegan, los que rebotan y cómo se archivan solos.',
+                   ?)", [$duenio]);
         $listaId = last_id();
     } else {
         $listaId = (int)$lista['id'];
     }
-    q('INSERT IGNORE INTO lista_miembros (lista_id, contacto_id, email, nombre) VALUES (?, ?, ?, ?)',
-      [$listaId, $contactoId, $email, 'Brian Sierra']);
-    $out[] = 'Lista: «Prueba interna» con 1 destinatario (id ' . $listaId . ')';
-
-    // Destinatarios permitidos en modo prueba: si esto queda vacío, el modo
-    // prueba bloquea todo y no se puede probar nada.
-    if (trim((string) setting_get('testing_destinatarios', '')) === '') {
-        setting_set('testing_destinatarios', $email);
-        $out[] = 'Modo prueba: se habilitó ' . $email . ' como destinatario';
+    foreach ($gente as $g) {
+        q('INSERT IGNORE INTO lista_miembros (lista_id, contacto_id, email, nombre) VALUES (?, ?, ?, ?)',
+          [$listaId, $ids[$g['email']], $g['email'], trim($g['nombre'] . ' ' . $g['apellido'])]);
     }
+    $out[] = 'Lista: «Prueba del circuito» con ' . count($gente) . ' destinatarios (id ' . $listaId . ')';
+
+    // ---- Destinatarios permitidos en modo prueba ----
+    // Van TODOS los de arriba: en modo prueba sólo sale correo a las
+    // direcciones de esta lista, así que sin esto los de rebote quedarían
+    // omitidos y no se podría comprobar nada.
+    setting_set('testing_destinatarios', implode(', ', array_column($gente, 'email')));
+    $out[] = 'Modo prueba: habilitadas las ' . count($gente) . ' direcciones de arriba';
 
     return $out;
 }

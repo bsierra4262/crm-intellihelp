@@ -45,7 +45,8 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
             </label>
             <label class="fld"><span>Antelación mínima (horas)</span>
                 <input type="number" name="aviso_min_horas" value="<?= $v('aviso_min_horas', '4') ?>" min="0" max="168">
-                <i class="hint">Nadie puede reservarte para dentro de 10 minutos.</i>
+                <i class="hint">Cuánto tiempo antes, como mínimo, te pueden reservar. Con 4,
+                    nadie puede tomarte un horario que empiece dentro de las próximas 4 horas.</i>
             </label>
             <label class="fld"><span>Se puede reservar hasta (días)</span>
                 <input type="number" name="ventana_dias" value="<?= $v('ventana_dias', '30') ?>" min="1" max="180">

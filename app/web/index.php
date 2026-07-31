@@ -65,6 +65,9 @@ $rutas = [
     'agenda'          => ['public' => false],
     'agenda-form'     => ['public' => false],
     'reservas'        => ['public' => false],
+    'reserva-accion'  => ['public' => false],
+    'reserva-mover'   => ['public' => false],
+    'google-desconectar' => ['public' => false],
 
     'reportes'        => ['public' => false],
     'importar'        => ['public' => false, 'admin' => true],

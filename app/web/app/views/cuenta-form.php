@@ -60,7 +60,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <h2 class="sec">Contacto y ubicación</h2>
         <div class="grid-fields">
             <label class="fld"><span>Teléfono</span>
-                <input name="telefono" value="<?= $v('telefono') ?>" maxlength="60">
+                <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel">
             </label>
             <label class="fld"><span>Correo</span>
                 <input type="email" name="email" value="<?= $v('email') ?>" maxlength="190">

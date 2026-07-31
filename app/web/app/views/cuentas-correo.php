@@ -109,7 +109,7 @@ $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
             </label>
 
             <label class="fld"><span>Servidor de salida</span>
-                <input name="smtp_host" value="<?= $e2('smtp_host', 'smtp.gmail.com') ?>">
+                <input name="smtp_host" value="<?= $e2('smtp_host', 'smtp.gmail.com') ?>" maxlength="120">
             </label>
             <label class="fld"><span>Puerto</span>
                 <input type="number" name="smtp_port" value="<?= $e2('smtp_port', '587') ?>">
@@ -121,7 +121,7 @@ $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
                 </select>
             </label>
             <label class="fld"><span>Usuario</span>
-                <input name="smtp_user" value="<?= $e2('smtp_user') ?>" autocomplete="off">
+                <input name="smtp_user" value="<?= $e2('smtp_user') ?>" autocomplete="off" maxlength="190">
             </label>
             <label class="fld"><span>Contraseña de aplicación</span>
                 <input type="password" name="smtp_pass" autocomplete="new-password"
@@ -145,9 +145,9 @@ $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
         <h3 class="mt-6 mb-3">Casilla de entrada (rebotes y respuestas)</h3>
         <p class="muted small card-intro">Si la dejás vacía se usa la misma cuenta de salida.</p>
         <div class="grid-fields">
-            <label class="fld"><span>Servidor</span><input name="imap_host" value="<?= $e2('imap_host', 'imap.gmail.com') ?>"></label>
+            <label class="fld"><span>Servidor</span><input name="imap_host" value="<?= $e2('imap_host', 'imap.gmail.com') ?>" maxlength="120"></label>
             <label class="fld"><span>Puerto</span><input type="number" name="imap_port" value="<?= $e2('imap_port', '993') ?>"></label>
-            <label class="fld"><span>Usuario</span><input name="imap_user" value="<?= $e2('imap_user') ?>" autocomplete="off"></label>
+            <label class="fld"><span>Usuario</span><input name="imap_user" value="<?= $e2('imap_user') ?>" autocomplete="off" maxlength="190"></label>
             <label class="fld"><span>Contraseña</span>
                 <input type="password" name="imap_pass" autocomplete="new-password"
                        placeholder="<?= !empty($editar['imap_pass']) ? '•••••• (vacío = no cambiar)' : 'igual que la de salida' ?>">

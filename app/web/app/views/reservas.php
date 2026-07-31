@@ -64,6 +64,13 @@
                     <td data-label="Con" class="prio-3"><?= e($r['usuario']) ?></td>
                     <td data-label="Estado">
                         <span class="badge <?= $r['estado'] === 'confirmada' ? 'badge-ok' : 'badge-neutral' ?>"><?= e(ucfirst($r['estado'])) ?></span>
+                        <?php if ($r['estado'] === 'confirmada' && empty($r['gcal_event_id'])): ?>
+                            <?php /* La reserva se guarda aunque Google falle, pero eso no puede
+                                     quedar invisible: la reunión no está en el calendario y se
+                                     puede pisar sin que nadie se entere. */ ?>
+                            <br><span class="badge badge-pend"
+                                      title="La reserva quedó tomada pero no se creó el evento en Google Calendar. Revisá la conexión y agendala a mano.">Sin evento en el calendario</span>
+                        <?php endif; ?>
                     </td>
                     <td class="acts" data-label="Acciones">
                         <?php if ($r['meet_url']): ?>
@@ -71,6 +78,22 @@
                         <?php endif; ?>
                         <?php if ($r['actividad_id']): ?>
                             <a class="act" href="<?= e(url('actividad-form?id=' . (int)$r['actividad_id'])) ?>" title="Ver la actividad"><?= icon('tareas', 16) ?></a>
+                        <?php endif; ?>
+                        <?php if ($r['estado'] === 'confirmada'): ?>
+                            <?php /* Mover y cancelar sólo se podían hacer desde el enlace que
+                                     recibía el invitado: si llamaba para correr la reunión,
+                                     había que entrar al calendario de Google a mano. */ ?>
+                            <a class="act" title="Mover a otro horario"
+                               href="<?= e(url('reserva-mover?id=' . (int)$r['id'])) ?>"><?= icon('agenda', 16) ?></a>
+                            <form class="inline-form" method="post" action="<?= e(url('reserva-accion')) ?>">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="accion" value="cancelar">
+                                <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+                                <button class="act danger" title="Cancelar la reunión" data-peligro
+                                        data-confirmar-titulo="Cancelar la reunión"
+                                        data-confirmar="Se cancela la reunión con <?= e($r['invitado_nombre']) ?>. Le avisamos por correo y la sacamos del calendario."
+                                        data-confirmar-ok="Cancelar"><?= icon('x', 16) ?></button>
+                            </form>
                         <?php endif; ?>
                     </td>
                 </tr>

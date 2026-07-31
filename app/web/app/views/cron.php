@@ -1,4 +1,4 @@
-<?php /** @var array $f @var array $data @var array $resumen @var array $conteo @var string $ultima */
+<?php /** @var array $reloj @var array $f @var array $data @var array $resumen @var array $conteo @var string $ultima */
 $tipos = ['' => 'Todo', 'accion' => 'Acciones', 'nav' => 'Navegación', 'auth' => 'Accesos',
           'error' => 'Errores', 'sistema' => 'Sistema'];
 ?>
@@ -32,6 +32,19 @@ $tipos = ['' => 'Todo', 'accion' => 'Acciones', 'nav' => 'Navegación', 'auth' =
         <span class="stat-label">Última tarea automática</span>
         <span class="stat-value sm"><?= $ultima ? fecha_hora($ultima) : 'nunca' ?></span>
         <span class="stat-foot"><?= $ultima ? tiempo_relativo($ultima) : 'Falta agendarla en el hosting' ?></span>
+    </div>
+    <div class="card stat">
+        <span class="stat-label">Hora del sistema</span>
+        <span class="stat-value sm <?= $reloj['ok'] ? '' : 'danger' ?>"><?= e(substr($reloj['php'], 11, 5)) ?> h</span>
+        <span class="stat-foot">
+            <?= e($reloj['zona']) ?><br>
+            <?php if ($reloj['ok']): ?>
+                La base marca la misma hora: las reuniones y los envíos se agendan bien.
+            <?php else: ?>
+                <strong>La base va <?= (int)$reloj['desfase'] ?> s desfasada</strong>
+                (<?= e($reloj['base']) ?>). Los recordatorios pueden salir a destiempo.
+            <?php endif; ?>
+        </span>
     </div>
 </div>
 

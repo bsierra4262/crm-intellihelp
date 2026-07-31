@@ -100,7 +100,7 @@ $meses       = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep
                         <label class="fld mt-3"><span>Empresa</span>
                             <input name="empresa" maxlength="200"></label>
                         <label class="fld mt-3"><span>Teléfono</span>
-                            <input name="telefono" maxlength="60"></label>
+                            <input type="tel" name="telefono" maxlength="60" inputmode="tel"></label>
                         <label class="fld mt-3"><span>¿De qué querés que hablemos?</span>
                             <textarea name="comentario" rows="3"></textarea></label>
                         <button class="btn btn-primary btn-block mt-4">Confirmar la reunión</button>

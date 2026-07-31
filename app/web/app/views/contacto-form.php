@@ -81,13 +81,13 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <input type="email" name="email3" value="<?= $v('email3') ?>" maxlength="190">
             </label>
             <label class="fld"><span>Teléfono directo</span>
-                <input name="telefono" value="<?= $v('telefono') ?>" maxlength="60">
+                <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel">
             </label>
             <label class="fld"><span>Móvil</span>
-                <input name="movil" value="<?= $v('movil') ?>" maxlength="60">
+                <input type="tel" name="movil" value="<?= $v('movil') ?>" maxlength="60" inputmode="tel">
             </label>
             <label class="fld"><span>Conmutador</span>
-                <input name="conmutador" value="<?= $v('conmutador') ?>" maxlength="60" placeholder="Central de la empresa">
+                <input type="tel" name="conmutador" value="<?= $v('conmutador') ?>" maxlength="60" placeholder="Central de la empresa" inputmode="tel">
             </label>
             <label class="fld"><span>LinkedIn</span>
                 <input type="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255" placeholder="https://linkedin.com/in/…">

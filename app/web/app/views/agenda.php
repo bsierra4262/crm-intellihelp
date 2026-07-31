@@ -9,6 +9,15 @@ $usuarioSlug = explode('@', (string)$u['email'])[0];
         <p class="muted">Tu página pública de reservas, con Google Calendar y Meet</p>
     </div>
     <div class="head-actions">
+        <?php if ($conectado): ?>
+            <form class="inline-form" method="post" action="<?= e(url('google-desconectar')) ?>">
+                <?= csrf_field() ?>
+                <button class="btn btn-ghost" data-peligro
+                        data-confirmar-titulo="Desconectar Google Calendar"
+                        data-confirmar="Se corta el acceso a tu calendario. Las reuniones ya agendadas quedan, pero la agenda pública deja de ofrecer horarios y no se crean más eventos ni enlaces de Meet."
+                        data-confirmar-ok="Desconectar"><?= icon('x', 16) ?>Desconectar Google</button>
+            </form>
+        <?php endif; ?>
         <a class="btn btn-ghost" href="<?= e(url('reservas')) ?>"><?= icon('agenda', 16) ?>Reuniones reservadas</a>
         <a class="btn btn-primary" href="<?= e(url('agenda-form')) ?>"><?= icon('mas', 16) ?>Nuevo tipo de reunión</a>
     </div>
@@ -22,7 +31,9 @@ $usuarioSlug = explode('@', (string)$u['email'])[0];
         Sin eso no podemos ver tus horarios ocupados ni crear el Meet automáticamente.
         <a href="<?= e(url('google-login?conectar=1')) ?>">Conectar ahora</a>.
     </div>
-<?php else: ?>
+<?php elseif (!gcal_falla_pendiente()): ?>
+    <?php /* El verde sólo si además Google responde: convivía con el cartel
+             rojo de más arriba y los dos se contradecían en la misma pantalla. */ ?>
     <div class="flash flash-success">
         Tu Google Calendar está conectado: los horarios ocupados no se ofrecen y cada reserva
         crea el evento con su Google Meet.

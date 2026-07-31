@@ -354,9 +354,10 @@ function dato(string $etiqueta, $valor, string $tipo = 'texto'): void
     } elseif ($tipo === 'mail') {
         echo '<a href="mailto:' . e($v) . '">' . e($v) . '</a>';
     } elseif ($tipo === 'tel') {
-        // El href se limpia de espacios y guiones; el texto se muestra tal cual
-        // lo cargaron, que es como lo reconoce quien lo leyó.
-        echo '<a href="tel:' . e((string)preg_replace('/[^\d+]/', '', $v)) . '">' . e($v) . '</a>';
+        // El href se limpia de espacios y guiones; el texto se muestra con
+        // separadores, que es como se lee un teléfono en cualquier lado.
+        echo '<a href="tel:' . e((string)preg_replace('/[^\d+]/', '', $v)) . '">'
+           . e(telefono_formato($v)) . '</a>';
     } elseif ($tipo === 'url') {
         $href = preg_match('#^https?://#i', $v) ? $v : 'https://' . $v;
         echo '<a href="' . e($href) . '" target="_blank" rel="noopener">' . e(recortar($v, 40)) . '</a>';
@@ -397,6 +398,56 @@ function ics_plegar(array $lineas): string
         $salida .= $actual . "\r\n";
     }
     return $salida;
+}
+
+/**
+ * Muestra un teléfono de forma legible, como en cualquier aplicación de
+ * contactos: «+54 9 11 5027-4827» en vez de «5491150274827».
+ *
+ * Sólo cambia cómo se ve. Lo que se guarda queda tal cual lo cargaron, porque
+ * es lo que se usa para armar los enlaces de WhatsApp y de llamada, y ahí los
+ * espacios y los guiones molestan.
+ *
+ * Si el número no encaja en ningún patrón conocido se devuelve como vino: es
+ * preferible mostrarlo crudo antes que partirlo mal y que quede irreconocible.
+ */
+function telefono_formato(?string $v): string
+{
+    $v = trim((string)$v);
+    if ($v === '') { return ''; }
+
+    $d = preg_replace('/\D+/', '', $v) ?? '';
+    if ($d === '') { return $v; }
+
+    // Argentina: 54 [9] área + número. El «9» va en los móviles.
+    if (str_starts_with($d, '54')) {
+        $resto = substr($d, 2);
+        $movil = str_starts_with($resto, '9');
+        if ($movil) { $resto = substr($resto, 1); }
+        // Códigos de área de 2, 3 o 4 dígitos; el abonado siempre tiene 6 a 8.
+        foreach ([2, 3, 4] as $largoArea) {
+            $abonado = strlen($resto) - $largoArea;
+            if ($abonado >= 6 && $abonado <= 8) {
+                $area = substr($resto, 0, $largoArea);
+                $num  = substr($resto, $largoArea);
+                $mitad = (int) ceil(strlen($num) / 2);
+                return '+54 ' . ($movil ? '9 ' : '') . $area . ' '
+                     . substr($num, 0, $mitad) . '-' . substr($num, $mitad);
+            }
+        }
+        return '+54 ' . ($movil ? '9 ' : '') . $resto;
+    }
+
+    // Número local sin código de país: se separa igual para poder leerlo.
+    if (strlen($d) >= 8 && strlen($d) <= 11 && !str_starts_with($v, '+')) {
+        $area  = strlen($d) === 8 ? '' : substr($d, 0, strlen($d) - 8);
+        $num   = substr($d, strlen($d) - 8);
+        $mitad = (int) ceil(strlen($num) / 2);
+        return trim($area . ' ' . substr($num, 0, $mitad) . '-' . substr($num, $mitad));
+    }
+
+    // Otro país (o algo que no reconocemos): se muestra tal cual.
+    return $v;
 }
 
 /** Token aleatorio de 32 caracteres (enlaces públicos, desuscripción). */

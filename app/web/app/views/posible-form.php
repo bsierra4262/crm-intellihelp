@@ -72,9 +72,9 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
                 <?php if (isset($errores['email'])): ?><i class="hint bad"><?= e($errores['email']) ?></i><?php endif; ?>
             </label>
             <label class="fld wide"><span>Correo secundario</span><input type="email" name="email2" value="<?= $v('email2') ?>" maxlength="190"></label>
-            <label class="fld"><span>Teléfono directo</span><input name="telefono" value="<?= $v('telefono') ?>" maxlength="60"></label>
-            <label class="fld"><span>Móvil</span><input name="movil" value="<?= $v('movil') ?>" maxlength="60"></label>
-            <label class="fld"><span>Conmutador</span><input name="conmutador" value="<?= $v('conmutador') ?>" maxlength="60"></label>
+            <label class="fld"><span>Teléfono directo</span><input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel"></label>
+            <label class="fld"><span>Móvil</span><input type="tel" name="movil" value="<?= $v('movil') ?>" maxlength="60" inputmode="tel"></label>
+            <label class="fld"><span>Conmutador</span><input type="tel" name="conmutador" value="<?= $v('conmutador') ?>" maxlength="60" inputmode="tel"></label>
             <label class="fld"><span>Sitio web</span><input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255"></label>
             <label class="fld wide"><span>LinkedIn</span><input type="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255"></label>
             <label class="fld"><span>Sector</span><input name="sector" value="<?= $v('sector') ?>" maxlength="80"></label>
