@@ -548,7 +548,7 @@ function palabras_riesgosas(): array
  *
  * @return array{errores:array, avisos:array, datos:array}
  */
-function bloques_verificar(array $bloques, string $asunto, string $html, string $texto): array
+function bloques_verificar(array $bloques, string $asunto, string $html, string $texto, array $ctx = []): array
 {
     $errores = [];
     $avisos  = [];
@@ -570,9 +570,10 @@ function bloques_verificar(array $bloques, string $asunto, string $html, string 
             $errores[] = ['La imagen ' . $n . ' está vacía',
                           'No se eligió ningún archivo, así que ese bloque no sale en el correo.'];
         }
+        $waEmpresa = (string)($ctx['empresa_whatsapp'] ?? '');
         if ($tipo === 'whatsapp'
             && trim((string)($b['telefono'] ?? '')) === ''
-            && trim((string) (function_exists('setting_get') ? setting_get('empresa_whatsapp', '') : '')) === '') {
+            && trim($waEmpresa) === '') {
             $errores[] = ['El botón de WhatsApp ' . $n . ' no tiene número',
                           'Ponele un número al bloque, o cargá el de la empresa en Ajustes → Datos de la empresa.'];
         }

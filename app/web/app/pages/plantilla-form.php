@@ -65,14 +65,13 @@ $ejemplo = [
 $vista  = render_plantilla($html, $ejemplo);
 $asunto = render_plantilla((string)($p['asunto'] ?? ''), $ejemplo);
 $chequeo = bloques_verificar($datos['bloques'], (string)($p['asunto'] ?? ''), $vista,
-                             render_plantilla($texto, $ejemplo));
+                             render_plantilla($texto, $ejemplo), contexto_marca());
 
 render('plantilla-form', [
     'p'          => $p,
     'id'         => $id,
     'errores'    => $errores,
     'datos'      => $datos,
-    'vista'      => $vista,
     'asuntoVista' => $asunto,
     'chequeo'    => $chequeo,
     'preajustes' => $preajustes,

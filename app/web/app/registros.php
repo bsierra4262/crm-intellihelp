@@ -124,3 +124,64 @@ function badge_campana(string $estado): string
     [$clase, $texto] = $mapa[$estado] ?? ['badge-neutral', $estado];
     return '<span class="badge ' . $clase . '">' . e($texto) . '</span>';
 }
+
+// ------------------------------------------------------------
+//  Adjuntos
+//  Los archivos viven fuera del web root: se sirven por una ruta que
+//  comprueba la sesión, para que un presupuesto no quede accesible con sólo
+//  adivinar la dirección.
+// ------------------------------------------------------------
+
+function adjuntos_dir(): string
+{
+    return rtrim(STORAGE, '/') . '/adjuntos';
+}
+
+function adjuntos_de(string $entidad, int $id): array
+{
+    return q('SELECT * FROM adjuntos
+              WHERE entidad = ? AND entidad_id = ? AND eliminado_en IS NULL
+              ORDER BY creado_en DESC', [$entidad, $id])->fetchAll();
+}
+
+function adjunto_guardar(string $entidad, int $id, array $archivo): int
+{
+    if (($archivo['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('No llegó ningún archivo.');
+    }
+    if ($archivo['size'] > 10 * 1024 * 1024) {
+        throw new RuntimeException('El archivo pesa ' . peso_legible((int)$archivo['size'])
+            . '. El máximo son 10 MB.');
+    }
+
+    // El nombre del archivo en disco lo elegimos nosotros: el que manda el
+    // navegador puede traer barras o «..» y salirse de la carpeta.
+    $dir = adjuntos_dir();
+    if (!is_dir($dir)) { @mkdir($dir, 0750, true); }
+    $ext  = strtolower(pathinfo((string)$archivo['name'], PATHINFO_EXTENSION));
+    $ext  = preg_match('/^[a-z0-9]{1,8}$/', $ext) ? $ext : 'bin';
+    $ruta = date('Y/m') . '/' . bin2hex(random_bytes(16)) . '.' . $ext;
+    if (!is_dir($dir . '/' . dirname($ruta))) { @mkdir($dir . '/' . dirname($ruta), 0750, true); }
+    if (!@move_uploaded_file($archivo['tmp_name'], $dir . '/' . $ruta)) {
+        throw new RuntimeException('No se pudo guardar el archivo en el servidor.');
+    }
+
+    q('INSERT INTO adjuntos (entidad, entidad_id, nombre, ruta, mime, bytes, creado_por)
+       VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [$entidad, $id, mb_substr((string)$archivo['name'], 0, 255), $ruta,
+       mb_substr((string)($archivo['type'] ?? ''), 0, 100), (int)$archivo['size'], current_user_id()]);
+    $nuevo = last_id();
+    log_app($entidad . '.adjunto', ['entidad' => $entidad, 'entidad_id' => $id,
+        'detalle' => 'Se subió ' . $archivo['name'] . ' (' . peso_legible((int)$archivo['size']) . ')']);
+    return $nuevo;
+}
+
+function adjunto_borrar(int $adjuntoId): void
+{
+    $a = q1('SELECT * FROM adjuntos WHERE id = ?', [$adjuntoId]);
+    if (!$a) { return; }
+    @unlink(adjuntos_dir() . '/' . $a['ruta']);
+    q('UPDATE adjuntos SET eliminado_en = NOW() WHERE id = ?', [$adjuntoId]);
+    log_app($a['entidad'] . '.adjunto_borrar', ['entidad' => $a['entidad'],
+        'entidad_id' => (int)$a['entidad_id'], 'detalle' => 'Se borró ' . $a['nombre']]);
+}

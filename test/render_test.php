@@ -67,6 +67,7 @@ function rutas_a_probar(): array
         'cron'            => [],
         'api-keys'        => [],
         'embudos'         => [],
+        'cuotas'          => [],
         'reserva-mover'   => ['_id_de' => 'agenda_reservas'],
 
         // Fichas de detalle. El listado y la ficha no comparten código, y las
@@ -160,8 +161,15 @@ if ($modo === '--limpiar') {
         require APP . '/pages/' . $ruta . '.php';
         $salida = ob_get_clean();
         $largo  = strlen($salida);
-        // Un fatal de PHP se imprime dentro del HTML: hay que buscarlo.
-        if (stripos($salida, 'Fatal error') !== false || stripos($salida, 'Uncaught') !== false) {
+        // Un fatal de PHP se imprime dentro del HTML: hay que buscarlo. Se
+        // busca la MARCA que imprime PHP, no las palabras sueltas: la pantalla
+        // de CRON muestra el registro de errores, y ahí aparecen textos como
+        // «Uncaught TypeError» que son el contenido, no una falla de la
+        // pantalla. Buscando las palabras a secas, esa pantalla daba error
+        // justamente por estar haciendo bien su trabajo. El contenido va
+        // escapado, así que las etiquetas de PHP no pueden venir del dato.
+        if (preg_match('#<b>(Fatal error|Parse error|Warning)</b>#i', $salida)
+            || preg_match('/^(PHP )?(Fatal error|Parse error):/mi', $salida)) {
             fwrite(STDERR, "FATAL en la salida\n" . substr($salida, 0, 900) . "\n");
             exit(2);
         }

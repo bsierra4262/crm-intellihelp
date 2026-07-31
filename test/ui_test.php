@@ -326,6 +326,68 @@ ok('el tablero rechaza con la pantalla de error',
 ok('y require_admin también',
    preg_match("/function require_admin[^}]*render\('error'/s", $auth) === 1);
 
+// ============================================================
+//  Lo que estaba construido y no se podía usar
+// ============================================================
+echo "== Funcionalidad alcanzable ==\n";
+$reg  = (string) @file_get_contents($WEB . '/app/registros.php');
+$gcal = (string) @file_get_contents($WEB . '/app/gcal.php');
+$hlp  = (string) @file_get_contents($WEB . '/app/helpers.php');
+
+// Cada una de estas funciones existía y ninguna pantalla la llamaba: la
+// funcionalidad estaba escrita, probada y era inalcanzable desde la interfaz.
+foreach ([
+    'reprogramar una reunión'      => ['agenda_reprogramar',  'app/pages/reserva-accion.php'],
+    'cancelar una reunión'         => ['agenda_cancelar',     'app/pages/reserva-accion.php'],
+    'desconectar Google'           => ['google_desconectar',  'app/pages/google-desconectar.php'],
+    'borrar una nota'              => ['nota_eliminar',       'app/pages/nota-eliminar.php'],
+    'etiquetar un registro'        => ['etiquetas_asignar',   'app/pages/etiquetas-guardar.php'],
+] as $que => [$fn, $pagina]) {
+    $c = (string) @file_get_contents($WEB . '/' . $pagina);
+    ok("se puede $que desde una pantalla", str_contains($c, $fn), '→ falta ' . $pagina);
+}
+// Y que reprogramar mueva el evento de Google en vez de borrarlo y crear otro:
+// si se borrara, desaparecería del calendario de quien ya la había aceptado.
+ok('reprogramar mueve el evento de Google',
+   str_contains($agendaPhp, 'gcal_mover_evento'), '→ la función seguía sin usarse');
+ok('la ruta de cada una está registrada',
+   substr_count($idx, "'reserva-accion'") + substr_count($idx, "'google-desconectar'")
+ + substr_count($idx, "'nota-eliminar'") + substr_count($idx, "'etiquetas-guardar'") === 4);
+
+// Sin ningún embudo cargado, la pantalla del Embudo era un callejón sin salida:
+// decía que faltaba configurarlo y no existía la pantalla para hacerlo.
+ok('hay pantalla para crear embudos y etapas', file_exists($WEB . '/app/pages/embudos.php'));
+ok('y el Embudo vacío lleva ahí',
+   str_contains((string) @file_get_contents($WEB . '/app/pages/embudo.php'), "redirect('embudos')"));
+// La columna «Objetivo» de Reportes leía una tabla que nadie escribía.
+ok('hay pantalla para cargar los objetivos', file_exists($WEB . '/app/pages/cuotas.php'));
+// Había tabla de adjuntos y ninguna forma de subir nada.
+ok('se pueden subir archivos a una ficha', str_contains($reg, 'function adjunto_guardar'));
+ok('y se descargan por una ruta con sesión', file_exists($WEB . '/app/pages/adjunto.php'));
+ok('los archivos no quedan dentro del sitio',
+   str_contains($reg, "rtrim(STORAGE, '/') . '/adjuntos'"),
+   '→ dentro del web root cualquiera los bajaría sin sesión');
+
+echo "== Datos y formatos ==\n";
+ok('los teléfonos se muestran legibles', str_contains($hlp, 'function telefono_formato'));
+$vistas2 = '';
+foreach (glob($WEB . '/app/views/*.php') ?: [] as $v) { $vistas2 .= (string) file_get_contents($v); }
+ok('y los listados lo usan', substr_count($vistas2, 'telefono_formato(') >= 4);
+// Un campo de teléfono con type="text" deja escribir letras.
+$telText = preg_match_all('/<input(?![^>]*type="tel")[^>]*name="(telefono|movil|conmutador)"/', $vistas2);
+ok('ningún teléfono admite letras', $telText === 0, "→ $telText campos sin type=tel");
+// La base recorta los textos largos sin avisar.
+ok('los campos de texto llevan su tope de caracteres',
+   substr_count($vistas2, 'maxlength=') >= 30);
+
+echo "== Hora del sistema ==\n";
+$db = (string) @file_get_contents($WEB . '/app/db.php');
+ok('la base usa la misma zona horaria que la aplicación', str_contains($db, "SET time_zone"));
+ok('y el desfase se calcula solo, no está escrito a mano',
+   str_contains($db, 'date_default_timezone_get()') && !preg_match("/SET time_zone = '-03:00'/", $db));
+ok('la pantalla de CRON muestra si coinciden',
+   str_contains((string) @file_get_contents($WEB . '/app/pages/cron.php'), "'reloj'"));
+
 echo "\n" . str_repeat('=', 60) . "\n";
 printf("  %d comprobaciones de interfaz · %d correctas · %d fallidas\n", $T, $T - $F, $F);
 if ($fallos) {

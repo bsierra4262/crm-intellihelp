@@ -168,7 +168,12 @@ ok('fallback: busca cualquier dirección', in_array('pedro@acme.com', extraer_de
 
 echo "== Motor de bloques: el HTML tiene que sobrevivir en Outlook y en Gmail ==\n";
 $pre  = plantillas_preajustes()['pulsemail'];
-$ctxE = ['empresa' => 'INTELLIHELP', 'empresa_web' => 'intellihelp.tech', 'logo' => 'https://x/logo.png'];
+// El contexto de marca real siempre trae estos datos: el preajuste de
+// Pulsemail toma de acá el número de WhatsApp del botón, así que sin ellos
+// el verificador avisa —con razón— que ese botón no se va a dibujar.
+$ctxE = ['empresa' => 'INTELLIHELP', 'empresa_web' => 'intellihelp.tech',
+         'empresa_whatsapp' => '5491150274827', 'empresa_telefono' => '1177006868',
+         'empresa_email' => 'info@intellihelp.tech', 'logo' => 'https://x/logo.png'];
 $htmlP = bloques_render($pre['bloques'], $pre['ajustes'], $ctxE);
 contiene('arma el documento completo',       $htmlP, '<!DOCTYPE html');
 contiene('maqueta con tablas',               $htmlP, '<table role="presentation"');
@@ -231,7 +236,7 @@ ok('genera texto plano',                      strlen($txt) > 100);
 no_contiene('el texto plano no lleva etiquetas', $txt, '<');
 
 echo "== Verificador de entregabilidad ==\n";
-$okChk = bloques_verificar($pre['bloques'], 'Una propuesta para {{empresa}}', $htmlP, $txt);
+$okChk = bloques_verificar($pre['bloques'], 'Una propuesta para {{empresa}}', $htmlP, $txt, $ctxE);
 ok('un correo sano no da errores',            count($okChk['errores']) === 0,
    '→ ' . json_encode(array_column($okChk['errores'], 0), JSON_UNESCAPED_UNICODE));
 $malChk = bloques_verificar([], 'GRATIS OFERTA LIMITADA ACTÚA AHORA', '<html><script>x</script></html>', '');

@@ -1,5 +1,5 @@
 <?php
-/** @var ?array $p @var int $id @var array $errores @var array $datos @var string $vista
+/** @var ?array $p @var int $id @var array $errores @var array $datos
  *  @var string $asuntoVista @var array $chequeo @var array $preajustes @var array $imagenes */
 $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
 ?>

@@ -115,6 +115,11 @@ foreach ($negocios as $n) {
     </div>
 
     <div class="col-stack">
+
+<?php $etqEntidad = 'cuenta'; $etqId = (int)$c['id'];
+      include APP . '/views/_etiquetas.php'; ?>
+        <?php $adjEntidad = 'cuenta'; $adjId = (int)$c['id'];
+      include APP . '/views/_adjuntos.php'; ?>
         <?php include APP . '/views/_notas.php'; ?>
         <?php include APP . '/views/_actividades_panel.php'; ?>
         <div class="card">

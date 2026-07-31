@@ -71,10 +71,14 @@ $rutas = [
     'google-desconectar' => ['public' => false],
 
     'reportes'        => ['public' => false],
+    'cuotas'          => ['public' => false, 'admin' => true],
     'importar'        => ['public' => false, 'admin' => true],
     'registro-eliminar' => ['public' => false],
     'nota-guardar'    => ['public' => false],
     'nota-eliminar'   => ['public' => false],
+    'etiquetas-guardar' => ['public' => false],
+    'adjunto'         => ['public' => false],
+    'adjunto-subir'   => ['public' => false],
     'buscar'          => ['public' => false],
 
     // --- Público (sin sesión): agenda de reuniones y baja de suscripción ---

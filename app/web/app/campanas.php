@@ -223,14 +223,17 @@ function campanas_listar(array $f = []): array
     $p = [];
     if (!empty($f['estado'])) { $w[] = 'c.estado = ?'; $p[] = $f['estado']; }
     if (!empty($f['q']))      { $w[] = 'c.nombre LIKE ?'; $p[] = '%' . $f['q'] . '%'; }
+    if (!empty($f['categoria_id'])) { $w[] = 'c.categoria_id = ?'; $p[] = (int)$f['categoria_id']; }
     $where = 'WHERE ' . implode(' AND ', $w);
     $total = (int) qv("SELECT COUNT(*) FROM campanas c $where", $p);
     $pg    = paginar($total, $f['page'] ?? 1, 25);
-    $rows  = q("SELECT c.*, l.nombre AS lista, pl.nombre AS plantilla, u.nombre AS propietario
+    $rows  = q("SELECT c.*, l.nombre AS lista, pl.nombre AS plantilla, u.nombre AS propietario,
+                       cat.nombre AS categoria, cat.color AS categoria_color
                 FROM campanas c
                 LEFT JOIN listas l     ON l.id  = c.lista_id
                 LEFT JOIN plantillas pl ON pl.id = c.plantilla_id
                 LEFT JOIN usuarios u   ON u.id  = c.propietario_id
+                LEFT JOIN categorias cat ON cat.id = c.categoria_id
                 $where ORDER BY c.creado_en DESC LIMIT {$pg['per']} OFFSET {$pg['offset']}", $p)->fetchAll();
     return $pg + ['rows' => $rows, 'total' => $total];
 }
@@ -238,11 +241,13 @@ function campanas_listar(array $f = []): array
 function campana_get(int $id): ?array
 {
     return q1('SELECT c.*, l.nombre AS lista, pl.nombre AS plantilla, pl.asunto AS plantilla_asunto,
-                      pl.cuerpo_html, pl.cuerpo_texto, u.nombre AS propietario
+                      pl.cuerpo_html, pl.cuerpo_texto, u.nombre AS propietario,
+                      cat.nombre AS categoria, cat.color AS categoria_color
                FROM campanas c
                LEFT JOIN listas l      ON l.id  = c.lista_id
                LEFT JOIN plantillas pl ON pl.id = c.plantilla_id
                LEFT JOIN usuarios u    ON u.id  = c.propietario_id
+               LEFT JOIN categorias cat ON cat.id = c.categoria_id
                WHERE c.id = ? AND c.eliminado_en IS NULL', [$id]);
 }
 

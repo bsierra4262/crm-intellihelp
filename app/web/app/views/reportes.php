@@ -58,7 +58,7 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
         </table>
     </div>
     <p class="muted small card-intro mt-3 mb-0">
-        El objetivo sale de la cuota del período. El «ponderado» es el importe de cada negocio
+        El objetivo sale de <a href="<?= e(url('cuotas')) ?>">los objetivos de venta</a> del período. El «ponderado» es el importe de cada negocio
         multiplicado por la probabilidad de su etapa.
     </p>
 </div>

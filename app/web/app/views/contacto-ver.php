@@ -123,6 +123,11 @@
     </div>
 
     <div class="col-stack">
+
+<?php $etqEntidad = 'contacto'; $etqId = (int)$c['id'];
+      include APP . '/views/_etiquetas.php'; ?>
+        <?php $adjEntidad = 'contacto'; $adjId = (int)$c['id'];
+      include APP . '/views/_adjuntos.php'; ?>
         <?php include APP . '/views/_notas.php'; ?>
         <?php include APP . '/views/_actividades_panel.php'; ?>
 

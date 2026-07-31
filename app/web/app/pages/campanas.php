@@ -5,6 +5,7 @@ require_login();
 $f = [
     'q'      => trim((string)($_GET['q'] ?? '')),
     'estado' => $_GET['estado'] ?? '',
+    'categoria_id' => $_GET['categoria_id'] ?? '',
     'page'   => $_GET['page'] ?? 1,
 ];
 

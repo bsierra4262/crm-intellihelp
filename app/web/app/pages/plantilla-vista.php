@@ -31,7 +31,7 @@ if (is_post()) {
         'ok'      => true,
         'html'    => $html,
         'asunto'  => render_plantilla($asunto, $ejemplo),
-        'chequeo' => bloques_verificar($lista, $asunto, $html, $texto),
+        'chequeo' => bloques_verificar($lista, $asunto, $html, $texto, contexto_marca()),
     ]);
 }
 

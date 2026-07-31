@@ -83,6 +83,11 @@ $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
     </div>
 
     <div class="col-stack">
+
+<?php $etqEntidad = 'posible_cliente'; $etqId = (int)$p['id'];
+      include APP . '/views/_etiquetas.php'; ?>
+        <?php $adjEntidad = 'posible_cliente'; $adjId = (int)$p['id'];
+      include APP . '/views/_adjuntos.php'; ?>
         <?php include APP . '/views/_notas.php'; ?>
         <?php include APP . '/views/_actividades_panel.php'; ?>
         <div class="card">

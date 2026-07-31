@@ -28,6 +28,14 @@
 
 <form class="filters card" method="get" action="<?= e(url('campanas')) ?>">
     <div class="filter-grid">
+        <label><span>Segmento</span>
+            <select name="categoria_id" data-auto>
+                <option value="">Todos</option>
+                <?php foreach (categorias_listar() as $cat): ?>
+                    <option value="<?= (int)$cat['id'] ?>" <?= (string)($f['categoria_id'] ?? '') === (string)$cat['id'] ? 'selected' : '' ?>><?= e($cat['nombre']) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
         <label><span>Buscar</span><input type="search" name="q" value="<?= e($f['q']) ?>" placeholder="Nombre de la campaña…"></label>
         <label><span>Estado</span>
             <select name="estado">
@@ -72,7 +80,14 @@
                     <td data-label="Campaña">
                         <div class="cell-main">
                             <a href="<?= e(url('campana-ver?id=' . (int)$c['id'])) ?>"><strong><?= e($c['nombre']) ?></strong></a>
-                            <small><?= e($c['lista'] ?: 'sin lista') ?> · <?= e($c['plantilla'] ?: 'sin plantilla') ?></small>
+                            <small>
+                                <?php if (!empty($c['categoria'])): ?>
+                                    <?php /* El segmento se pedía al armar la campaña y no se veía en
+                                             ningún lado: no se podía comparar por rubro. */ ?>
+                                    <span class="chip" style="background:<?= e($c['categoria_color'] ?: '#663399') ?>1f;color:<?= e($c['categoria_color'] ?: '#663399') ?>"><?= e($c['categoria']) ?></span>
+                                <?php endif; ?>
+                                <?= e($c['lista'] ?: 'sin lista') ?> · <?= e($c['plantilla'] ?: 'sin plantilla') ?>
+                            </small>
                         </div>
                     </td>
                     <td data-label="Estado"><?= badge_campana($c['estado']) ?></td>
