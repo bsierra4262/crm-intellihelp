@@ -28,9 +28,11 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
         <div class="grid-fields">
             <label class="fld wide"><span>Nombre de la plantilla <i class="req">*</i></span>
                 <input name="nombre" value="<?= $v('nombre') ?>" maxlength="160" required>
+                <i class="hint">Para reconocerla al armar una campaña. El destinatario nunca lo ve.</i>
             </label>
             <label class="fld"><span>Carpeta</span>
                 <input name="carpeta" value="<?= $v('carpeta') ?>" maxlength="80" placeholder="Outsourcing, Consultoría…">
+                <i class="hint">Para agrupar plantillas cuando ya hay muchas. Es opcional.</i>
             </label>
             <div class="fld abajo">
                 <label class="switch">

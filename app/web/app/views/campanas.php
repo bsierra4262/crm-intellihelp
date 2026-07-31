@@ -52,7 +52,7 @@
     </div>
 </form>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo>
     <div class="table-scroll">
         <table class="grid">
             <thead>
@@ -76,7 +76,7 @@
             <?php else: foreach ($data['rows'] as $c):
                 $pct = $c['total'] > 0 ? min(100, (int)round(100 * $c['enviados'] / $c['total'])) : 0;
             ?>
-                <tr>
+                <tr data-vivo-fila="<?= (int)$c['id'] ?>">
                     <td data-label="Campaña">
                         <div class="cell-main">
                             <a href="<?= e(url('campana-ver?id=' . (int)$c['id'])) ?>"><strong><?= e($c['nombre']) ?></strong></a>
@@ -90,14 +90,14 @@
                             </small>
                         </div>
                     </td>
-                    <td data-label="Estado"><?= badge_campana($c['estado']) ?></td>
+                    <td data-label="Estado"><span data-vivo-badge><?= badge_campana($c['estado']) ?></span></td>
                     <td data-label="Avance" class="col-avance">
-                        <div class="progreso"><i class="<?= $pct >= 100 ? 'ok' : '' ?>" style="width:<?= $pct ?>%"></i></div>
-                        <span class="small muted"><?= (int)$c['enviados'] ?> / <?= (int)$c['total'] ?></span>
+                        <div class="progreso"><i data-vivo-barra class="<?= $pct >= 100 ? 'ok' : '' ?>" style="width:<?= $pct ?>%"></i></div>
+                        <span class="small muted" data-vivo-avance><?= (int)$c['enviados'] ?> / <?= (int)$c['total'] ?></span>
                     </td>
-                    <td data-label="Respuestas" class="num prio-2 strong"><?= (int)$c['respondidos'] ?></td>
-                    <td data-label="Rebotes" class="num prio-3"><?= (int)$c['rebotados'] ?></td>
-                    <td data-label="Reuniones" class="num prio-3"><?= (int)$c['reuniones'] ?></td>
+                    <td data-label="Respuestas" class="num prio-2 strong" data-vivo-col="respondidos"><?= (int)$c['respondidos'] ?></td>
+                    <td data-label="Rebotes" class="num prio-3" data-vivo-col="rebotados"><?= (int)$c['rebotados'] ?></td>
+                    <td data-label="Reuniones" class="num prio-3" data-vivo-col="reuniones"><?= (int)$c['reuniones'] ?></td>
                     <td data-label="Responsable" class="prio-4"><?= e($c['propietario'] ?: '—') ?></td>
                     <td class="acts" data-label="Acciones">
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">

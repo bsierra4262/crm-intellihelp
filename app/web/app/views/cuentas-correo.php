@@ -97,36 +97,45 @@ $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
         <div class="grid-fields">
             <label class="fld"><span>Nombre interno <i class="req">*</i></span>
                 <input name="nombre" value="<?= $e2('nombre') ?>" maxlength="120" required placeholder="Comercial, RRHH, Carlos…">
+                <i class="hint">Para reconocerla en la lista al elegir desde dónde sale una campaña. Por ejemplo «Comercial» o «RRHH».</i>
             </label>
             <label class="fld"><span>Dirección del remitente <i class="req">*</i></span>
                 <input type="email" name="remitente" value="<?= $e2('remitente') ?>" maxlength="190" required>
+                <i class="hint">La dirección que ve el destinatario como remitente.</i>
             </label>
             <label class="fld"><span>Nombre que ve el destinatario</span>
                 <input name="remitente_nombre" value="<?= $e2('remitente_nombre') ?>" maxlength="160">
+                <i class="hint">El nombre que se lee en negrita en la bandeja, antes del asunto.</i>
             </label>
             <label class="fld"><span>Responder a</span>
                 <input type="email" name="responder_a" value="<?= $e2('responder_a') ?>" maxlength="190">
+                <i class="hint">Adónde va la respuesta cuando aprietan Responder. Si lo dejás vacío, se responde a la dirección del remitente.</i>
             </label>
 
             <label class="fld"><span>Servidor de salida</span>
                 <input name="smtp_host" value="<?= $e2('smtp_host', 'smtp.gmail.com') ?>" maxlength="120">
+                <i class="hint">El servidor por el que sale el correo. Con Gmail o Google Workspace: smtp.gmail.com</i>
             </label>
             <label class="fld"><span>Puerto</span>
                 <input type="number" name="smtp_port" value="<?= $e2('smtp_port', '587') ?>">
+                <i class="hint">587 con STARTTLS, que es lo normal. 465 si elegís SSL directo.</i>
             </label>
             <label class="fld"><span>Seguridad</span>
                 <select name="smtp_seguridad">
                     <option value="tls" <?= ($editar['smtp_seguridad'] ?? 'tls') === 'tls' ? 'selected' : '' ?>>STARTTLS (587)</option>
                     <option value="ssl" <?= ($editar['smtp_seguridad'] ?? '') === 'ssl' ? 'selected' : '' ?>>SSL directo (465)</option>
                 </select>
+                <i class="hint">Cómo se cifra la conexión. Con Gmail, STARTTLS en el 587.</i>
             </label>
             <label class="fld"><span>Usuario</span>
                 <input name="smtp_user" value="<?= $e2('smtp_user') ?>" autocomplete="off" maxlength="190">
+                <i class="hint">La casilla con la que el sistema se conecta a Google. Va la dirección completa.</i>
             </label>
             <label class="fld"><span>Contraseña de aplicación</span>
                 <input type="password" name="smtp_pass" autocomplete="new-password"
                        placeholder="<?= !empty($editar['smtp_pass']) ? '•••••• (vacío = no cambiar)' : '' ?>">
-            </label>
+                       <i class="hint">Con Google Workspace hace falta una contraseña de aplicación, no la que usás para entrar a Google. Son 16 letras en cuatro grupos. Se guarda cifrada y no se vuelve a mostrar.</i>
+                   </label>
 
             <label class="fld"><span>Tope diario de esta cuenta</span>
                 <input type="number" name="limite_diario" value="<?= $e2('limite_diario', '300') ?>" min="1" max="5000">
@@ -139,19 +148,27 @@ $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
                         <option value="<?= (int)$u['id'] ?>" <?= (string)($editar['usuario_id'] ?? '') === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">Quién puede usarla. «Compartida» la habilita para todo el equipo.</i>
             </label>
         </div>
 
         <h3 class="mt-6 mb-3">Casilla de entrada (rebotes y respuestas)</h3>
         <p class="muted small card-intro">Si la dejás vacía se usa la misma cuenta de salida.</p>
         <div class="grid-fields">
-            <label class="fld"><span>Servidor</span><input name="imap_host" value="<?= $e2('imap_host', 'imap.gmail.com') ?>" maxlength="120"></label>
-            <label class="fld"><span>Puerto</span><input type="number" name="imap_port" value="<?= $e2('imap_port', '993') ?>"></label>
-            <label class="fld"><span>Usuario</span><input name="imap_user" value="<?= $e2('imap_user') ?>" autocomplete="off" maxlength="190"></label>
+            <label class="fld"><span>Servidor</span><input name="imap_host" value="<?= $e2('imap_host', 'imap.gmail.com') ?>" maxlength="120">
+                <i class="hint">De dónde se leen los rebotes y las respuestas. Con Gmail: imap.gmail.com</i>
+            </label>
+            <label class="fld"><span>Puerto</span><input type="number" name="imap_port" value="<?= $e2('imap_port', '993') ?>">
+                <i class="hint">993, que es el puerto seguro de IMAP.</i>
+            </label>
+            <label class="fld"><span>Usuario</span><input name="imap_user" value="<?= $e2('imap_user') ?>" autocomplete="off" maxlength="190">
+                <i class="hint">Si la dejás vacía se usa la misma cuenta de salida, que es lo habitual.</i>
+            </label>
             <label class="fld"><span>Contraseña</span>
                 <input type="password" name="imap_pass" autocomplete="new-password"
                        placeholder="<?= !empty($editar['imap_pass']) ? '•••••• (vacío = no cambiar)' : 'igual que la de salida' ?>">
-            </label>
+                       <i class="hint">La misma contraseña de aplicación de arriba, salvo que la casilla de entrada sea otra cuenta.</i>
+                   </label>
         </div>
 
         <div class="filter-actions">

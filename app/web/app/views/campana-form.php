@@ -31,6 +31,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <div class="grid-fields">
             <label class="fld wide"><span>Nombre de la campaña <i class="req">*</i></span>
                 <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus>
+                <i class="hint">Es para vos: identifica la campaña adentro del CRM. El destinatario nunca lo ve.</i>
             </label>
             <label class="fld"><span>Lista de destinatarios <i class="req">*</i></span>
                 <select name="lista_id" required>
@@ -41,6 +42,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                         </option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">A quiénes se les manda. Se arma en Listas, cargando contactos del CRM o pegando correos sueltos.</i>
             </label>
             <label class="fld"><span>Segmento</span>
                 <select name="categoria_id">
@@ -58,9 +60,11 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                         <option value="<?= (int)$p['id'] ?>" <?= (string)($c['plantilla_id'] ?? '') === (string)$p['id'] ? 'selected' : '' ?>><?= e($p['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">El diseño y el texto del correo. Se arma en Plantillas.</i>
             </label>
             <label class="fld full"><span>Asunto (pisa el de la plantilla)</span>
                 <input name="asunto" value="<?= $v('asunto') ?>" maxlength="255" placeholder="Dejalo vacío para usar el de la plantilla">
+                <i class="hint">Lo primero que se lee en la bandeja, y lo que más decide si abren o no. Dejalo vacío para usar el de la plantilla.</i>
             </label>
         </div>
     </div>
@@ -90,6 +94,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
             </label>
             <label class="fld"><span>Nombre del remitente</span>
                 <input name="remitente_nombre" value="<?= $v('remitente_nombre') ?>" maxlength="160">
+                <i class="hint">El nombre que se ve en negrita en la bandeja, antes del asunto. Por ejemplo «INTELLIHELP» o «Brian de INTELLIHELP».</i>
             </label>
             <label class="fld"><span>Correo del remitente</span>
                 <input type="email" name="remitente_email" value="<?= $v('remitente_email') ?>" maxlength="190">
@@ -97,6 +102,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
             </label>
             <label class="fld"><span>Responder a</span>
                 <input type="email" name="responder_a" value="<?= $v('responder_a') ?>" maxlength="190">
+                <i class="hint">Adónde llega la respuesta cuando el cliente aprieta Responder. Sirve cuando la campaña sale de una casilla técnica que nadie mira y querés que te contesten a vos. Si lo dejás vacío, se responde a la casilla desde la que salió.</i>
             </label>
             <label class="fld wide"><span>Con copia (CC)</span>
                 <input name="copia_a" value="<?= $v('copia_a') ?>" maxlength="500"
@@ -111,6 +117,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                         <option value="<?= (int)$u['id'] ?>" <?= (string)($c['propietario_id'] ?? current_user_id()) === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">De quién es la campaña. También define qué agenda se usa en el botón «Agendar reunión» del correo.</i>
             </label>
         </div>
     </div>
@@ -125,25 +132,32 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <div class="grid-fields">
             <label class="fld"><span>Pausa mínima (seg)</span>
                 <input type="number" name="pausa_min_seg" value="<?= $v('pausa_min_seg', '25') ?>" min="5" max="600">
+                <i class="hint">Lo que se espera entre un correo y el siguiente. Por debajo de 25 segundos el ritmo se vuelve robótico y Google empieza a marcar spam.</i>
             </label>
             <label class="fld"><span>Pausa máxima (seg)</span>
                 <input type="number" name="pausa_max_seg" value="<?= $v('pausa_max_seg', '45') ?>" min="10" max="900">
+                <i class="hint">El otro extremo del rango: la espera es un número al azar entre el mínimo y este. Que no sea siempre igual es justamente lo que la hace parecer humana.</i>
             </label>
             <label class="fld"><span>Límite por día</span>
                 <input type="number" name="limite_diario" value="<?= $v('limite_diario', '300') ?>" min="1" max="5000">
+                <i class="hint">Tope de correos por día de esta campaña. Al llegar, se frena y sigue mañana por donde quedó.</i>
             </label>
             <label class="fld"><span>Programar arranque</span>
                 <input type="datetime-local" name="programada_para"
                        value="<?= e($c['programada_para'] ?? '' ? date('Y-m-d\TH:i', strtotime((string)$c['programada_para'])) : '') ?>">
-            </label>
+                       <i class="hint">Para que arranque sola otro día. Poné la fecha y la hora, apretá «Iniciar envío» y queda programada: el sistema la larga a esa hora sin que tengas que estar. Dejalo vacío para que salga apenas la inicies.</i>
+                   </label>
             <label class="fld"><span>Enviar desde (hora)</span>
                 <input type="time" name="enviar_desde" value="<?= e(substr((string)($c['enviar_desde'] ?? '09:00'), 0, 5)) ?>">
+                <i class="hint">La franja de CADA día, no el arranque. Fuera de este rango la campaña se frena y retoma al día siguiente.</i>
             </label>
             <label class="fld"><span>Enviar hasta (hora)</span>
                 <input type="time" name="enviar_hasta" value="<?= e(substr((string)($c['enviar_hasta'] ?? '18:30'), 0, 5)) ?>">
+                <i class="hint">Hasta qué hora sale correo cada día. Conviene el horario laboral: un correo comercial a las 3 de la mañana se nota.</i>
             </label>
             <label class="fld full"><span>Notas internas</span>
                 <textarea name="descripcion" rows="3"><?= $v('descripcion') ?></textarea>
+                <i class="hint">Para vos y tu equipo. No sale en ningún correo.</i>
             </label>
         </div>
     </div>

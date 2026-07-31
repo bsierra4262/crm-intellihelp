@@ -37,8 +37,14 @@ if (is_post()) {
             'app_nombre', 'app_entorno', 'testing_destinatarios',
             'empresa_nombre', 'empresa_web', 'empresa_telefono', 'empresa_email', 'empresa_whatsapp',
             'campana_pausa_min', 'campana_pausa_max', 'campana_limite_diario',
-            'papelera_dias', 'cron_clave',
+            'papelera_dias', 'cron_clave', 'avisar_email_a',
         ];
+
+        // Los interruptores no llegan cuando están apagados: hay que ponerlos
+        // en cero a mano, o apagar uno no lo apagaría nunca.
+        foreach (notif_tipos() as $t) {
+            setting_set($t['ajuste'], empty($_POST[$t['ajuste']]) ? '0' : '1');
+        }
         foreach ($claves as $k) {
             if (array_key_exists($k, $_POST)) {
                 setting_set($k, trim((string)$_POST[$k]));

@@ -135,7 +135,22 @@ try {
     log_app('cron.agenda_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
 }
 
-// ---- 4. Purga de la papelera ----
+// ---- 4. Alertas por correo ----
+// Se agrupan en un solo correo por corrida: cinco reuniones agendadas en diez
+// minutos son cinco alertas en pantalla, pero un solo correo. Cinco correos
+// seguidos se leen como spam y se terminan ignorando.
+try {
+    $n = notif_enviar_pendientes();
+    $lineas[] = "alertas: $n avisadas por correo";
+    if ($n) {
+        log_app('cron.alertas', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
+    }
+} catch (\Throwable $e) {
+    $lineas[] = 'alertas ERROR: ' . $e->getMessage();
+    log_app('cron.alertas_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
+}
+
+// ---- 5. Purga de la papelera ----
 // Es el ÚNICO lugar del sistema que borra de verdad, y sólo lo que ya cumplió
 // su plazo. Se corre una vez por día para no castigar la base en cada pasada.
 try {

@@ -263,6 +263,19 @@ function agenda_reservar(array $tipo, array $d): array
                    . ($meet ? ' · Meet creado' : ' · sin Meet')]);
 
     $reserva = q1('SELECT * FROM agenda_reservas WHERE id = ?', [$reservaId]) ?? [];
+
+    // Del lado nuestro también hay que enterarse: al cliente le llega su
+    // confirmación, pero si nadie mira la pantalla de Reuniones la reunión
+    // aparece recién el día que toca.
+    notificar('reunion',
+        $nombre . ' agendó una reunión',
+        ['usuario_id' => (int)$tipo['usuario_id'],
+         'detalle'    => $tipo['nombre'] . ' · ' . fecha_hora(date('Y-m-d H:i:s', $inicio))
+                       . (!empty($d['empresa']) ? ' · ' . $d['empresa'] : '')
+                       . ($meet === '' ? ' · SIN evento en el calendario' : ''),
+         'entidad'    => 'reserva', 'entidad_id' => $reservaId,
+         'url'        => 'reservas']);
+
     agenda_avisar($reserva, $tipo, 'confirmacion');
     return $reserva;
 }

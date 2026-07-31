@@ -92,6 +92,8 @@ $rutas = [
     'api-log'         => ['public' => false],
     'api-sesion'      => ['public' => false],   // latido del cierre por inactividad
     'api-campana'     => ['public' => false],   // avance de las campañas, en vivo
+    'api-alertas'     => ['public' => false],   // cuántas alertas sin leer
+    'alertas'         => ['public' => false],
 
     // --- Administración ---
     'usuarios'        => ['public' => false, 'admin' => true],

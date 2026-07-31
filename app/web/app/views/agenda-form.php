@@ -22,13 +22,15 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
             <label class="fld wide"><span>Nombre <i class="req">*</i></span>
                 <input name="nombre" value="<?= $v('nombre') ?>" maxlength="120" required autofocus
                        placeholder="Reunión de presentación">
-            </label>
+                       <i class="hint">Lo que ve el visitante en la página de reserva. Por ejemplo «Reunión de presentación».</i>
+                   </label>
             <label class="fld"><span>Dirección del enlace</span>
                 <input name="slug" value="<?= $v('slug') ?>" maxlength="60" placeholder="se genera del nombre">
                 <i class="hint">Es la parte final de la URL pública.</i>
             </label>
             <label class="fld"><span>Duración (min)</span>
                 <input type="number" name="duracion_min" value="<?= $v('duracion_min', '30') ?>" min="5" max="480" required>
+                <i class="hint">Cuánto dura. Es lo que define el tamaño de cada hueco que se ofrece.</i>
             </label>
             <label class="fld wide"><span>Calendario donde se crean las reuniones <i class="req">*</i></span>
                 <?php if ($candidatos): ?>
@@ -58,6 +60,7 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
             </label>
             <label class="fld full"><span>Descripción para el visitante</span>
                 <textarea name="descripcion" rows="3" placeholder="Qué van a hablar, qué tiene que traer…"><?= $v('descripcion') ?></textarea>
+                <i class="hint">Se muestra en la página pública, debajo del título. Sirve para que la persona llegue sabiendo de qué se va a hablar.</i>
             </label>
         </div>
     </div>
@@ -76,6 +79,7 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
             </label>
             <label class="fld"><span>Se puede reservar hasta (días)</span>
                 <input type="number" name="ventana_dias" value="<?= $v('ventana_dias', '30') ?>" min="1" max="180">
+                <i class="hint">Hasta cuántos días para adelante se pueden reservar. Con 30, nadie puede tomarte un horario de dentro de dos meses.</i>
             </label>
         </div>
 

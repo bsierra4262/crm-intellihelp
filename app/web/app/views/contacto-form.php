@@ -31,9 +31,11 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
             </label>
             <label class="fld"><span>Cargo</span>
                 <input name="cargo" value="<?= $v('cargo') ?>" maxlength="150" placeholder="Gerente de Sistemas">
+                <i class="hint">El puesto. Se usa en la variable {{cargo}} de las campañas.</i>
             </label>
             <label class="fld"><span>Departamento</span>
                 <input name="departamento" value="<?= $v('departamento') ?>" maxlength="120">
+                <i class="hint">El área dentro de la empresa: Sistemas, Compras, RRHH.</i>
             </label>
 
             <label class="fld wide"><span>Empresa</span>
@@ -43,9 +45,11 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                         <option value="<?= (int)$cu['id'] ?>" <?= (string)($c['cuenta_id'] ?? '') === (string)$cu['id'] ? 'selected' : '' ?>><?= e($cu['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">La empresa donde trabaja. Si todavía no está cargada, usá el campo de abajo.</i>
             </label>
             <label class="fld wide"><span>…o crear una empresa nueva</span>
                 <input name="cuenta_nueva" placeholder="Escribí el nombre y se crea sola al guardar" maxlength="200">
+                <i class="hint">Se crea la empresa al guardar, sin tener que salir de esta pantalla.</i>
             </label>
 
             <label class="fld"><span>Propietario</span>
@@ -55,6 +59,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                         <option value="<?= (int)$u['id'] ?>" <?= (string)($c['propietario_id'] ?? current_user_id()) === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">Quién lo atiende. Es lo que separa «Lo mío» de «Todo el equipo» en el panel.</i>
             </label>
             <label class="fld"><span>Fuente</span>
                 <select name="fuente">
@@ -63,6 +68,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                         <option value="<?= e($fu) ?>" <?= ($c['fuente'] ?? '') === $fu ? 'selected' : '' ?>><?= e($fu) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">De dónde salió. Sirve para saber qué canal trae más clientes en Reportes.</i>
             </label>
         </div>
     </div>
@@ -76,24 +82,31 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
             </label>
             <label class="fld"><span>Correo secundario</span>
                 <input type="email" name="email2" value="<?= $v('email2') ?>" maxlength="190">
+                <i class="hint">Una segunda dirección. Las campañas usan la principal; esta queda como respaldo.</i>
             </label>
             <label class="fld"><span>Correo terciario</span>
                 <input type="email" name="email3" value="<?= $v('email3') ?>" maxlength="190">
+                <i class="hint">Una tercera, si la tenés.</i>
             </label>
             <label class="fld"><span>Teléfono directo</span>
                 <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
+                <i class="hint">El directo. Sólo números; se aceptan + ( ) - . y espacios.</i>
             </label>
             <label class="fld"><span>Móvil</span>
                 <input type="tel" name="movil" value="<?= $v('movil') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
+                <i class="hint">El celular. Es el que se usa para escribirle por WhatsApp.</i>
             </label>
             <label class="fld"><span>Conmutador</span>
                 <input type="tel" name="conmutador" value="<?= $v('conmutador') ?>" maxlength="60" placeholder="Central de la empresa" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
+                <i class="hint">La central de la empresa, cuando hay que pedir por interno.</i>
             </label>
             <label class="fld"><span>LinkedIn</span>
                 <input type="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255" placeholder="https://linkedin.com/in/…">
+                <i class="hint">El perfil de la persona. Ayuda a preparar la llamada antes de levantar el teléfono.</i>
             </label>
             <label class="fld wide"><span>Sitio web</span>
                 <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255">
+                <i class="hint">El sitio personal, si tiene. El de la empresa va en la ficha de la empresa.</i>
             </label>
             <div class="fld wide abajo">
                 <label class="switch">
@@ -130,6 +143,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
             </label>
             <label class="fld full"><span>Notas</span>
                 <textarea name="descripcion" rows="4"><?= $v('descripcion') ?></textarea>
+                <i class="hint">Todo lo que convenga recordar: cómo llegaste, qué le interesa, qué no. Es interno.</i>
             </label>
         </div>
     </div>

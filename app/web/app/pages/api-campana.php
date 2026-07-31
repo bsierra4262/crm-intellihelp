@@ -30,7 +30,14 @@ $cifras = static function (array $c): array {
         'reuniones'   => (int)($c['reuniones'] ?? 0),
         'aperturas'   => (int)($c['aperturas'] ?? 0),
         'pct'         => $total > 0 ? min(100, (int) round(100 * (int)$c['enviados'] / $total)) : 0,
-        // Mientras haya algo por salir conviene seguir mirando; si terminó, no.
+        // El estado va dibujado desde el servidor: cambia el texto y el color a
+        // la vez, sin que el navegador tenga que saber qué color le toca a cada
+        // estado. Si eso se duplicara en el JavaScript, tarde o temprano los dos
+        // lados dirían cosas distintas.
+        'badge'       => badge_campana((string)$c['estado']),
+        // «Sigue» sólo decide el RITMO de consulta, no si se deja de mirar: una
+        // campaña terminada sigue recibiendo respuestas y reuniones agendadas
+        // durante días, y ésos son justamente los números que importan.
         'sigue'       => in_array($c['estado'], ['enviando', 'programada'], true),
     ];
 };
@@ -54,10 +61,12 @@ if ($id > 0) {
               'cron' => setting_get('cron_en_curso_desde', '') !== '']);
 }
 
-// Sin id: las campañas en curso, para el panel.
+// Sin id: TODAS las campañas de la primera página, no sólo las que están
+// mandando. Una campaña terminada sigue sumando respuestas y reuniones, y en el
+// listado esos números tienen que moverse igual. El navegador actualiza sólo
+// las filas que encuentra en pantalla, así que devolver de más no molesta.
 $out = [];
 foreach (campanas_listar(['estado' => ''])['rows'] as $c) {
-    if (!in_array($c['estado'], ['enviando', 'programada', 'pausada'], true)) { continue; }
     $out[] = $cifras($c) + ['nombre' => (string)$c['nombre']];
 }
 json_out(['ok' => true, 'campanas' => $out,

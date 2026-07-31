@@ -61,7 +61,7 @@ define('APP_ENV', $CONFIG['app']['env'] ?? 'prod');
  */
 define('ASSETS_V', (function (): string {
     $mayor = 0;
-    foreach (['css/app.css', 'js/app.js', 'js/editor.js', 'js/idle.js'] as $a) {
+    foreach (['css/app.css', 'js/app.js', 'js/editor.js', 'js/idle.js', 'js/vivo.js'] as $a) {
         $t = @filemtime(dirname(__DIR__) . '/assets/' . $a);
         if ($t !== false && $t > $mayor) { $mayor = $t; }
     }
@@ -98,6 +98,7 @@ require APP . '/campanas.php';
 require APP . '/cuentas_correo.php';
 require APP . '/imap.php';
 require APP . '/agenda.php';
+require APP . '/notificaciones.php';
 
 // ---- Registro de errores en la auditoría ----
 // Cada error queda con un CÓDIGO estable (ERR-XXXXXX) por archivo:línea, para

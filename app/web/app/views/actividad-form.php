@@ -31,6 +31,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                         <option value="<?= e($k) ?>" <?= $tipo === $k ? 'selected' : '' ?>><?= e($et) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">Una tarea tiene vencimiento; una llamada y una reunión tienen día y hora.</i>
             </label>
             <label class="fld wide"><span>Asunto <i class="req">*</i></span>
                 <input name="asunto" value="<?= $v('asunto') ?>" maxlength="200" required autofocus>
@@ -42,6 +43,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                         <option value="<?= (int)$u['id'] ?>" <?= (string)($a['propietario_id'] ?? current_user_id()) === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">Quién la tiene que hacer.</i>
             </label>
 
             <label class="fld" data-solo="tarea"><span>Vence el</span>
@@ -82,6 +84,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                         <option value="<?= e($x) ?>" <?= ($a['estado'] ?? 'No iniciada') === $x ? 'selected' : '' ?>><?= e($x) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">En qué punto está. Al marcarla «Completada» sale de las pendientes y del contador de vencidas.</i>
             </label>
             <label class="fld"><span>Prioridad</span>
                 <select name="prioridad">
@@ -89,9 +92,11 @@ $tipo = $a['tipo'] ?? 'tarea';
                         <option value="<?= e($x) ?>" <?= ($a['prioridad'] ?? 'Normal') === $x ? 'selected' : '' ?>><?= e($x) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">Para ordenar qué se hace primero cuando hay varias del mismo día.</i>
             </label>
             <label class="fld"><span>Recordar (min antes)</span>
                 <input type="number" name="recordar_min" value="<?= $v('recordar_min') ?>" min="0" step="5" placeholder="60">
+                <i class="hint">Cuántos minutos antes avisar. Dejalo vacío para no recibir aviso.</i>
             </label>
         </div>
     </div>
@@ -106,6 +111,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                         <option value="<?= (int)$c['id'] ?>" <?= (string)($a['contacto_id'] ?? '') === (string)$c['id'] ? 'selected' : '' ?>><?= e($c['nombre_completo']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">Con quién es. Al elegirlo, la actividad aparece en la ficha de esa persona.</i>
             </label>
             <label class="fld wide"><span>Empresa</span>
                 <select name="cuenta_id">
@@ -114,6 +120,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                         <option value="<?= (int)$c['id'] ?>" <?= (string)($a['cuenta_id'] ?? '') === (string)$c['id'] ? 'selected' : '' ?>><?= e($c['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">La empresa, si la actividad no es con una persona en particular.</i>
             </label>
             <label class="fld wide"><span>Negocio</span>
                 <select name="negocio_id">
@@ -122,10 +129,12 @@ $tipo = $a['tipo'] ?? 'tarea';
                         <option value="<?= (int)$n['id'] ?>" <?= (string)($a['negocio_id'] ?? '') === (string)$n['id'] ? 'selected' : '' ?>><?= e($n['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">El negocio al que empuja esta actividad, si aplica.</i>
             </label>
             <input type="hidden" name="posible_cliente_id" value="<?= $v('posible_cliente_id') ?>">
             <label class="fld full"><span>Detalle</span>
                 <textarea name="descripcion" rows="4"><?= $v('descripcion') ?></textarea>
+                <i class="hint">De qué se trata, o qué salió. Es interno.</i>
             </label>
         </div>
     </div>

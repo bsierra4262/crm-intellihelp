@@ -983,6 +983,20 @@ function marcar_respuesta(string $email, string $asunto = ''): void
     q("INSERT INTO envio_eventos (envio_id, tipo, detalle) VALUES (?, 'respuesta', ?)",
       [(int)$envio['id'], recortar($asunto, 400)]);
     campana_recontar((int)$envio['campana_id']);
+
+    // Una respuesta es lo más valioso que produce una campaña, y hasta ahora
+    // quedaba enterrada en la ficha: había que ir a mirarla a propósito.
+    $camp = q1('SELECT nombre, propietario_id FROM campanas WHERE id = ?', [(int)$envio['campana_id']]);
+    $quien = q1('SELECT id, nombre_completo FROM contactos WHERE email = ? AND eliminado_en IS NULL LIMIT 1', [$email]);
+    notificar('respuesta',
+        'Respondió ' . ($quien['nombre_completo'] ?? $email),
+        ['usuario_id' => $camp['propietario_id'] ?? null,
+         'detalle'    => 'Campaña «' . ($camp['nombre'] ?? '') . '»'
+                       . ($asunto !== '' ? ' · ' . recortar($asunto, 120) : ''),
+         'entidad'    => 'campana', 'entidad_id' => (int)$envio['campana_id'],
+         'url'        => $quien ? 'contacto-ver?id=' . (int)$quien['id']
+                                : 'campana-ver?id=' . (int)$envio['campana_id']]);
+
     log_app('campana.respuesta', ['tipo' => 'sistema', 'entidad' => 'campana',
         'entidad_id' => (int)$envio['campana_id'], 'actor' => $email,
         'detalle' => 'Respondió' . ($asunto !== '' ? ': ' . recortar($asunto, 120) : '')]);

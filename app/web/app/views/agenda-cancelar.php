@@ -17,6 +17,7 @@
                 <form method="post" class="mt-4">
                     <label class="fld"><span>Motivo (opcional)</span>
                         <textarea name="motivo" rows="3" placeholder="Nos ayuda a mejorar"></textarea>
+                        <i class="hint">Si nos contás por qué, podemos proponerte otro horario.</i>
                     </label>
                     <button class="btn btn-danger btn-block mt-4">Cancelar la reunión</button>
                 </form>

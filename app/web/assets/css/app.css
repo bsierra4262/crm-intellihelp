@@ -678,3 +678,19 @@ td.wrap{white-space:normal}
   .filter-actions{width:100%}
   .filter-actions .btn{flex:1 1 auto;justify-content:center}
 }
+
+/* ---------- Campana de alertas ----------
+   Va en la barra, al lado del buscador. El número tiene que verse de reojo:
+   si hay que buscarlo, la alerta no sirve. */
+.alertas-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;
+  width:38px;height:38px;border-radius:10px;color:var(--muted);flex:none;transition:.15s}
+.alertas-btn:hover{background:var(--soft);color:var(--primary)}
+.alertas-n{position:absolute;top:2px;right:2px;min-width:17px;height:17px;padding:0 4px;
+  border-radius:9px;background:var(--danger);color:#fff;font-size:10.5px;font-weight:800;
+  display:inline-flex;align-items:center;justify-content:center;line-height:1;
+  box-shadow:0 0 0 2px var(--surface)}
+/* Una alerta sin leer se distingue sin tener que compararla con las demás. */
+table.grid tr.sin-leer{background:var(--primary-050)}
+table.grid tr.sin-leer:hover{background:var(--primary-100)}
+table.grid tr.sin-leer td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
+@media (max-width:860px){ .alertas-btn{width:34px;height:34px} }

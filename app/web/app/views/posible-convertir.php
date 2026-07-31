@@ -57,18 +57,22 @@ $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
         <div class="grid-fields">
             <label class="fld wide"><span>Nombre del negocio</span>
                 <input name="negocio_nombre" value="<?= e($p['empresa']) ?>" maxlength="200">
+                <i class="hint">Cómo se va a llamar la oportunidad en el embudo. Por ejemplo «Outsourcing 20 puestos».</i>
             </label>
             <label class="fld"><span>Importe estimado</span>
                 <input name="negocio_importe" value="0" inputmode="decimal">
+                <i class="hint">Cuánto vale si se cierra. Se puede ajustar después.</i>
             </label>
             <label class="fld"><span>Moneda</span>
                 <select name="negocio_moneda">
                     <option value="ARS">Pesos (ARS)</option>
                     <option value="USD">Dólares (USD)</option>
                 </select>
+                <i class="hint">En qué moneda está el importe.</i>
             </label>
             <label class="fld"><span>Fecha estimada de cierre</span>
                 <input type="date" name="negocio_cierre" value="<?= e(date('Y-m-d', strtotime('+30 days'))) ?>">
+                <i class="hint">Cuándo esperás cerrarlo. Ubica el negocio en el pronóstico del mes.</i>
             </label>
         </div>
         <p class="muted small mt-3">

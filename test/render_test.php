@@ -68,6 +68,7 @@ function rutas_a_probar(): array
         'api-keys'        => [],
         'embudos'         => [],
         'cuotas'          => [],
+        'alertas'         => [],
         'reserva-mover'   => ['_id_de' => 'agenda_reservas'],
 
         // Fichas de detalle. El listado y la ficha no comparten código, y las

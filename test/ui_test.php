@@ -418,6 +418,46 @@ ok('los formularios avisan en vez de descartar en silencio',
 ok('los campos de texto llevan su tope de caracteres',
    substr_count($vistas2, 'maxlength=') >= 30);
 
+echo "== Todo campo dice qué va adentro ==\n";
+// Un campo con un ejemplo escrito y sin explicación funciona hasta que alguien
+// lo borra: ahí no hay forma de saber qué poner. Y hay campos —«Responder a»,
+// «Programar arranque», «Pausa mínima»— que no se adivinan ni con el ejemplo
+// puesto. Eran 134 campos sin una línea de ayuda.
+//
+// Se dejan a propósito sin explicar los que se explican solos: poner «el
+// nombre» debajo de «Nombre» es ruido, y el ruido hace que se dejen de leer
+// las ayudas que sí importan.
+$obvios = ['nombre', 'apellido', 'calle', 'localidad', 'provincia', 'codigo_postal', 'pais',
+           'email', 'asunto', 'duracion_min', 'margen_min', 'aviso_min_horas', 'ventana_dias',
+           'cuit', 'remitente', 'smtp_from', 'smtp_from_name', 'testing_destinatarios',
+           'empresa_whatsapp', 'empresa_email', 'papelera_dias', 'cron_clave', 'empresa', 'slug',
+           'inicia_el', 'termina_el', 'vence_el', 'fecha_cierre', 'lugar', 'resultado', 'sentido',
+           'cuerpo', 'correos', 'objetivo', 'probabilidad', 'orden', 'color', 'tipo', 'activo', 'motivo'];
+$conAyuda = 0;
+$mudos    = [];
+foreach (glob($WEB . '/app/views/*.php') ?: [] as $arch) {
+    $src = (string) file_get_contents($arch);
+    if (preg_match_all('/<label class="fld[^"]*">(.*?)<\/label>/s', $src, $mm)) {
+        foreach ($mm[1] as $cuerpo) {
+            if (str_contains($cuerpo, 'class="hint')) { $conAyuda++; continue; }
+            if (preg_match('/name="([a-z_0-9]+)"/', $cuerpo, $n) && !in_array($n[1], $obvios, true)) {
+                $mudos[] = basename($arch) . ':' . $n[1];
+            }
+        }
+    }
+}
+ok('ningún campo queda sin explicar', $mudos === [],
+   '→ ' . count($mudos) . ': ' . implode(', ', array_slice($mudos, 0, 6)));
+ok('hay explicaciones en cantidad', $conAyuda >= 120, "→ $conAyuda campos con ayuda");
+// Los tres que dispararon esto: nadie los adivina mirando la pantalla.
+$campF = (string) @file_get_contents($WEB . '/app/views/campana-form.php');
+ok('«Responder a» explica adónde llega la respuesta',
+   preg_match('/name="responder_a".*?hint[^>]*>[^<]*Responder/s', $campF) === 1);
+ok('«Programar arranque» explica que la campaña sale sola otro día',
+   preg_match('/name="programada_para".*?hint[^>]*>[^<]*arranque sola/s', $campF) === 1);
+ok('la franja diaria se distingue del arranque',
+   preg_match('/name="enviar_desde".*?hint[^>]*>[^<]*CADA día/s', $campF) === 1);
+
 echo "== Se actualiza sin recargar la página ==\n";
 // Ver el estado real sólo al apretar F5 no sirve: una campaña manda un correo
 // cada 25-45 segundos y una corrida dura varios minutos, así que la pantalla
@@ -436,8 +476,37 @@ ok('sus cifras están marcadas una por una', substr_count($fichaC, 'data-vivo-ca
 ok('cada destinatario de la cola está marcado', str_contains($fichaC, 'data-envio='));
 ok('el panel también', str_contains($panelC, 'data-vivo-fila='));
 // Consultar para siempre una pantalla que nadie mira es tirar recursos.
-ok('deja de preguntar cuando la campaña termina', str_contains($vivo, '!d.campana.sigue'));
-ok('y cuando la pestaña queda en segundo plano', str_contains($vivo, 'document.hidden'));
+// NO se apaga cuando la campaña termina: los envíos paran, pero las respuestas
+// y las reuniones agendadas siguen llegando —a veces días después— y ésos son
+// justamente los números que importan. Lo que hace es bajar el ritmo.
+ok('sigue mirando después de terminar, más despacio',
+   str_contains($vivo, 'reprogramar(') && str_contains($vivo, 'LENTO'));
+ok('no consulta con la pestaña en segundo plano', str_contains($vivo, 'doc.hidden'));
+
+echo "== Alertas: el usuario se entera de lo que pasa ==\n";
+// Sin esto, lo importante pasaba sin que nadie se enterara: un cliente respondía
+// una campaña, alguien agendaba una reunión, y todo quedaba adentro de una
+// pantalla que había que ir a mirar a propósito.
+$notif = (string) @file_get_contents($WEB . '/app/notificaciones.php');
+ok('existe el subsistema de alertas', $notif !== '');
+ok('hay pantalla para verlas', file_exists($WEB . '/app/pages/alertas.php'));
+ok('y su ruta está registrada', str_contains($idx, "'alertas'"));
+// Los dos eventos que importan de verdad.
+ok('avisa cuando un cliente responde',
+   preg_match('/function marcar_respuesta.*?notificar\(\'respuesta\'/s', $campanas) === 1);
+ok('avisa cuando agendan una reunión',
+   preg_match('/function agenda_reservar.*?notificar\(\'reunion\'/s',
+              (string) @file_get_contents($WEB . '/app/agenda.php')) === 1);
+// La campana va en TODAS las pantallas: una respuesta no puede quedar esperando
+// a que a alguien se le ocurra entrar a mirar la campaña.
+ok('la campana está en la barra', str_contains($layout, 'data-alertas'));
+ok('y su número se actualiza solo', str_contains($vivo, 'api-alertas'));
+ok('el aviso por correo lo manda el cron', str_contains($cronPhp, 'notif_enviar_pendientes'));
+ok('se puede elegir qué avisar', str_contains($notif, 'function notif_tipos'));
+// Una alerta que falla no puede romper lo que la disparó: una respuesta de un
+// cliente tiene que quedar registrada aunque el aviso no se pueda escribir.
+ok('una alerta que falla no rompe lo que la disparó',
+   preg_match('/function notificar.*?catch \(\\\\Throwable/s', $notif) === 1);
 ok('y si el servidor deja de responder', str_contains($vivo, 'fallos >= 3'));
 
 echo "== Los ajustes no se quedan viejos ==\n";

@@ -65,6 +65,7 @@
                     <option value="contactos">Contactos y empresas</option>
                     <option value="lista">Correos para una lista de campaña</option>
                 </select>
+                <i class="hint">«Contactos y empresas» carga la ficha completa. «Correos a una lista» sólo suma direcciones a una lista de campaña.</i>
             </label>
             <label class="fld"><span>Lista destino (si corresponde)</span>
                 <select name="lista_id">
@@ -73,6 +74,7 @@
                         <option value="<?= (int)$l['id'] ?>"><?= e($l['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <i class="hint">A qué lista van los correos. Sólo hace falta si elegiste ese destino.</i>
             </label>
             <label class="fld"><span>Propietario por defecto</span>
                 <select name="propietario_id">
