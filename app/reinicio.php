@@ -91,6 +91,39 @@ $conserva = [
 ];
 
 echo $hacerlo ? "== Reinicio de la instalación de pruebas ==\n" : "== Simulacro: NO se borra nada ==\n";
+
+// ------------------------------------------------------------
+//  Google Calendar
+// ------------------------------------------------------------
+// Las reuniones de prueba también están en el calendario de Google, y borrar la
+// fila de la base no las saca de ahí: quedaban dando vueltas y avisando de
+// reuniones que ya no existen en ningún lado. Se borran primero, con los avisos
+// de cancelación apagados: no tiene sentido mandar un correo por algo que nunca
+// fue una reunión de verdad.
+$conEvento = q("SELECT id, usuario_id, gcal_event_id, invitado_nombre, inicia_el
+                FROM agenda_reservas
+                WHERE gcal_event_id IS NOT NULL AND gcal_event_id <> ''")->fetchAll();
+if ($conEvento) {
+    echo "\nEn Google Calendar:\n";
+    foreach ($conEvento as $r) {
+        printf("  %s  %-28s %s\n", substr((string)$r['inicia_el'], 0, 16),
+               recortar((string)$r['invitado_nombre'], 27),
+               $hacerlo ? '' : '(se borraría)');
+        if (!$hacerlo) { continue; }
+        try {
+            [$c] = gcal_api((int)$r['usuario_id'], 'DELETE',
+                '/calendars/primary/events/' . rawurlencode((string)$r['gcal_event_id']) . '?sendUpdates=none');
+            if (!(($c >= 200 && $c < 300) || $c === 410)) {
+                echo "      no se pudo borrar (HTTP $c): sacalo a mano del calendario\n";
+            }
+        } catch (\Throwable $e) {
+            echo '      no se pudo borrar: ' . $e->getMessage() . "\n";
+        }
+    }
+} elseif (!$hacerlo) {
+    echo "\nEn Google Calendar: no hay ninguna reunión de prueba.\n";
+}
+
 echo "\nSe borra:\n";
 $total = 0;
 foreach ($tablas as $t => $desc) {
@@ -223,7 +256,20 @@ function reinicio_sembrar(): array
 
     $ids = [];
     foreach ($gente as $g) {
-        $ya = q1('SELECT id FROM contactos WHERE email = ? AND eliminado_en IS NULL LIMIT 1', [$g['email']]);
+        // Se busca SIN filtrar por archivados. Los tres de rebote quedan
+        // archivados y dados de baja después de cada tanda de pruebas —que es
+        // justo lo que se quiere comprobar—, así que buscando sólo entre los
+        // activos no se encontraban y se creaba un duplicado en cada reinicio.
+        $ya = q1('SELECT id FROM contactos WHERE email = ? ORDER BY id LIMIT 1', [$g['email']]);
+
+        // Y se los deja listos para volver a probar: sin la marca de archivado,
+        // sin la baja y sin la marca de rebote. Si no, la próxima campaña los
+        // saltearía por dados de baja y no se podría repetir el circuito.
+        if ($ya) {
+            q('UPDATE contactos SET eliminado_en = NULL, no_email = 0, email_rebotado = 0 WHERE id = ?',
+              [(int)$ya['id']]);
+        }
+
         $ids[$g['email']] = contacto_guardar([
             'nombre'         => $g['nombre'],
             'apellido'       => $g['apellido'],

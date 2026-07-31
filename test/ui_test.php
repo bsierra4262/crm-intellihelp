@@ -418,6 +418,32 @@ ok('los formularios avisan en vez de descartar en silencio',
 ok('los campos de texto llevan su tope de caracteres',
    substr_count($vistas2, 'maxlength=') >= 30);
 
+echo "== Reinicio de la instalación de pruebas ==\n";
+// Tiene que poder correrse muchas veces y dejar siempre lo mismo: es lo que
+// permite repetir el circuito completo de una campaña desde cero.
+// En el repositorio vive en `app/reinicio.php`, al lado de `app/web/`; al
+// desplegar, el contenido de `app/web/` pasa a ser la raíz del sitio y el
+// archivo queda adentro. Se prueban las dos ubicaciones, igual que hace el cron.
+$rein = '';
+foreach ([dirname($WEB) . '/reinicio.php', $WEB . '/reinicio.php'] as $cand) {
+    $rein = (string) @file_get_contents($cand);
+    if ($rein !== '') { break; }
+}
+ok('existe la herramienta de reinicio', $rein !== '');
+ok('no corre si el sistema está en producción', str_contains($rein, "!== 'testing'"));
+// Los tres contactos de rebote terminan ARCHIVADOS y dados de baja después de
+// cada tanda, que es justo lo que se quiere comprobar. Si la siembra los
+// buscara sólo entre los activos no los encontraría, crearía un duplicado en
+// cada reinicio y además quedarían dados de baja para la próxima campaña.
+ok('la siembra encuentra también los archivados',
+   str_contains($rein, 'SELECT id FROM contactos WHERE email = ? ORDER BY id LIMIT 1'));
+ok('y los deja listos para volver a probar',
+   str_contains($rein, 'eliminado_en = NULL, no_email = 0, email_rebotado = 0'));
+// Borrar la fila de la base no saca la reunión del calendario de Google.
+ok('el reinicio limpia también Google Calendar',
+   str_contains($rein, "'/calendars/primary/events/'") && str_contains($rein, 'sendUpdates=none'),
+   '→ si no, quedan reuniones fantasma avisando de algo que ya no existe');
+
 echo "== Hora del sistema ==\n";
 $db = (string) @file_get_contents($WEB . '/app/db.php');
 ok('la base usa la misma zona horaria que la aplicación', str_contains($db, "SET time_zone"));
