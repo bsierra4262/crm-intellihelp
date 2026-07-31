@@ -167,13 +167,13 @@ function importar_contactos_zoho(string $ruta, bool $simular = false, ?int $prop
                 $antes = cuenta_por_nombre($d['cuenta']);
                 $cuentaId = cuenta_asegurar($d['cuenta'], [
                     'propietario_id' => $propietarioId,
-                    'sitio_web'      => $d['sitio_web'] ?: null,
-                    'telefono'       => $d['conmutador'] ?: $d['telefono'] ?: null,
-                    'calle'          => $d['calle'] ?: null,
-                    'localidad'      => $d['localidad'] ?: null,
-                    'provincia'      => $d['provincia'] ?: null,
-                    'codigo_postal'  => $d['codigo_postal'] ?: null,
-                    'pais'           => $d['pais'] ?: null,
+                    'sitio_web'      => ($d['sitio_web'] ?? null) ?: null,
+                    'telefono'       => ($d['conmutador'] ?? null) ?: ($d['telefono'] ?? null) ?: null,
+                    'calle'          => ($d['calle'] ?? null) ?: null,
+                    'localidad'      => ($d['localidad'] ?? null) ?: null,
+                    'provincia'      => ($d['provincia'] ?? null) ?: null,
+                    'codigo_postal'  => ($d['codigo_postal'] ?? null) ?: null,
+                    'pais'           => ($d['pais'] ?? null) ?: null,
                 ], $propietarioId);
                 if (!$antes) { $res['cuentas_nuevas']++; }
             }

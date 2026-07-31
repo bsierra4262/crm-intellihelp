@@ -56,7 +56,7 @@ function cuenta_correo_guardar(array $d, ?int $id = null): int
         'imap_port'        => max(1, (int)($d['imap_port'] ?? 993)),
         'imap_user'        => trim((string)($d['imap_user'] ?? '')) ?: null,
         'limite_diario'    => max(1, (int)($d['limite_diario'] ?? 300)),
-        'usuario_id'       => $d['usuario_id'] ?: null,
+        'usuario_id'       => ($d['usuario_id'] ?? null) ?: null,
         'activo'           => !empty($d['activo']) ? 1 : 0,
         'predeterminada'   => !empty($d['predeterminada']) ? 1 : 0,
     ];
@@ -100,7 +100,7 @@ function cuenta_a_config(array $c): array
         'user'        => $c['smtp_user'],
         'pass'        => descifrar((string)$c['smtp_pass']),
         'from'        => $c['remitente'],
-        'from_name'   => $c['remitente_nombre'] ?: ($c['nombre'] ?? ''),
+        'from_name'   => ($c['remitente_nombre'] ?? null) ?: ($c['nombre'] ?? ''),
         'responder_a' => $c['responder_a'] ?? null,
     ];
 }
@@ -109,10 +109,10 @@ function cuenta_a_config(array $c): array
 function cuenta_a_imap(array $c): array
 {
     return [
-        'host' => $c['imap_host'] ?: 'imap.gmail.com',
-        'port' => (int)($c['imap_port'] ?: 993),
-        'user' => $c['imap_user'] ?: $c['smtp_user'],
-        'pass' => descifrar((string)($c['imap_pass'] ?: $c['smtp_pass'])),
+        'host' => ($c['imap_host'] ?? null) ?: 'imap.gmail.com',
+        'port' => (int)(($c['imap_port'] ?? null) ?: 993),
+        'user' => ($c['imap_user'] ?? null) ?: $c['smtp_user'],
+        'pass' => descifrar((string)(($c['imap_pass'] ?? null) ?: $c['smtp_pass'])),
     ];
 }
 

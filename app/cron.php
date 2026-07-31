@@ -67,11 +67,13 @@ try {
     $ultima = setting_get('imap_ultima_corrida', '0');
     if (time() - (int)$ultima >= 900) {
         setting_set('imap_ultima_corrida', (string)time());
-        $r = imap_revisar();
+        // Todas las casillas activas, no sólo una: si una campaña sale por la
+        // cuenta de RRHH, sus rebotes llegan a la casilla de RRHH.
+        $r = imap_revisar_todas();
         $lineas[] = $r['error']
-            ? 'casilla: ' . $r['error']
-            : sprintf('casilla: %d revisados, %d rebotes (%d definitivos), %d respuestas',
-                      $r['revisados'], $r['rebotes'], $r['duros'] ?? 0, $r['respuestas']);
+            ? 'casillas: ' . $r['error']
+            : sprintf('casillas: %d revisadas, %d correos, %d rebotes (%d definitivos), %d respuestas',
+                      $r['casillas'] ?? 1, $r['revisados'], $r['rebotes'], $r['duros'] ?? 0, $r['respuestas']);
         if (($r['rebotes'] ?? 0) || ($r['respuestas'] ?? 0)) {
             log_app('cron.casilla', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
         }

@@ -48,8 +48,4 @@ $campanas = q("SELECT id, nombre, estado, total, enviados, rebotados, respondido
                FROM campanas WHERE eliminado_en IS NULL AND estado IN ('enviando','programada','pausada')
                ORDER BY actualizado_en DESC LIMIT 5")->fetchAll();
 
-// Últimos movimientos propios (la línea de tiempo del panel).
-$ultimos = q("SELECT creado_en, accion, detalle, actor, tipo FROM actividad
-              WHERE canal = 'app' AND tipo <> 'nav' ORDER BY id DESC LIMIT 8")->fetchAll();
-
-render('dashboard', compact('m', 'emb', 'ganadoMes', 'hoy', 'vencidas', 'campanas', 'ultimos', 'mio'), 'Panel');
+render('dashboard', compact('m', 'emb', 'ganadoMes', 'hoy', 'vencidas', 'campanas', 'mio'), 'Panel');

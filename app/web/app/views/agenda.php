@@ -13,6 +13,8 @@ $usuarioSlug = explode('@', (string)$u['email'])[0];
         <a class="btn btn-primary" href="<?= e(url('agenda-form')) ?>"><?= icon('mas', 16) ?>Nuevo tipo de reunión</a>
     </div>
 </div>
+<?php include APP . '/views/_aviso_gcal.php'; ?>
+
 
 <?php if (!$conectado): ?>
     <div class="flash flash-warn">

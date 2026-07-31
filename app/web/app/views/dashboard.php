@@ -1,6 +1,6 @@
 <?php
 /** @var array $m @var array $emb @var float $ganadoMes @var array $hoy
- *  @var int $vencidas @var array $campanas @var array $ultimos @var bool $mio */
+ *  @var int $vencidas @var array $campanas @var bool $mio */
 $u = auth_user();
 ?>
 <div class="page-head">
@@ -16,6 +16,8 @@ $u = auth_user();
         <a class="btn btn-primary" href="<?= e(url('posible-form')) ?>"><?= icon('mas', 16) ?>Nuevo posible cliente</a>
     </div>
 </div>
+
+<?php include APP . '/views/_aviso_gcal.php'; ?>
 
 <div class="cards">
     <a class="card stat stat-link" href="<?= e(url('posibles')) ?>">
@@ -89,21 +91,4 @@ $u = auth_user();
             <?php endforeach; ?>
         <?php endif; ?>
     </div>
-</div>
-
-<div class="card">
-    <div class="card-head"><h2>Últimos movimientos</h2></div>
-    <?php if (!$ultimos): ?>
-        <p class="muted small">Todavía no hay movimientos registrados.</p>
-    <?php else: ?>
-        <div class="timeline">
-            <?php foreach ($ultimos as $x): ?>
-                <div class="tl-item <?= e($x['tipo']) ?>">
-                    <div class="tl-when"><?= fecha_hora($x['creado_en']) ?> · <?= e($x['actor'] ?: 'sistema') ?></div>
-                    <div class="tl-title"><?= e($x['accion']) ?></div>
-                    <?php if ($x['detalle']): ?><div class="tl-detail"><?= e($x['detalle']) ?></div><?php endif; ?>
-                </div>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
 </div>

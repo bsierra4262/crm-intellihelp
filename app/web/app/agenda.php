@@ -58,9 +58,9 @@ function agenda_tipo_guardar(array $d, ?int $id = null): int
 {
     $campos = [
         'usuario_id'      => (int)($d['usuario_id'] ?? current_user_id()),
-        'slug'            => slugificar((string)($d['slug'] ?: $d['nombre'] ?? '')),
+        'slug'            => slugificar((string)(($d['slug'] ?? null) ?: $d['nombre'] ?? '')),
         'nombre'          => trim((string)($d['nombre'] ?? '')),
-        'descripcion'     => $d['descripcion'] ?: null,
+        'descripcion'     => ($d['descripcion'] ?? null) ?: null,
         'duracion_min'    => max(5,  (int)($d['duracion_min'] ?? 30)),
         'margen_min'      => max(0,  (int)($d['margen_min'] ?? 10)),
         'aviso_min_horas' => max(0,  (int)($d['aviso_min_horas'] ?? 4)),
@@ -94,10 +94,18 @@ function agenda_tipo_guardar(array $d, ?int $id = null): int
 /**
  * Huecos disponibles de un tipo de reunión, día por día.
  *
+ * Si no se puede consultar el calendario de Google devuelve una lista vacía y
+ * deja el motivo en $motivo. NO publica los horarios «por las dudas»: sin ver
+ * el calendario no hay forma de saber qué está ocupado, y ofrecer todo a ciegas
+ * termina con dos reuniones encima de la misma hora. Es preferible que la
+ * página diga que no hay horarios a que agende sobre algo que ya estaba.
+ *
+ * @param string|null $motivo sale con el motivo cuando no se pudo consultar
  * @return array<string,array<int,int>> fecha (Y-m-d) => lista de timestamps de inicio
  */
-function agenda_huecos(array $tipo, int $dias = 0): array
+function agenda_huecos(array $tipo, int $dias = 0, ?string &$motivo = null): array
 {
+    $motivo = null;
     $dias = $dias > 0 ? $dias : (int)$tipo['ventana_dias'];
     $duracion = (int)$tipo['duracion_min'] * 60;
     $margen   = (int)$tipo['margen_min'] * 60;
@@ -113,6 +121,10 @@ function agenda_huecos(array $tipo, int $dias = 0): array
 
     // Ocupado: Google Calendar + lo ya reservado en el CRM.
     $ocupado = gcal_ocupado((int)$tipo['usuario_id'], date('c', time()), date('c', $hastaTs));
+    if ($ocupado === null) {
+        $motivo = 'sin_calendario';
+        return [];
+    }
     foreach (q("SELECT inicia_el, termina_el FROM agenda_reservas
                 WHERE usuario_id = ? AND estado = 'confirmada' AND termina_el >= NOW()",
                [(int)$tipo['usuario_id']])->fetchAll() as $r) {
@@ -151,7 +163,7 @@ function agenda_huecos(array $tipo, int $dias = 0): array
  */
 function agenda_reservar(array $tipo, array $d): array
 {
-    $inicio = (int)$d['inicio'];
+    $inicio = (int)($d['inicio'] ?? 0);
     $fin    = $inicio + ((int)$tipo['duracion_min'] * 60);
     $email  = normalizar_email((string)($d['email'] ?? ''));
     $nombre = trim((string)($d['nombre'] ?? ''));
@@ -175,8 +187,8 @@ function agenda_reservar(array $tipo, array $d): array
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
         (int)$tipo['id'], (int)$tipo['usuario_id'], $token,
         date('Y-m-d H:i:s', $inicio), date('Y-m-d H:i:s', $fin),
-        $nombre, $email, $d['empresa'] ?: null, $d['telefono'] ?: null,
-        $d['comentario'] ?: null, $d['campana_id'] ?: null,
+        $nombre, $email, ($d['empresa'] ?? null) ?: null, ($d['telefono'] ?? null) ?: null,
+        ($d['comentario'] ?? null) ?: null, ($d['campana_id'] ?? null) ?: null,
     ]);
     $reservaId = last_id();
 
@@ -210,7 +222,7 @@ function agenda_reservar(array $tipo, array $d): array
             'telefono'       => $d['telefono'] ?? '',
             'propietario_id' => (int)$tipo['usuario_id'],
             'fuente'         => 'Sitio web',
-            'cuenta_id'      => !empty($d['empresa']) ? cuenta_asegurar((string)$d['empresa'], [], (int)$tipo['usuario_id']) : null,
+            'cuenta_id'      => !empty($d['empresa']) ? cuenta_asegurar((string)($d['empresa'] ?? ''), [], (int)$tipo['usuario_id']) : null,
             'descripcion'    => 'Alta automática al reservar una reunión desde la agenda pública.',
         ]);
     }
@@ -234,7 +246,7 @@ function agenda_reservar(array $tipo, array $d): array
 
     // Si la reserva vino de una campaña, cuenta como resultado de esa campaña.
     if (!empty($d['campana_id'])) {
-        q('UPDATE campanas SET reuniones = reuniones + 1 WHERE id = ?', [(int)$d['campana_id']]);
+        q('UPDATE campanas SET reuniones = reuniones + 1 WHERE id = ?', [(int)($d['campana_id'] ?? 0)]);
     }
 
     log_app('agenda.reserva', ['tipo' => 'sistema', 'entidad' => 'reserva', 'entidad_id' => $reservaId,
@@ -262,37 +274,169 @@ function agenda_cancelar(string $token, string $motivo = ''): bool
     log_app('agenda.cancelacion', ['tipo' => 'sistema', 'entidad' => 'reserva', 'entidad_id' => (int)$r['id'],
         'actor' => $r['invitado_email'],
         'detalle' => 'Reunión cancelada' . ($motivo !== '' ? ': ' . recortar($motivo, 200) : '')]);
+
+    // Aviso de la baja con la invitación de cancelación: sin esto, a quien ya
+    // había aceptado le quedaba la reunión en el calendario para siempre.
+    $tipo = agenda_tipo_get((int)$r['tipo_id']);
+    if ($tipo) {
+        $r['estado'] = 'cancelada';
+        agenda_avisar($r, $tipo, 'cancelacion');
+    }
     return true;
 }
 
-/** Manda el correo de confirmación o el recordatorio. */
+/**
+ * Arma la invitación de calendario (formato iCalendar) de una reserva.
+ *
+ * Esto es lo que hace que Gmail y Outlook muestren los botones «Sí / No /
+ * Quizás» arriba del correo y que la reunión se pueda meter en el calendario
+ * con un clic. Antes el correo avisaba de la reunión pero no había forma de
+ * aceptarla: la única invitación real la mandaba Google, y si la API de
+ * Calendar no respondía —que es justo lo que estaba pasando— no llegaba nada.
+ * Esta invitación se arma acá, así que funciona aunque Google esté caído.
+ *
+ * @param string $metodo REQUEST para invitar, CANCEL para dar de baja
+ */
+function agenda_ics(array $reserva, array $tipo, string $metodo = 'REQUEST'): string
+{
+    $utc = static fn(string $f): string => gmdate('Ymd\THis\Z', strtotime($f));
+
+    // El identificador tiene que ser SIEMPRE el mismo para la misma reunión:
+    // es lo que permite que una cancelación pise a la invitación original en
+    // vez de aparecer como un evento nuevo.
+    $uid   = 'reserva-' . (int)$reserva['id'] . '-' . $reserva['token'] . '@intellihelp.tech';
+    $orgEm = (string)($tipo['usuario_email'] ?? setting_get('empresa_email', 'info@intellihelp.tech'));
+    $meet  = (string)($reserva['meet_url'] ?? '');
+    $lugar = $meet !== '' ? 'Google Meet' : 'A confirmar';
+
+    $desc = 'Reunión coordinada desde ' . setting_get('empresa_nombre', 'INTELLIHELP') . '.';
+    if ($meet !== '')                     { $desc .= '\\n\\nEnlace: ' . $meet; }
+    if (!empty($reserva['comentario']))   { $desc .= '\\n\\nComentario: ' . (string)$reserva['comentario']; }
+    $desc .= '\\n\\nPara cancelar: ' . url_abs('r/cancelar?t=' . $reserva['token']);
+
+    // Escapado del formato: coma, punto y coma y barra son caracteres de control.
+    $esc = static fn(string $s): string => str_replace(
+        ["\\", "\n", ',', ';'], ['\\\\', '\\n', '\\,', '\\;'], trim($s));
+
+    $lineas = [
+        'BEGIN:VCALENDAR',
+        'PRODID:-//INTELLIHELP//CRM//ES',
+        'VERSION:2.0',
+        'CALSCALE:GREGORIAN',
+        'METHOD:' . $metodo,
+        'BEGIN:VEVENT',
+        'UID:' . $uid,
+        // La secuencia sube en la cancelación para que el cliente entienda que
+        // es una actualización de la invitación anterior y no otra reunión.
+        'SEQUENCE:' . ($metodo === 'CANCEL' ? 1 : 0),
+        'DTSTAMP:' . gmdate('Ymd\THis\Z'),
+        'DTSTART:' . $utc((string)$reserva['inicia_el']),
+        'DTEND:'   . $utc((string)$reserva['termina_el']),
+        'SUMMARY:' . $esc((string)($tipo['nombre'] ?? 'Reunión') . ' · ' . setting_get('empresa_nombre', 'INTELLIHELP')),
+        'DESCRIPTION:' . $esc($desc),
+        'LOCATION:' . $esc($meet !== '' ? $meet : $lugar),
+        'ORGANIZER;CN=' . $esc((string)($tipo['usuario'] ?? 'INTELLIHELP')) . ':mailto:' . $orgEm,
+        'ATTENDEE;CN=' . $esc((string)$reserva['invitado_nombre'])
+            . ';ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:' . (string)$reserva['invitado_email'],
+        'STATUS:' . ($metodo === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'),
+        'BEGIN:VALARM',
+        'TRIGGER:-PT30M',
+        'ACTION:DISPLAY',
+        'DESCRIPTION:Recordatorio',
+        'END:VALARM',
+        'END:VEVENT',
+        'END:VCALENDAR',
+    ];
+
+    return ics_plegar($lineas);
+}
+
+/**
+ * Manda el correo de confirmación, el recordatorio o el aviso de cancelación.
+ *
+ * Usa el mismo motor de bloques que las campañas, así que sale con el diseño de
+ * la empresa y respeta las reglas del correo (tablas y no divs, estilos en
+ * línea, ancho de 600, versión en texto plano). Antes era HTML escrito a mano
+ * que llegaba como un título violeta y tres párrafos sueltos.
+ */
 function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacion'): void
 {
     if (!smtp_configurado() || empty($reserva['invitado_email'])) { return; }
 
-    $cuando  = fecha_larga((string)$reserva['inicia_el']) . ' a las ' . date('H:i', strtotime((string)$reserva['inicia_el'])) . ' h';
+    $inicio  = strtotime((string)$reserva['inicia_el']);
+    $cuando  = ucfirst(fecha_larga((string)$reserva['inicia_el'])) . ' a las ' . date('H:i', $inicio) . ' h';
     $cancel  = url_abs('r/cancelar?t=' . $reserva['token']);
-    $titulo  = $clase === 'recordatorio' ? 'Te recordamos tu reunión' : 'Reunión confirmada';
     $meet    = (string)($reserva['meet_url'] ?? '');
+    $conQuien = (string)($tipo['usuario'] ?? setting_get('empresa_nombre', 'INTELLIHELP'));
 
-    $html = '<div style="font-family:Arial,Helvetica,sans-serif;color:#161922;max-width:560px">'
-          . '<h2 style="color:#663399;margin:0 0 12px">' . e($titulo) . '</h2>'
-          . '<p>Hola ' . e((string)$reserva['invitado_nombre']) . ',</p>'
-          . '<p>Tu reunión <strong>' . e((string)$tipo['nombre']) . '</strong> con '
-          . e((string)$tipo['usuario']) . ' quedó agendada para el <strong>' . e($cuando) . '</strong> '
-          . '(hora de Argentina), con una duración de ' . (int)$tipo['duracion_min'] . ' minutos.</p>';
-    if ($meet !== '') {
-        $html .= '<p style="margin:20px 0"><a href="' . e($meet) . '" '
-               . 'style="background:#663399;color:#fff;padding:12px 20px;border-radius:10px;'
-               . 'text-decoration:none;font-weight:bold;display:inline-block">Entrar por Google Meet</a></p>'
-               . '<p style="font-size:12px;color:#6f6a7d">O copiá este enlace: ' . e($meet) . '</p>';
+    $titulos = [
+        'confirmacion' => 'Reunión confirmada',
+        'recordatorio' => 'Te recordamos tu reunión',
+        'cancelacion'  => 'Reunión cancelada',
+    ];
+    $titulo = $titulos[$clase] ?? $titulos['confirmacion'];
+
+    $entrada = match ($clase) {
+        'recordatorio' => 'Te escribimos para recordarte la reunión que tenemos coordinada.',
+        'cancelacion'  => 'Te confirmamos que la reunión quedó cancelada. No tenés que hacer nada más.',
+        default        => 'Listo, ya está reservado el horario. Te dejamos los datos por las dudas.',
+    };
+
+    // Los datos de la reunión van en un recuadro para que se lean de un vistazo
+    // en el celular, que es donde se abre la mayoría de estos correos.
+    $ficha = 'Reunión: ' . (string)($tipo['nombre'] ?? '') . "\n"
+           . 'Con: ' . $conQuien . "\n"
+           . 'Cuándo: ' . $cuando . ' (hora de Argentina)' . "\n"
+           . 'Duración: ' . (int)($tipo['duracion_min'] ?? 30) . ' minutos';
+
+    $bloques = [
+        ['tipo' => 'encabezado', 'alto' => 34],
+        ['tipo' => 'titulo', 'texto' => $titulo],
+        ['tipo' => 'texto',  'texto' => 'Hola ' . (string)$reserva['invitado_nombre'] . ','],
+        ['tipo' => 'texto',  'texto' => $entrada],
+        ['tipo' => 'destacado', 'texto' => $ficha],
+    ];
+
+    if ($clase !== 'cancelacion') {
+        if ($meet !== '') {
+            $bloques[] = ['tipo' => 'boton', 'texto' => 'Entrar por Google Meet', 'url' => $meet,
+                          'fondo' => '#663399', 'color' => '#ffffff', 'alineacion' => 'center'];
+            $bloques[] = ['tipo' => 'texto', 'texto' => 'Si el botón no te funciona, copiá este enlace: ' . $meet];
+        } else {
+            $bloques[] = ['tipo' => 'texto',
+                          'texto' => 'Te vamos a mandar el enlace de la videollamada antes de la reunión.'];
+        }
+        $bloques[] = ['tipo' => 'texto',
+                      'texto' => 'La invitación va adjunta a este correo: aceptala y te queda en tu calendario.'];
+        $bloques[] = ['tipo' => 'texto', 'texto' => 'Si no podés asistir, cancelala acá: ' . $cancel];
     }
-    $html .= '<p style="font-size:12px;color:#6f6a7d;margin-top:24px">'
-           . 'Si no podés asistir, <a href="' . e($cancel) . '" style="color:#663399">cancelá la reunión acá</a>.</p>'
-           . '<p style="font-size:12px;color:#8a8596">INTELLIHELP S.A.</p></div>';
+
+    $bloques[] = ['tipo' => 'firma', 'cierre' => 'Nos vemos,',
+                  'firma' => $conQuien, 'cargo' => (string) setting_get('empresa_nombre', 'INTELLIHELP')];
+    $bloques[] = ['tipo' => 'contacto'];
+
+    $ajustes = ['fondo' => '#f6f5fa', 'tarjeta' => '#ffffff', 'marca' => '#663399',
+                'acento' => '#9CC930', 'texto' => '#3a3f4b', 'titulo' => '#161922',
+                'preencabezado' => $cuando];
+
+    $html  = bloques_render($bloques, $ajustes);
+    $texto = bloques_texto($bloques);
+
+    // La invitación no se manda con la cancelación desde el CRM porque ahí ya
+    // se avisó por Google; acá va el CANCEL para que se borre del calendario
+    // de quien la había aceptado.
+    $extra = ['texto' => $texto];
+    if ($clase === 'cancelacion') {
+        $extra['ics'] = agenda_ics($reserva, $tipo, 'CANCEL');
+        $extra['ics_metodo'] = 'CANCEL';
+    } else {
+        $extra['ics'] = agenda_ics($reserva, $tipo, 'REQUEST');
+        $extra['ics_metodo'] = 'REQUEST';
+    }
 
     $err = null;
-    if (!enviar_correo_simple((string)$reserva['invitado_email'], $titulo . ' · ' . $tipo['nombre'], $html, $err)) {
+    if (!enviar_correo_simple((string)$reserva['invitado_email'],
+                              $titulo . ' · ' . (string)($tipo['nombre'] ?? ''), $html, $err, $extra)) {
         log_app('agenda.correo_error', ['tipo' => 'error', 'entidad' => 'reserva',
             'entidad_id' => (int)$reserva['id'], 'detalle' => (string)$err]);
     }
@@ -301,7 +445,7 @@ function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacio
 /** Manda los recordatorios de las reuniones de las próximas 24 h (lo llama el cron). */
 function agenda_recordatorios(): int
 {
-    $filas = q("SELECT r.*, t.nombre, t.duracion_min, u.nombre AS usuario
+    $filas = q("SELECT r.*, t.nombre, t.duracion_min, t.con_meet, u.nombre AS usuario, u.email AS usuario_email
                 FROM agenda_reservas r
                 JOIN agenda_tipos t ON t.id = r.tipo_id
                 JOIN usuarios u     ON u.id = r.usuario_id

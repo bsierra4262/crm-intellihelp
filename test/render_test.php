@@ -66,6 +66,22 @@ function rutas_a_probar(): array
         'ajustes'         => [],
         'cron'            => [],
         'api-keys'        => [],
+
+        // Fichas de detalle. El listado y la ficha no comparten código, y las
+        // que se rompieron fueron las fichas: `campana-ver` pedía la vista
+        // previa del correo y le llegaba el nombre de la vista en su lugar,
+        // mientras el listado de campañas se dibujaba perfecto. Sin estas
+        // entradas, la batería daba 35 en verde con la pantalla rota.
+        // El id sale de la base al momento de correr; si la tabla está vacía la
+        // pantalla se saltea, en vez de dar un falso negativo.
+        'contacto-ver'    => ['_id_de' => 'contactos'],
+        'cuenta-ver'      => ['_id_de' => 'cuentas'],
+        'posible-ver'     => ['_id_de' => 'posibles_clientes'],
+        'negocio-ver'     => ['_id_de' => 'negocios'],
+        'campana-ver'     => ['_id_de' => 'campanas'],
+        'lista-ver'       => ['_id_de' => 'listas'],
+        'campana-editar'  => ['_r' => 'campana-form',   '_id_de' => 'campanas'],
+        'plantilla-editar'=> ['_r' => 'plantilla-form', '_id_de' => 'plantillas'],
     ];
 }
 
@@ -96,7 +112,8 @@ if ($modo === '--limpiar') {
     $params = $rutas[$clave] ?? [];
     $ruta      = $params['_r'] ?? $clave;
     $sinSesion = !empty($params['_sin_sesion']);
-    unset($params['_r'], $params['_sin_sesion']);
+    $idDe      = $params['_id_de'] ?? null;
+    unset($params['_r'], $params['_sin_sesion'], $params['_id_de']);
 
     // Fingir una request web para que el bootstrap y las vistas funcionen.
     $_SERVER['REQUEST_METHOD'] = 'GET';
@@ -108,6 +125,17 @@ if ($modo === '--limpiar') {
     $_GET = $params + ['r' => $ruta];
 
     require $web . '/app/bootstrap.php';
+
+    // Id real de la ficha a probar, sacado de la base.
+    if ($idDe !== null) {
+        $tieneBorrado = (bool) q1("SHOW COLUMNS FROM `$idDe` LIKE 'eliminado_en'");
+        $id = qv('SELECT MIN(id) FROM `' . $idDe . '`' . ($tieneBorrado ? ' WHERE eliminado_en IS NULL' : ''));
+        if (!$id) {
+            fwrite(STDOUT, "ok 0\n");   // tabla vacía: no hay nada que dibujar
+            exit(0);
+        }
+        $_GET['id'] = (int)$id;
+    }
 
     // Sesión falsa de administrador. El usuario de prueba se crea si no está y
     // se borra al final de la batería.
@@ -138,6 +166,21 @@ if ($modo === '--limpiar') {
         if ($largo < 200) {
             fwrite(STDERR, "SALIDA SOSPECHOSAMENTE CORTA ($largo bytes)\n$salida\n");
             exit(3);
+        }
+        // La página tiene que haber salido ENTERA. Cuando una vista se colgaba
+        // a mitad de camino, PHP volcaba igual lo que llevaba escrito: salía el
+        // HTML suelto, sin <head> y por lo tanto sin estilos, que es la pared
+        // de texto que se vio en pantalla. «No reventó» no alcanza como prueba.
+        if (stripos($salida, '</html>') === false || stripos($salida, 'app.css') === false) {
+            fwrite(STDERR, "SALIÓ SIN EL LAYOUT: falta </html> o la hoja de estilos\n");
+            exit(4);
+        }
+        // Ahora una vista rota se atrapa y se reemplaza por la pantalla de
+        // error. Eso está bien para quien usa el sistema, pero para la batería
+        // sigue siendo un fallo y hay que detectarlo.
+        if (str_contains($salida, 'No pudimos dibujar esta pantalla')) {
+            fwrite(STDERR, "LA VISTA FALLÓ Y SE DIBUJÓ LA PANTALLA DE ERROR\n");
+            exit(5);
         }
         fwrite(STDOUT, "ok $largo\n");
         exit(0);

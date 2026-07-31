@@ -19,8 +19,27 @@ declare(strict_types=1);
 // ============================================================
 
 /** Configuración de correo: config.php + lo que se cargue desde Ajustes. */
+/**
+ * Cuenta con la que sale un correo suelto (avisos, confirmaciones, pruebas).
+ *
+ * Las casillas se cargan en UN solo lugar: la pantalla «Cuentas de correo». Si
+ * hay una marcada como predeterminada, es esa. Antes esto se configuraba en dos
+ * pantallas distintas —Ajustes por un lado y Cuentas de correo por el otro— y
+ * no había forma de saber cuál mandaba: eran dos sistemas en paralelo.
+ *
+ * Los otros dos escalones quedan como red de seguridad para una instalación que
+ * todavía no cargó ninguna cuenta.
+ */
 function smtp_cfg(): array
 {
+    if (function_exists('cuenta_correo_predeterminada')) {
+        $cuenta = cuenta_correo_predeterminada();
+        if ($cuenta) {
+            $cfg = cuenta_a_config($cuenta);
+            if (!empty($cfg['user']) && !empty($cfg['pass'])) { return $cfg; }
+        }
+    }
+
     $c = (array)($GLOBALS['CONFIG']['mail'] ?? []);
     foreach (['user', 'pass', 'from', 'from_name', 'host', 'port', 'seguridad', 'responder_a'] as $k) {
         $v = setting_get('smtp_' . $k, null);
@@ -181,15 +200,48 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
         $cab .= 'List-Unsubscribe: <' . $msg['baja_url'] . ">\r\n";
         $cab .= "List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n";
     }
-    $cab .= 'Content-Type: multipart/alternative; boundary="' . $limite . "\"\r\n";
+    // Las dos versiones del mensaje: texto plano para quien no ve HTML, y HTML
+    // para el resto. El cliente de correo elige la última que entiende.
+    $alt  = "--$limite\r\n";
+    $alt .= "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n";
+    $alt .= chunk_split(base64_encode($texto)) . "\r\n";
+    $alt .= "--$limite\r\n";
+    $alt .= "Content-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n";
+    $alt .= chunk_split(base64_encode((string)($msg['html'] ?? ''))) . "\r\n";
 
-    $cuerpo  = "--$limite\r\n";
-    $cuerpo .= "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n";
-    $cuerpo .= chunk_split(base64_encode($texto)) . "\r\n";
-    $cuerpo .= "--$limite\r\n";
-    $cuerpo .= "Content-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n";
-    $cuerpo .= chunk_split(base64_encode((string)($msg['html'] ?? ''))) . "\r\n";
-    $cuerpo .= "--$limite--\r\n";
+    $ics = (string)($msg['ics'] ?? '');
+    if ($ics !== '') {
+        // Invitación de calendario. Esta parte es la que hace que Gmail y
+        // Outlook muestren los botones «Sí / No / Quizás» arriba del mensaje:
+        // sin ella, el correo avisa de la reunión pero no se puede aceptar.
+        // Tiene que ir DENTRO del multipart/alternative y con el mismo method
+        // que declara el archivo, o el cliente lo ignora.
+        $metodo = (string)($msg['ics_metodo'] ?? 'REQUEST');
+        $alt .= "--$limite\r\n";
+        $alt .= 'Content-Type: text/calendar; charset=UTF-8; method=' . $metodo . "\r\n";
+        $alt .= "Content-Transfer-Encoding: base64\r\n\r\n";
+        $alt .= chunk_split(base64_encode($ics)) . "\r\n";
+    }
+    $alt .= "--$limite--\r\n";
+
+    if ($ics === '') {
+        $cab   .= 'Content-Type: multipart/alternative; boundary="' . $limite . "\"\r\n";
+        $cuerpo = $alt;
+    } else {
+        // Además de la parte de calendario va el archivo adjunto: algunos
+        // clientes (Apple Mail entre ellos) sólo lo reconocen así.
+        $ext    = '=_ith_m_' . bin2hex(random_bytes(10));
+        $cab   .= 'Content-Type: multipart/mixed; boundary="' . $ext . "\"\r\n";
+        $cuerpo  = "--$ext\r\n";
+        $cuerpo .= 'Content-Type: multipart/alternative; boundary="' . $limite . "\"\r\n\r\n";
+        $cuerpo .= $alt;
+        $cuerpo .= "--$ext\r\n";
+        $cuerpo .= "Content-Type: application/ics; name=\"reunion.ics\"\r\n";
+        $cuerpo .= "Content-Disposition: attachment; filename=\"reunion.ics\"\r\n";
+        $cuerpo .= "Content-Transfer-Encoding: base64\r\n\r\n";
+        $cuerpo .= chunk_split(base64_encode($ics)) . "\r\n";
+        $cuerpo .= "--$ext--\r\n";
+    }
 
     // Dot-stuffing: una línea que arranca con "." cerraría el DATA antes de tiempo.
     $cuerpo = preg_replace('/^\./m', '..', $cuerpo);
@@ -199,12 +251,17 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
     return 'enviado';
 }
 
-/** Envío suelto (avisos del sistema, confirmaciones de agenda). */
-function enviar_correo_simple(string $para, string $asunto, string $html, ?string &$err = null): bool
+/**
+ * Envío suelto (avisos del sistema, confirmaciones de agenda).
+ *
+ * En $extra viajan las partes opcionales: `texto` con la versión en texto
+ * plano, e `ics` / `ics_metodo` con la invitación de calendario.
+ */
+function enviar_correo_simple(string $para, string $asunto, string $html, ?string &$err = null, array $extra = []): bool
 {
     $fp = smtp_abrir($err);
     if (!$fp) { return false; }
-    $res = smtp_enviar($fp, ['para' => $para, 'asunto' => $asunto, 'html' => $html], $err);
+    $res = smtp_enviar($fp, ['para' => $para, 'asunto' => $asunto, 'html' => $html] + $extra, $err);
     smtp_cerrar($fp);
     return $res === 'enviado';
 }

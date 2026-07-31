@@ -69,9 +69,9 @@ function plantilla_guardar(array $d, ?int $id = null): int
         'cuerpo_html'  => $html,
         'cuerpo_texto' => $texto ?: null,
         'bloques'      => $bloques,
-        'carpeta'      => $d['carpeta'] ?: null,
+        'carpeta'      => ($d['carpeta'] ?? null) ?: null,
         'tipo'         => $tipo,
-        'preajuste'    => $d['preajuste'] ?: null,
+        'preajuste'    => ($d['preajuste'] ?? null) ?: null,
         'activo'       => !empty($d['activo']) ? 1 : 0,
     ];
     if ($id) {
@@ -155,15 +155,15 @@ function lista_get(int $id): ?array
 function lista_guardar(array $d, ?int $id = null): int
 {
     $nombre = trim((string)($d['nombre'] ?? ''));
-    $cat    = $d['categoria_id'] ?: null;
+    $cat    = ($d['categoria_id'] ?? null) ?: null;
     if ($id) {
         q('UPDATE listas SET nombre = ?, descripcion = ?, categoria_id = ? WHERE id = ?',
-          [$nombre, $d['descripcion'] ?: null, $cat, $id]);
+          [$nombre, ($d['descripcion'] ?? null) ?: null, $cat, $id]);
         log_app('lista.editar', ['entidad' => 'lista', 'entidad_id' => $id, 'detalle' => $nombre]);
         return $id;
     }
     q('INSERT INTO listas (nombre, descripcion, categoria_id, creado_por) VALUES (?, ?, ?, ?)',
-      [$nombre, $d['descripcion'] ?: null, $cat, current_user_id()]);
+      [$nombre, ($d['descripcion'] ?? null) ?: null, $cat, current_user_id()]);
     $nuevo = last_id();
     log_app('lista.crear', ['entidad' => 'lista', 'entidad_id' => $nuevo, 'detalle' => $nombre]);
     return $nuevo;
@@ -250,24 +250,24 @@ function campana_guardar(array $d, ?int $id = null): int
 {
     $campos = [
         'nombre'           => trim((string)($d['nombre'] ?? '')),
-        'tipo'             => $d['tipo'] ?: 'Correo masivo',
-        'plantilla_id'     => $d['plantilla_id'] ?: null,
-        'lista_id'         => $d['lista_id'] ?: null,
-        'cuenta_correo_id' => $d['cuenta_correo_id'] ?: null,
-        'categoria_id'     => $d['categoria_id'] ?: null,
-        'propietario_id'   => $d['propietario_id'] ?: current_user_id(),
-        'remitente_nombre' => $d['remitente_nombre'] ?: null,
+        'tipo'             => ($d['tipo'] ?? null) ?: 'Correo masivo',
+        'plantilla_id'     => ($d['plantilla_id'] ?? null) ?: null,
+        'lista_id'         => ($d['lista_id'] ?? null) ?: null,
+        'cuenta_correo_id' => ($d['cuenta_correo_id'] ?? null) ?: null,
+        'categoria_id'     => ($d['categoria_id'] ?? null) ?: null,
+        'propietario_id'   => ($d['propietario_id'] ?? null) ?: current_user_id(),
+        'remitente_nombre' => ($d['remitente_nombre'] ?? null) ?: null,
         'remitente_email'  => normalizar_email($d['remitente_email'] ?? '') ?: null,
         'responder_a'      => normalizar_email($d['responder_a'] ?? '') ?: null,
-        'copia_a'          => $d['copia_a'] ?: null,
-        'asunto'           => $d['asunto'] ?: null,
+        'copia_a'          => ($d['copia_a'] ?? null) ?: null,
+        'asunto'           => ($d['asunto'] ?? null) ?: null,
         'pausa_min_seg'    => max(5,  (int)($d['pausa_min_seg'] ?? 25)),
         'pausa_max_seg'    => max(10, (int)($d['pausa_max_seg'] ?? 45)),
         'limite_diario'    => max(1,  (int)($d['limite_diario'] ?? 300)),
-        'enviar_desde'     => $d['enviar_desde'] ?: null,
-        'enviar_hasta'     => $d['enviar_hasta'] ?: null,
-        'programada_para'  => $d['programada_para'] ?: null,
-        'descripcion'      => $d['descripcion'] ?: null,
+        'enviar_desde'     => ($d['enviar_desde'] ?? null) ?: null,
+        'enviar_hasta'     => ($d['enviar_hasta'] ?? null) ?: null,
+        'programada_para'  => ($d['programada_para'] ?? null) ?: null,
+        'descripcion'      => ($d['descripcion'] ?? null) ?: null,
     ];
     // La pausa mínima nunca puede superar a la máxima: si el usuario las
     // invierte, se ordenan solas en vez de romper el despachador.
@@ -324,7 +324,7 @@ function campana_preparar(int $campanaId): array
 
         $st = q('INSERT IGNORE INTO envios (campana_id, contacto_id, email, nombre, empresa, estado, motivo, token, proximo_intento_en)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
-                [$campanaId, $m['contacto_id'] ?: null, $email, $m['nombre'], $m['empresa'],
+                [$campanaId, ($m['contacto_id'] ?? null) ?: null, $email, $m['nombre'], $m['empresa'],
                  $motivo ? 'omitido' : 'pendiente', $motivo, token32()]);
         if ($st->rowCount() > 0) {
             if ($motivo) {
@@ -519,16 +519,16 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
         'apellido'          => count($partes) > 1 ? implode(' ', array_slice($partes, 1)) : '',
         'empresa'           => (string)($envio['empresa'] ?? ''),
         'email'             => (string)$envio['email'],
-        'remitente'         => (string)($c['remitente_nombre']
+        'remitente'         => (string)(($c['remitente_nombre'] ?? null)
                                         ?: ($cuenta['remitente_nombre'] ?? '')
-                                        ?: $c['propietario'] ?: 'INTELLIHELP'),
+                                        ?: ($c['propietario'] ?? null) ?: 'INTELLIHELP'),
         'remitente_empresa' => (string) setting_get('empresa_nombre', 'INTELLIHELP'),
         'empresa_web'       => (string) setting_get('empresa_web', ''),
         'agenda'            => $agenda,
         'baja'              => $baja,
     ];
 
-    $asunto = render_plantilla((string)($c['asunto'] ?: $c['plantilla_asunto'] ?: ''), $datos);
+    $asunto = render_plantilla((string)(($c['asunto'] ?? null) ?: ($c['plantilla_asunto'] ?? null) ?: ''), $datos);
     $html   = render_plantilla((string)($c['cuerpo_html'] ?? ''), $datos);
     $texto  = render_plantilla((string)($c['cuerpo_texto'] ?? ''), $datos);
 
@@ -552,9 +552,9 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
         'asunto'      => $asunto,
         'html'        => $html,
         'texto'       => $texto,
-        'de'          => $c['remitente_email'] ?: ($cuenta['remitente'] ?? null),
-        'de_nombre'   => $c['remitente_nombre'] ?: ($cuenta['remitente_nombre'] ?? null),
-        'responder_a' => $c['responder_a'] ?: ($cuenta['responder_a'] ?? null),
+        'de'          => ($c['remitente_email'] ?? null) ?: ($cuenta['remitente'] ?? null),
+        'de_nombre'   => ($c['remitente_nombre'] ?? null) ?: ($cuenta['remitente_nombre'] ?? null),
+        'responder_a' => ($c['responder_a'] ?? null) ?: ($cuenta['responder_a'] ?? null),
         'cc'          => array_filter(array_map('trim', preg_split('/[;,\s]+/', (string)($c['copia_a'] ?? '')) ?: [])),
         'baja_url'    => $baja,
     ];

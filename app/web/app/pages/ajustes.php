@@ -23,18 +23,19 @@ if (is_post()) {
         log_app('ajustes.probar_imap', ['detalle' => $aviso[1]]);
 
     } elseif ($accion === 'revisar_casilla') {
-        $r = imap_revisar();
+        // Todas las casillas activas, igual que el cron: si sólo se revisara la
+        // predeterminada, los rebotes de las campañas que salen por las otras
+        // cuentas no aparecerían nunca.
+        $r = imap_revisar_todas();
         $aviso = $r['error']
             ? ['error', $r['error']]
-            : ['success', sprintf('Revisados %d mensajes: %d rebotes y %d respuestas.',
-                                  $r['revisados'], $r['rebotes'], $r['respuestas'])];
+            : ['success', sprintf('Revisadas %d casilla(s): %d mensajes, %d rebotes y %d respuestas.',
+                                  $r['casillas'] ?? 1, $r['revisados'], $r['rebotes'], $r['respuestas'])];
 
     } else {
         $claves = [
             'app_nombre', 'app_entorno', 'testing_destinatarios',
             'empresa_nombre', 'empresa_web', 'empresa_telefono', 'empresa_email', 'empresa_whatsapp',
-            'smtp_host', 'smtp_port', 'smtp_seguridad', 'smtp_user', 'smtp_from', 'smtp_from_name',
-            'imap_host', 'imap_port', 'imap_user',
             'campana_pausa_min', 'campana_pausa_max', 'campana_limite_diario',
             'papelera_dias', 'cron_clave',
         ];
@@ -43,13 +44,17 @@ if (is_post()) {
                 setting_set($k, trim((string)$_POST[$k]));
             }
         }
-        // Las contraseñas sólo se pisan si escribieron una nueva: así el campo
-        // puede quedar vacío en pantalla sin borrar lo guardado.
-        foreach (['smtp_pass', 'imap_pass'] as $k) {
-            if (trim((string)($_POST[$k] ?? '')) !== '') {
-                setting_set($k, trim((string)$_POST[$k]));
-            }
+
+        // La casilla por defecto ya no se configura acá: sólo se elige cuál de
+        // las cargadas en «Cuentas de correo» es la predeterminada. Antes esta
+        // pantalla tenía su propio juego de campos SMTP/IMAP en paralelo a esa
+        // tabla, y no había forma de saber cuál de los dos mandaba.
+        $elegida = (int)($_POST['cuenta_predeterminada'] ?? 0);
+        if ($elegida > 0 && cuenta_correo_get($elegida)) {
+            q('UPDATE cuentas_correo SET predeterminada = 0');
+            q('UPDATE cuentas_correo SET predeterminada = 1 WHERE id = ?', [$elegida]);
         }
+
         log_app('ajustes.guardar', ['detalle' => 'Se actualizaron los ajustes del sistema']);
         $aviso = ['success', 'Ajustes guardados.'];
     }
@@ -58,9 +63,10 @@ if (is_post()) {
 $s = static fn(string $k, string $def = '') => (string) setting_get($k, $def);
 
 render('ajustes', [
-    'aviso' => $aviso,
-    's'     => $s,
-    'smtp'  => smtp_configurado(),
-    'imap'  => imap_configurado(),
-    'cron'  => setting_get('cron_ultima_corrida', ''),
+    'aviso'   => $aviso,
+    's'       => $s,
+    'smtp'    => smtp_configurado(),
+    'imap'    => imap_configurado(),
+    'cron'    => setting_get('cron_ultima_corrida', ''),
+    'cuentas' => cuentas_correo_listar(),
 ], 'Ajustes');

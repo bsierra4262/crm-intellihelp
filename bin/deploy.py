@@ -116,12 +116,16 @@ def cmd_app(cli: paramiko.SSHClient) -> None:
     sftp = cli.open_sftp()
     print(f"Subiendo app/web/ → {WEBROOT}")
     n = subir_arbol(sftp, RAIZ / "app" / "web", WEBROOT)
-    cron_local = RAIZ / "app" / "cron.php"
-    if cron_local.is_file():
+    # Scripts que viven junto al webroot pero se corren por línea de comandos.
+    # Los dos se niegan a ejecutarse por HTTP (devuelven 404).
+    for nombre in ("cron.php", "reinicio.php"):
+        local = RAIZ / "app" / nombre
+        if not local.is_file():
+            continue
         mkdirs(sftp, posixpath.dirname(WEBROOT))
-        sftp.put(str(cron_local), posixpath.join(WEBROOT, "cron.php"))
+        sftp.put(str(local), posixpath.join(WEBROOT, nombre))
         n += 1
-        print(f"  → {WEBROOT}/cron.php")
+        print(f"  → {WEBROOT}/{nombre}")
     sftp.close()
     print(f"{n} archivos subidos.")
     ejecutar(cli, f"mkdir -p {STORAGE} && chmod 750 {STORAGE}")

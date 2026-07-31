@@ -26,9 +26,18 @@
                     </a>
                 </p>
                 <p class="muted small centro">El enlace también te llega por correo y queda en tu calendario.</p>
+            <?php elseif (!empty($tipo['con_meet'])): ?>
+                <?php /* La reunión quedó tomada, pero el enlace de la videollamada
+                         no se pudo crear. Antes se prometía igual —«te lo mandamos
+                         por correo»— y no llegaba nunca. Se dice lo que realmente
+                         va a pasar: alguien lo manda a mano. */ ?>
+                <div class="flash flash-warn mt-5">
+                    El horario ya quedó reservado. El enlace de la videollamada te lo
+                    mandamos por correo apenas lo tengamos, antes de la reunión.
+                </div>
             <?php else: ?>
                 <div class="flash flash-info mt-5">
-                    Te vamos a mandar el enlace de la videollamada por correo antes de la reunión.
+                    Te vamos a escribir por correo para confirmar cómo nos conectamos.
                 </div>
             <?php endif; ?>
 

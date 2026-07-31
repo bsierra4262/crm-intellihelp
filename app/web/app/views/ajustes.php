@@ -1,4 +1,4 @@
-<?php /** @var ?array $aviso @var callable $s @var bool $smtp @var bool $imap @var string $cron */ ?>
+<?php /** @var ?array $aviso @var callable $s @var bool $smtp @var bool $imap @var string $cron @var array $cuentas */ ?>
 <div class="page-head">
     <div>
         <h1>Ajustes</h1>
@@ -7,6 +7,7 @@
 </div>
 
 <?php if ($aviso): ?><div class="flash flash-<?= e($aviso[0]) ?>"><?= e($aviso[1]) ?></div><?php endif; ?>
+<?php include APP . '/views/_aviso_gcal.php'; ?>
 
 <div class="cards">
     <div class="card stat">
@@ -84,74 +85,43 @@
     </div>
 
     <div class="card form-card">
-        <h2 class="sec">Cuenta desde la que salen los correos</h2>
-        <div class="flash flash-info card-intro">
-            <strong>Con Google Workspace hace falta una «contraseña de aplicación»</strong>, no la
-            contraseña con la que entrás a Google. Se genera en
-            <em>Cuenta de Google → Seguridad → Verificación en dos pasos → Contraseñas de aplicaciones</em>
-            y son 16 letras en cuatro grupos.
-        </div>
-        <div class="grid-fields">
-            <label class="fld wide"><span>Dirección de correo de la cuenta</span>
-                <input name="smtp_user" value="<?= e($s('smtp_user')) ?>" autocomplete="off"
-                       placeholder="ithos@intellihelp.tech" type="email">
-                <i class="hint">La casilla con la que el sistema se conecta a Google para enviar. Va la dirección completa.</i>
-            </label>
-            <label class="fld wide"><span>Contraseña de aplicación</span>
-                <input type="password" name="smtp_pass" value="" autocomplete="new-password"
-                       placeholder="<?= $s('smtp_pass') !== '' ? '•••••• · ya está guardada, dejala vacía para no cambiarla' : 'xxxx xxxx xxxx xxxx' ?>">
-                <i class="hint">La de 16 letras que genera Google. Se guarda cifrada y no se vuelve a mostrar.</i>
-            </label>
-
-            <label class="fld wide"><span>Dirección que ve el destinatario</span>
-                <input name="smtp_from" value="<?= e($s('smtp_from')) ?>" type="email"
-                       placeholder="la misma de arriba">
-                <i class="hint">La que aparece como remitente en la bandeja del cliente. Si la dejás vacía se usa la de arriba. Sólo tiene sentido cambiarla si Google tiene configurado un alias.</i>
-            </label>
-            <label class="fld wide"><span>Nombre que ve el destinatario</span>
-                <input name="smtp_from_name" value="<?= e($s('smtp_from_name', 'INTELLIHELP')) ?>">
-                <i class="hint">Lo que se lee en negrita en la bandeja, antes del asunto. Por ejemplo «INTELLIHELP» o «Brian de INTELLIHELP».</i>
-            </label>
-
-            <label class="fld"><span>Servidor de salida</span>
-                <input name="smtp_host" value="<?= e($s('smtp_host', 'smtp.gmail.com')) ?>">
-                <i class="hint">Con Gmail o Workspace: <code class="mono">smtp.gmail.com</code>.</i>
-            </label>
-            <label class="fld"><span>Puerto</span><input name="smtp_port" value="<?= e($s('smtp_port', '587')) ?>"></label>
-            <label class="fld"><span>Seguridad</span>
-                <select name="smtp_seguridad">
-                    <option value="tls" <?= $s('smtp_seguridad', 'tls') === 'tls' ? 'selected' : '' ?>>STARTTLS (puerto 587)</option>
-                    <option value="ssl" <?= $s('smtp_seguridad') === 'ssl' ? 'selected' : '' ?>>SSL directo (puerto 465)</option>
-                </select>
-                <i class="hint">Con Gmail, STARTTLS en el 587.</i>
-            </label>
-        </div>
-    </div>
-
-    <div class="card form-card">
-        <h2 class="sec">Casilla donde llegan los rebotes y las respuestas</h2>
+        <h2 class="sec">Casillas de correo</h2>
         <p class="muted small card-intro">
-            Es la <strong>bandeja de entrada</strong> de la misma cuenta. De ahí el sistema lee los avisos
-            de correo no entregado (<code class="mono">mailer-daemon</code>, <code class="mono">postmaster</code>)
-            y las respuestas de los clientes, para marcarlas en el CRM.
-            <strong>Si la dejás vacía se usa la cuenta de salida</strong>, que es lo habitual.
+            Las casillas se cargan en <a href="<?= e(url('cuentas-correo')) ?>">Cuentas de correo</a>,
+            que es el único lugar donde se configuran. Acá sólo se elige <strong>cuál se usa por
+            defecto</strong>: la que manda los avisos del sistema, las confirmaciones de reunión y
+            las pruebas de esta pantalla. Cada campaña puede salir por otra distinta, y eso se
+            elige al armarla.
         </p>
-        <div class="grid-fields">
-            <label class="fld wide"><span>Dirección de correo</span>
-                <input name="imap_user" value="<?= e($s('imap_user')) ?>" autocomplete="off" type="email"
-                       placeholder="la misma de salida">
-            </label>
-            <label class="fld wide"><span>Contraseña de aplicación</span>
-                <input type="password" name="imap_pass" value="" autocomplete="new-password"
-                       placeholder="<?= $s('imap_pass') !== '' ? '•••••• · ya está guardada' : 'la misma de salida' ?>">
-            </label>
-            <label class="fld"><span>Servidor de entrada</span>
-                <input name="imap_host" value="<?= e($s('imap_host', 'imap.gmail.com')) ?>">
-                <i class="hint">Con Gmail o Workspace: <code class="mono">imap.gmail.com</code>.</i>
-            </label>
-            <label class="fld"><span>Puerto</span><input name="imap_port" value="<?= e($s('imap_port', '993')) ?>"></label>
-        </div>
+        <?php if (!$cuentas): ?>
+            <div class="flash flash-warn">
+                Todavía no hay ninguna casilla cargada, así que el sistema no puede mandar correo.
+                <a href="<?= e(url('cuentas-correo')) ?>">Cargá la primera acá</a>.
+            </div>
+        <?php else: ?>
+            <div class="grid-fields">
+                <label class="fld wide"><span>Casilla por defecto</span>
+                    <select name="cuenta_predeterminada">
+                        <?php foreach ($cuentas as $cu): ?>
+                            <option value="<?= (int)$cu['id'] ?>" <?= !empty($cu['predeterminada']) ? 'selected' : '' ?>>
+                                <?= e($cu['nombre']) ?> · <?= e($cu['remitente']) ?>
+                                <?= empty($cu['activo']) ? ' (inactiva)' : '' ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <i class="hint">De acá salen los correos que no son de campaña. Es también la
+                        que se usa al apretar «Probar el correo de salida» más abajo.</i>
+                </label>
+            </div>
+            <p class="muted small mt-3">
+                Los rebotes se leen de <strong>todas</strong> las casillas activas, no sólo de esta:
+                si una campaña sale por la casilla de RRHH, sus rebotes llegan a la casilla de RRHH
+                y ahí se leen. Hoy hay <strong><?= count(array_filter($cuentas, fn($x) => !empty($x['activo']))) ?></strong>
+                casilla(s) activa(s).
+            </p>
+        <?php endif; ?>
     </div>
+
 
     <div class="card form-card">
         <h2 class="sec">Ritmo por defecto de las campañas</h2>

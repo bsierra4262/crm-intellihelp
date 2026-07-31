@@ -36,8 +36,23 @@ const ASUNTOS_REBOTE = [
     'devolución de correo',
 ];
 
+/**
+ * Casilla de entrada por defecto (rebotes y respuestas).
+ *
+ * Igual que con la de salida: manda la cuenta marcada como predeterminada en
+ * «Cuentas de correo». Para revisar TODAS las casillas —que es lo que hace el
+ * cron— está imap_revisar_todas().
+ */
 function imap_cfg(): array
 {
+    if (function_exists('cuenta_correo_predeterminada')) {
+        $cuenta = cuenta_correo_predeterminada();
+        if ($cuenta) {
+            $cfg = cuenta_a_imap($cuenta);
+            if (!empty($cfg['user']) && !empty($cfg['pass'])) { return $cfg; }
+        }
+    }
+
     $c = (array)($GLOBALS['CONFIG']['imap'] ?? []);
     foreach (['host', 'port', 'user', 'pass'] as $k) {
         $v = setting_get('imap_' . $k, null);
@@ -69,8 +84,8 @@ function imap_configurado(): bool
 function imap_conectar(?string &$err = null, ?array $cfg = null)
 {
     $c    = $cfg ?? imap_cfg();
-    $host = (string)($c['host'] ?: 'imap.gmail.com');
-    $port = (int)($c['port'] ?: 993);
+    $host = (string)(($c['host'] ?? null) ?: 'imap.gmail.com');
+    $port = (int)(($c['port'] ?? null) ?: 993);
 
     if (empty($c['user']) || empty($c['pass'])) {
         $err = 'La casilla de entrada no está configurada.';
@@ -339,6 +354,52 @@ function extraer_destinatario_rebote(string $cuerpo): array
  *
  * @return array{rebotes:int, duros:int, respuestas:int, revisados:int, error:?string}
  */
+/**
+ * Revisa la casilla de TODAS las cuentas de correo activas.
+ *
+ * Antes el cron revisaba una sola casilla —la de Ajustes—, así que las
+ * campañas que salían por cualquier otra cuenta nunca se enteraban de sus
+ * rebotes: esos contactos seguían recibiendo correo a direcciones que ya no
+ * existían, que es justo lo que arruina la reputación del remitente.
+ *
+ * Cada cuenta lleva su propia marca de por dónde iba (la tabla imap_estado ya
+ * estaba preparada para eso, sólo que nadie la usaba con más de un buzón), así
+ * que ninguna vuelve a leer lo que ya leyó.
+ */
+function imap_revisar_todas(int $diasPrimeraVez = 30): array
+{
+    $total = ['rebotes' => 0, 'duros' => 0, 'respuestas' => 0, 'revisados' => 0,
+              'casillas' => 0, 'error' => null, 'errores' => []];
+
+    $cuentas = cuentas_correo_listar(true);
+    foreach ($cuentas as $c) {
+        $cfg = cuenta_a_imap($c);
+        if (empty($cfg['user']) || empty($cfg['pass'])) { continue; }
+        // La marca se guarda por dirección de casilla, no por número de cuenta:
+        // si mañana se borra y se vuelve a cargar la misma casilla, no se
+        // reprocesan meses de correo viejo.
+        $r = imap_revisar($diasPrimeraVez, $cfg, 'INBOX:' . mb_strtolower((string)$cfg['user']));
+        $total['casillas']++;
+        foreach (['rebotes', 'duros', 'respuestas', 'revisados'] as $k) {
+            $total[$k] += (int)($r[$k] ?? 0);
+        }
+        if (!empty($r['error'])) {
+            $total['errores'][] = $c['nombre'] . ': ' . $r['error'];
+        }
+    }
+
+    if (!$cuentas) {
+        // Sin cuentas cargadas se cae a la casilla de la configuración general,
+        // que es lo que había antes de que existieran las cuentas múltiples.
+        $r = imap_revisar($diasPrimeraVez);
+        $total = $r + ['casillas' => 1, 'errores' => []];
+        if (!empty($r['error'])) { $total['errores'] = [$r['error']]; }
+    }
+
+    $total['error'] = $total['errores'] ? implode(' · ', $total['errores']) : null;
+    return $total;
+}
+
 function imap_revisar(int $diasPrimeraVez = 30, ?array $cfg = null, string $etiquetaBuzon = 'INBOX'): array
 {
     $res = ['rebotes' => 0, 'duros' => 0, 'respuestas' => 0, 'revisados' => 0, 'error' => null];

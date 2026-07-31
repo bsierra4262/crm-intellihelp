@@ -97,8 +97,8 @@ function actividad_guardar(array $d, ?int $id = null): int
 
     // Una reunión sin fin explícito dura 30 minutos: es lo que evita eventos
     // sin duración en el calendario.
-    $inicia  = $d['inicia_el'] ?: null;
-    $termina = $d['termina_el'] ?: null;
+    $inicia  = ($d['inicia_el'] ?? null) ?: null;
+    $termina = ($d['termina_el'] ?? null) ?: null;
     if ($tipo === 'reunion' && $inicia && !$termina) {
         $termina = date('Y-m-d H:i:s', strtotime($inicia) + 1800);
     }
@@ -106,22 +106,22 @@ function actividad_guardar(array $d, ?int $id = null): int
     $campos = [
         'tipo'               => $tipo,
         'asunto'             => trim((string)($d['asunto'] ?? '')),
-        'propietario_id'     => $d['propietario_id'] ?: current_user_id(),
-        'contacto_id'        => $d['contacto_id'] ?: null,
-        'posible_cliente_id' => $d['posible_cliente_id'] ?: null,
-        'cuenta_id'          => $d['cuenta_id'] ?: null,
-        'negocio_id'         => $d['negocio_id'] ?: null,
-        'estado'             => $d['estado'] ?: 'No iniciada',
-        'prioridad'          => $d['prioridad'] ?: 'Normal',
-        'vence_el'           => $tipo === 'tarea' ? ($d['vence_el'] ?: null) : null,
+        'propietario_id'     => ($d['propietario_id'] ?? null) ?: current_user_id(),
+        'contacto_id'        => ($d['contacto_id'] ?? null) ?: null,
+        'posible_cliente_id' => ($d['posible_cliente_id'] ?? null) ?: null,
+        'cuenta_id'          => ($d['cuenta_id'] ?? null) ?: null,
+        'negocio_id'         => ($d['negocio_id'] ?? null) ?: null,
+        'estado'             => ($d['estado'] ?? null) ?: 'No iniciada',
+        'prioridad'          => ($d['prioridad'] ?? null) ?: 'Normal',
+        'vence_el'           => $tipo === 'tarea' ? (($d['vence_el'] ?? null) ?: null) : null,
         'inicia_el'          => $tipo === 'tarea' ? null : $inicia,
         'termina_el'         => $tipo === 'tarea' ? null : $termina,
-        'duracion_min'       => ($d['duracion_min'] ?? '') !== '' ? (int)$d['duracion_min'] : null,
-        'lugar'              => $d['lugar'] ?: null,
+        'duracion_min'       => ($d['duracion_min'] ?? '') !== '' ? (int)($d['duracion_min'] ?? 0) : null,
+        'lugar'              => ($d['lugar'] ?? null) ?: null,
         'sentido'            => in_array($d['sentido'] ?? '', ['entrante', 'saliente'], true) ? $d['sentido'] : null,
-        'resultado'          => $d['resultado'] ?: null,
-        'recordar_min'       => ($d['recordar_min'] ?? '') !== '' ? (int)$d['recordar_min'] : null,
-        'descripcion'        => $d['descripcion'] ?: null,
+        'resultado'          => ($d['resultado'] ?? null) ?: null,
+        'recordar_min'       => ($d['recordar_min'] ?? '') !== '' ? (int)($d['recordar_min'] ?? 0) : null,
+        'descripcion'        => ($d['descripcion'] ?? null) ?: null,
     ];
 
     if ($id) {
@@ -185,7 +185,7 @@ function actividad_completar(int $id, bool $completar = true, ?string $resultado
 /** Etiqueta y clase de una actividad según su vencimiento. */
 function actividad_vencimiento(array $a): array
 {
-    $cuando = $a['vence_el'] ?: $a['inicia_el'];
+    $cuando = ($a['vence_el'] ?? null) ?: $a['inicia_el'];
     if (!$cuando) {
         return ['—', 'badge-neutral'];
     }

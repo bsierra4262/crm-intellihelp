@@ -108,7 +108,7 @@ function csrf_field(): string
 function verify_csrf(): void
 {
     $ok = isset($_POST['_csrf'], $_SESSION['_csrf'])
-        && hash_equals($_SESSION['_csrf'], (string)$_POST['_csrf']);
+        && hash_equals($_SESSION['_csrf'], (string)($_POST['_csrf'] ?? ''));
     if (!$ok) {
         http_response_code(419);
         exit('Token de seguridad inválido. Volvé atrás y reintentá.');
@@ -131,14 +131,87 @@ function take_flash(): array
 
 // ---- Render de vistas ----
 
+/**
+ * Ejecuta una vista con sus datos y devuelve el HTML.
+ *
+ * Es una clase y no una función suelta por un motivo concreto. `extract()`
+ * escribe las variables del array en el ámbito local, así que cualquier
+ * variable propia que estuviera ahí —la ruta del archivo, por ejemplo— puede
+ * quedar pisada por un dato de la vista que se llame igual. Dentro de un método
+ * eso no puede pasar: la ruta viaja en `$this->ruta`, y `$this` es lo único que
+ * `extract()` no puede tocar.
+ *
+ * Esto no es teoría. La versión anterior usaba `extract($vars, EXTR_SKIP)`
+ * dentro de la propia `render()`, y como `$vista` y `$titulo` son parámetros de
+ * `render()`, toda vista que recibiera un dato con esos nombres se quedaba con
+ * el valor interno en su lugar, en silencio:
+ *   · `campana-ver` pedía la vista previa del correo y recibía el texto
+ *     «campana-ver», así que reventaba al leerlo como arreglo;
+ *   · cada pantalla de error mostraba el título equivocado;
+ *   · la solapa elegida en Actividades no llegaba nunca.
+ */
+final class Vista
+{
+    public function __construct(private string $ruta, private array $datos) {}
+
+    public function html(): string
+    {
+        extract($this->datos, EXTR_OVERWRITE);
+        ob_start();
+        try {
+            include $this->ruta;
+            return (string) ob_get_clean();
+        } catch (\Throwable $e) {
+            // Se descarta lo que la vista alcanzó a escribir. Si el buffer
+            // quedara abierto, PHP lo volcaría al terminar y la página saldría
+            // con el HTML suelto de la vista, sin <head> y por lo tanto sin
+            // estilos: una pared de texto en vez de un error entendible.
+            ob_end_clean();
+            throw $e;
+        }
+    }
+}
+
+/**
+ * Dibuja una vista dentro del layout.
+ *
+ * La vista y el layout se ejecutan en ámbitos separados: así una variable de la
+ * vista no puede pisar lo que el layout necesita, ni al revés.
+ */
 function render(string $vista, array $vars = [], string $titulo = ''): void
 {
-    $title = $titulo !== '' ? $titulo : ($GLOBALS['CONFIG']['app']['name'] ?? 'CRM');
-    extract($vars, EXTR_SKIP);
-    ob_start();
-    include APP . '/views/' . $vista . '.php';
-    $content = ob_get_clean();
-    include APP . '/views/layout.php';
+    $titulo = $titulo !== '' ? $titulo : ($GLOBALS['CONFIG']['app']['name'] ?? 'CRM');
+
+    try {
+        $cuerpo = (new Vista(APP . '/views/' . $vista . '.php', $vars))->html();
+    } catch (\Throwable $e) {
+        // Una vista rota no puede llevarse puesta la página entera. Se registra
+        // el error de verdad y se muestra la pantalla de error con el diseño de
+        // siempre, para que se entienda qué pasó y se pueda salir de ahí.
+        if (function_exists('log_error')) {
+            log_error('error.vista', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine());
+        }
+        error_log('[crm] vista ' . $vista . ': ' . $e);
+        if (!headers_sent()) { http_response_code(500); }
+        $cuerpo = (new Vista(APP . '/views/error.php', [
+            'codigo'  => 500,
+            'titulo'  => 'No pudimos dibujar esta pantalla',
+            'mensaje' => 'El error quedó registrado. Probá de nuevo; si sigue pasando, avisanos.',
+        ]))->html();
+        $titulo = 'Error';
+    }
+
+    // Estos tres no son datos de la vista sino del marco que la rodea, y los
+    // manda la página: `bodyClass` es lo que distingue una pantalla pública
+    // —la de reservar una reunión, la de darse de baja— de una de adentro del
+    // sistema. Se pasan al layout de forma explícita; antes viajaban por el
+    // ámbito compartido, que es justamente lo que rompía todo lo demás.
+    $marco = ['content' => $cuerpo, 'title' => $titulo];
+    foreach (['bodyClass', 'extraHead', 'extraFoot'] as $k) {
+        if (isset($vars[$k])) { $marco[$k] = $vars[$k]; }
+    }
+
+    echo (new Vista(APP . '/views/layout.php', $marco))->html();
 }
 
 /** Responde JSON y termina. */
@@ -291,6 +364,39 @@ function dato(string $etiqueta, $valor, string $tipo = 'texto'): void
         echo e($v);
     }
     echo '</div></div>';
+}
+
+/**
+ * Pliega las líneas de un archivo de calendario (iCalendar) al ancho que exige
+ * el formato: 75 octetos, y la línea siguiente arranca con un espacio.
+ *
+ * Vive acá y no dentro de la agenda porque tiene dos trampas que conviene poder
+ * probar sola:
+ *   · el corte se cuenta en OCTETOS pero no puede caer en el medio de un
+ *     carácter. Partir una «ó» al medio deja el archivo ilegible, y escribiendo
+ *     en castellano eso pasa a cada rato;
+ *   · el espacio del principio de la línea continuada también ocupa, así que
+ *     ahí entran 74 y no 75. Contando 75 se generaban líneas de 76 octetos.
+ *
+ * @param array<int,string> $lineas
+ */
+function ics_plegar(array $lineas): string
+{
+    $salida = '';
+    foreach ($lineas as $l) {
+        $limite = 75;
+        $actual = '';
+        foreach (preg_split('//u', $l, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $car) {
+            if (strlen($actual) + strlen($car) > $limite) {
+                $salida .= $actual . "\r\n ";
+                $actual = '';
+                $limite = 74;
+            }
+            $actual .= $car;
+        }
+        $salida .= $actual . "\r\n";
+    }
+    return $salida;
 }
 
 /** Token aleatorio de 32 caracteres (enlaces públicos, desuscripción). */

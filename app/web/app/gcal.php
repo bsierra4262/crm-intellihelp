@@ -42,9 +42,17 @@ function gcal_api(int $usuarioId, string $metodo, string $ruta, ?array $cuerpo =
 /**
  * Franjas ocupadas del calendario del usuario entre dos momentos.
  *
- * @return array<int,array{0:int,1:int}> pares [inicio, fin] en timestamp
+ * Devuelve NULL si no se pudo consultar el calendario, que no es lo mismo que
+ * devolver una lista vacía. La versión anterior devolvía `[]` en los dos casos
+ * y el comentario decía «preferimos no ofrecer horarios a ciegas», pero el
+ * código hacía exactamente lo contrario: quien la llamaba leía esa lista vacía
+ * como «no hay nada ocupado» y publicaba TODOS los horarios del día como
+ * libres. Con el calendario de verdad lleno de reuniones, eso le encimaba
+ * reuniones al vendedor.
+ *
+ * @return array<int,array{0:int,1:int}>|null pares [inicio, fin], o null si no se pudo saber
  */
-function gcal_ocupado(int $usuarioId, string $desdeIso, string $hastaIso, string $calendario = 'primary'): array
+function gcal_ocupado(int $usuarioId, string $desdeIso, string $hastaIso, string $calendario = 'primary'): ?array
 {
     [$codigo, $r] = gcal_api($usuarioId, 'POST', '/freeBusy', [
         'timeMin' => $desdeIso,
@@ -52,17 +60,64 @@ function gcal_ocupado(int $usuarioId, string $desdeIso, string $hastaIso, string
         'items'   => [['id' => $calendario]],
     ]);
     if ($codigo !== 200) {
-        // Sin acceso al calendario preferimos NO ofrecer horarios a ciegas:
-        // es peor pisarle una reunión al vendedor que mostrar menos huecos.
         log_app('agenda.freebusy_error', ['tipo' => 'error', 'usuario_id' => $usuarioId,
             'detalle' => 'freeBusy devolvió ' . $codigo . ': ' . ($r['error']['message'] ?? '')]);
-        return [];
+        gcal_recordar_falla($usuarioId, $codigo, (string)($r['error']['message'] ?? ''));
+        return null;
     }
+    gcal_recordar_falla($usuarioId, 0, '');   // anduvo: se limpia el aviso
     $franjas = [];
     foreach ($r['calendars'][$calendario]['busy'] ?? [] as $b) {
         $franjas[] = [strtotime((string)$b['start']), strtotime((string)$b['end'])];
     }
     return $franjas;
+}
+
+/**
+ * Guarda (o borra) el último problema con Google Calendar para poder avisarlo
+ * en el sistema.
+ *
+ * Esto existe porque el fallo real que apareció no se veía por ningún lado: la
+ * API de Calendar estaba deshabilitada en el proyecto de Google, la reserva se
+ * confirmaba igual, el visitante recibía «quedó agendada» y en el calendario no
+ * había nada. El error quedaba sólo en la auditoría, donde nadie lo mira.
+ */
+function gcal_recordar_falla(int $usuarioId, int $codigo, string $mensaje): void
+{
+    if ($codigo === 0) {
+        setting_set('gcal_falla', '');
+        return;
+    }
+    // El mensaje de Google trae la URL exacta para habilitar la API; se guarda
+    // entero porque es la instrucción que resuelve el problema.
+    setting_set('gcal_falla', json_encode([
+        'codigo'     => $codigo,
+        'mensaje'    => mb_substr($mensaje, 0, 600),
+        'usuario_id' => $usuarioId,
+        'cuando'     => date('Y-m-d H:i:s'),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+}
+
+/**
+ * ¿Hay un problema pendiente con Google Calendar? Devuelve los datos para
+ * mostrarlos, o null si está todo bien.
+ */
+function gcal_falla_pendiente(): ?array
+{
+    $j = (string) setting_get('gcal_falla', '');
+    if ($j === '') { return null; }
+    $d = json_decode($j, true);
+    if (!is_array($d)) { return null; }
+
+    // El caso más común y el que más cuesta descubrir: la API existe pero está
+    // apagada en el proyecto de Google Cloud. Se traduce a algo accionable.
+    $m = (string)($d['mensaje'] ?? '');
+    $d['apagada'] = stripos($m, 'has not been used in project') !== false
+                 || stripos($m, 'is disabled') !== false;
+    if (preg_match('#https://console\.(?:developers|cloud)\.google\.com\S+#', $m, $mm)) {
+        $d['enlace'] = rtrim($mm[0], '.,)');
+    }
+    return $d;
 }
 
 /** ¿Se pudo consultar la disponibilidad? (para distinguir «libre» de «no sé»). */
@@ -82,8 +137,8 @@ function gcal_crear_evento(int $usuarioId, array $d, string $calendario = 'prima
     $evento = [
         'summary'     => (string)($d['titulo'] ?? 'Reunión'),
         'description' => (string)($d['descripcion'] ?? ''),
-        'start'       => ['dateTime' => date('c', (int)$d['inicio']), 'timeZone' => $zona],
-        'end'         => ['dateTime' => date('c', (int)$d['fin']),    'timeZone' => $zona],
+        'start'       => ['dateTime' => date('c', (int)($d['inicio'] ?? 0)), 'timeZone' => $zona],
+        'end'         => ['dateTime' => date('c', (int)($d['fin'] ?? 0)),    'timeZone' => $zona],
         'attendees'   => array_map(
             fn($a) => is_array($a) ? $a : ['email' => $a],
             (array)($d['invitados'] ?? [])
@@ -105,8 +160,10 @@ function gcal_crear_evento(int $usuarioId, array $d, string $calendario = 'prima
     $qs = '?conferenceDataVersion=1&sendUpdates=all';
     [$codigo, $r] = gcal_api($usuarioId, 'POST', '/calendars/' . rawurlencode($calendario) . '/events' . $qs, $evento);
     if ($codigo < 200 || $codigo >= 300) {
+        gcal_recordar_falla($usuarioId, $codigo, (string)($r['error']['message'] ?? ''));
         throw new RuntimeException('Google Calendar rechazó el evento: ' . ($r['error']['message'] ?? ('HTTP ' . $codigo)));
     }
+    gcal_recordar_falla($usuarioId, 0, '');
 
     $eventId = (string)($r['id'] ?? '');
     $meet    = gcal_extraer_meet($r);

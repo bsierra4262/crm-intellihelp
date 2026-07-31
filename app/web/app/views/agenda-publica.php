@@ -1,5 +1,6 @@
 <?php
-/** @var array $tipo @var array $huecos @var string $diaSel @var bool $conectado @var int $campana */
+/** @var array $tipo @var array $huecos @var string $diaSel @var bool $conectado
+ *  @var int $campana @var ?string $motivo */
 $dias = array_keys($huecos);
 $slotsDelDia = $huecos[$diaSel] ?? [];
 $nombresDia  = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
@@ -41,11 +42,29 @@ $meses       = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep
             </div>
 
             <div class="pub-slots">
-                <?php if (!$dias): ?>
+                <?php if (!$dias && ($motivo ?? null) === 'sin_calendario'): ?>
+                    <?php /* No se pudo leer el calendario. Antes en este caso se
+                             publicaban TODOS los horarios como libres y se
+                             encimaban reuniones; ahora no se ofrece ninguno.
+                             Al visitante se le da una salida, no un error. */ ?>
+                    <div class="empty-state compacto">
+                        <?= icon('agenda', 34) ?>
+                        <h2>No podemos mostrarte los horarios ahora</h2>
+                        <p class="small">
+                            Es un problema nuestro, no tuyo. Escribinos a
+                            <a href="mailto:<?= e(setting_get('empresa_email', 'info@intellihelp.tech')) ?>"><?= e(setting_get('empresa_email', 'info@intellihelp.tech')) ?></a>
+                            y coordinamos la reunión a mano.
+                        </p>
+                    </div>
+                <?php elseif (!$dias): ?>
                     <div class="empty-state compacto">
                         <?= icon('agenda', 34) ?>
                         <h2>No hay horarios disponibles</h2>
-                        <p class="small">Escribinos y coordinamos a mano.</p>
+                        <p class="small">
+                            Se llenó la agenda de los próximos días. Escribinos a
+                            <a href="mailto:<?= e(setting_get('empresa_email', 'info@intellihelp.tech')) ?>"><?= e(setting_get('empresa_email', 'info@intellihelp.tech')) ?></a>
+                            y coordinamos a mano.
+                        </p>
                     </div>
                 <?php else: ?>
                     <div class="slot-dias">

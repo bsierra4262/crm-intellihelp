@@ -124,25 +124,25 @@ function negocio_guardar(array $d, ?int $id = null): int
 
     // La probabilidad sigue a la etapa salvo que la pisen a mano: es lo que
     // hace que el pronóstico ponderado tenga sentido sin cargar nada extra.
-    $prob = ($d['probabilidad'] ?? '') !== '' ? (int)$d['probabilidad'] : (int)$etapa['probabilidad'];
+    $prob = ($d['probabilidad'] ?? '') !== '' ? (int)($d['probabilidad'] ?? 0) : (int)$etapa['probabilidad'];
 
     $campos = [
         'nombre'         => trim((string)($d['nombre'] ?? '')),
-        'cuenta_id'      => $d['cuenta_id'] ?: null,
-        'contacto_id'    => $d['contacto_id'] ?: null,
-        'propietario_id' => $d['propietario_id'] ?: current_user_id(),
+        'cuenta_id'      => ($d['cuenta_id'] ?? null) ?: null,
+        'contacto_id'    => ($d['contacto_id'] ?? null) ?: null,
+        'propietario_id' => ($d['propietario_id'] ?? null) ?: current_user_id(),
         'embudo_id'      => (int)$etapa['embudo_id'],
         'etapa_id'       => (int)$etapa['id'],
         'importe'        => (float)str_replace(',', '.', (string)($d['importe'] ?? 0)),
         'moneda'         => in_array($d['moneda'] ?? 'ARS', ['ARS', 'USD'], true) ? $d['moneda'] : 'ARS',
         'probabilidad'   => max(0, min(100, $prob)),
-        'fecha_cierre'   => $d['fecha_cierre'] ?: null,
-        'motivo_perdida' => $d['motivo_perdida'] ?: null,
-        'tipo'           => $d['tipo'] ?: null,
-        'fuente'         => $d['fuente'] ?: null,
-        'campana_id'     => $d['campana_id'] ?: null,
-        'siguiente_paso' => $d['siguiente_paso'] ?: null,
-        'descripcion'    => $d['descripcion'] ?: null,
+        'fecha_cierre'   => ($d['fecha_cierre'] ?? null) ?: null,
+        'motivo_perdida' => ($d['motivo_perdida'] ?? null) ?: null,
+        'tipo'           => ($d['tipo'] ?? null) ?: null,
+        'fuente'         => ($d['fuente'] ?? null) ?: null,
+        'campana_id'     => ($d['campana_id'] ?? null) ?: null,
+        'siguiente_paso' => ($d['siguiente_paso'] ?? null) ?: null,
+        'descripcion'    => ($d['descripcion'] ?? null) ?: null,
         'cerrado_en'     => $etapa['tipo'] !== 'abierta' ? date('Y-m-d H:i:s') : null,
     ];
 

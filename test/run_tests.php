@@ -322,6 +322,33 @@ ok('el cifrado no deja el texto en claro', !str_contains($cifr, $claro));
 eq('descifra correctamente',      descifrar($cifr), $claro);
 eq('blob corrupto no revienta',   descifrar('no-es-base64-valido'), '');
 
+echo "== Invitación de calendario (el botón de aceptar del correo) ==\n";
+// El archivo de calendario es lo que hace que Gmail muestre «Sí / No / Quizás».
+// Si se pasa del ancho o corta un acento al medio, el cliente lo descarta y el
+// correo vuelve a quedar sin forma de aceptar la reunión.
+$corta = ics_plegar(['SUMMARY:Reunión corta']);
+eq('una línea corta no se toca', $corta, "SUMMARY:Reunión corta\r\n");
+
+$largo  = 'DESCRIPTION:' . str_repeat('Coordinación de la reunión con INTELLIHELP. ', 6);
+$plegado = ics_plegar([$largo]);
+$fisicas = explode("\r\n", rtrim($plegado, "\r\n"));
+ok('una línea larga se corta en varias', count($fisicas) > 1, '→ ' . count($fisicas));
+$anchas = array_filter($fisicas, fn($l) => strlen($l) > 75);
+eq('ninguna línea pasa los 75 octetos', count($anchas), 0);
+ok('las continuaciones arrancan con un espacio',
+   count(array_filter(array_slice($fisicas, 1), fn($l) => $l[0] === ' ')) === count($fisicas) - 1);
+// El corte se cuenta en octetos, así que puede caer justo en el medio de un
+// carácter de dos bytes. Al volver a unir, el texto tiene que quedar igual.
+$unido = str_replace("\r\n ", '', $plegado);
+eq('al desplegarla vuelve a ser la misma', rtrim($unido, "\r\n"), $largo);
+ok('los acentos quedan intactos', preg_match('//u', $plegado) === 1);
+
+// Peor caso: un acento justo en el límite del corte.
+$borde = 'X:' . str_repeat('a', 72) . 'ñññññ';
+$pl    = ics_plegar([$borde]);
+ok('un acento sobre el corte no se parte', preg_match('//u', $pl) === 1);
+eq('y el texto se recupera entero', rtrim(str_replace("\r\n ", '', $pl), "\r\n"), $borde);
+
 echo "\n";
 echo str_repeat('=', 56) . "\n";
 printf("  %d pruebas · %d correctas · %d fallidas\n", $T, $T - $F, $F);

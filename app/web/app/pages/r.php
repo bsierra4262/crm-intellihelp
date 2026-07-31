@@ -37,7 +37,8 @@ if (!$tipo) {
     exit;
 }
 
-$huecos = agenda_huecos($tipo);
+$motivo = null;
+$huecos = agenda_huecos($tipo, 0, $motivo);
 $dias   = array_keys($huecos);
 $diaSel = (string)($_GET['dia'] ?? ($dias[0] ?? ''));
 
@@ -46,6 +47,10 @@ render('agenda-publica', [
     'huecos'    => $huecos,
     'diaSel'    => $diaSel,
     'conectado' => gcal_disponible((int)$tipo['usuario_id']),
+    // Cuando no se pudo leer el calendario no se muestran horarios. El visitante
+    // no tiene por qué enterarse del problema técnico, pero tampoco se le puede
+    // dejar una pantalla vacía sin explicación ni salida.
+    'motivo'    => $motivo,
     'campana'   => (int)($_GET['c'] ?? 0),
     'bodyClass' => $bodyClass,
 ], $tipo['nombre'] . ' · ' . $tipo['usuario']);
