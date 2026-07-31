@@ -50,10 +50,25 @@ define('APP_ENV', $CONFIG['app']['env'] ?? 'prod');
 /**
  * Versión de los assets (cache-busting).
  *
- * El `.htaccess` cachea CSS y JS por un año, así que cada cambio visual tiene
- * que subir este número o el navegador sigue mostrando la hoja de estilos vieja.
+ * El `.htaccess` cachea CSS y JS por un año, así que si la dirección del
+ * archivo no cambia, el navegador sigue mostrando la hoja de estilos vieja.
+ *
+ * Antes esto era un número que había que subir a mano en cada cambio visual, y
+ * pasó lo que tenía que pasar: se subió una pasada entera de diseño y el número
+ * quedó igual, así que del otro lado no se veía ningún cambio. Un paso manual
+ * que hay que recordar no es una solución. Ahora sale de la fecha de
+ * modificación de los propios archivos: si cambió alguno, cambia la versión.
  */
-define('ASSETS_V', '3');
+define('ASSETS_V', (function (): string {
+    $mayor = 0;
+    foreach (['css/app.css', 'js/app.js', 'js/editor.js', 'js/idle.js'] as $a) {
+        $t = @filemtime(dirname(__DIR__) . '/assets/' . $a);
+        if ($t !== false && $t > $mayor) { $mayor = $t; }
+    }
+    // Si no se pudo leer ninguno, se cae a un valor fijo antes que servir sin
+    // versión, porque eso dejaría el caché de un año pegado para siempre.
+    return $mayor > 0 ? (string) $mayor : '3';
+})());
 
 date_default_timezone_set($CONFIG['app']['timezone'] ?? 'UTC');
 

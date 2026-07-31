@@ -137,6 +137,15 @@ ok('los filtros usan la misma estructura', substr_count($html, 'class="filters c
 
 echo "== Cache-busting ==\n";
 ok('los assets van versionados', str_contains($layout, 'ASSETS_V'));
+// Era un número a mano y se olvidó justo en la pasada de diseño: se subió todo
+// y del otro lado no se veía ningún cambio, porque el navegador tenía la hoja
+// vieja cacheada por un año. Ahora sale de la fecha de los archivos.
+$bootAssets = (string) @file_get_contents($WEB . '/app/bootstrap.php');
+ok('la versión sale sola de los archivos, no de un número a mano',
+   str_contains($bootAssets, 'filemtime') && preg_match("/define\('ASSETS_V',\s*'\d+'\)/", $bootAssets) !== 1,
+   '→ un paso manual que hay que recordar se olvida');
+ok('la hoja de estilos entra en el cálculo', str_contains($bootAssets, 'css/app.css'));
+ok('el aviso de sesión entra en el cálculo', str_contains($bootAssets, 'js/idle.js'));
 
 // ============================================================
 //  Pasada completa de diseño
