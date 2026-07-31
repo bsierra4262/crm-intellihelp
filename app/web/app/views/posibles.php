@@ -9,7 +9,7 @@ $colorEstado = [
     'Basura'                 => 'badge-rej',
 ];
 ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Posibles clientes</h1>
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> <?= $f['convertidos'] === '1' ? 'registros (incluye convertidos)' : 'sin convertir' ?></p>
@@ -68,7 +68,7 @@ $colorEstado = [
     </div>
 </form>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead>

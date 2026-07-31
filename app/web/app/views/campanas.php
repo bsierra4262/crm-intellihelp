@@ -1,5 +1,5 @@
 <?php /** @var array $f @var array $data @var bool $testing @var bool $smtp */ ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Campañas</h1>
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> campañas de correo</p>
@@ -52,7 +52,7 @@
     </div>
 </form>
 
-<div class="card table-card" data-vivo>
+<div class="card table-card" data-vivo="tabla" data-vivo-campanas>
     <div class="table-scroll">
         <table class="grid">
             <thead>

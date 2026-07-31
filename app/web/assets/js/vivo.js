@@ -55,7 +55,7 @@
         mirar();
     })();
 
-    if (!doc.querySelector('[data-vivo]')) { return; }
+    if (!doc.querySelector('[data-vivo-campanas]')) { return; }
 
     var base   = (window.__sesion && window.__sesion.base) || '';
     var idFicha = (doc.querySelector('[data-vivo-campana]') || {}).getAttribute

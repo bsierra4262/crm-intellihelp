@@ -141,7 +141,9 @@ if (!empty($def['admin']) && !auth_is_admin()) {
 $rutasNav = ['dashboard', 'contactos', 'cuentas', 'posibles', 'negocios', 'embudo', 'actividades',
              'campanas', 'plantillas', 'listas', 'agenda', 'reservas', 'reportes', 'importar',
              'usuarios', 'papelera', 'ajustes', 'api-keys'];
-if (method() === 'GET' && in_array($rutaBase, $rutasNav, true) && auth_user()) {
+// El refresco automático se excluye: son varias visitas por minuto por pantalla
+// abierta, y llenarían la bitácora de ruido hasta tapar los movimientos reales.
+if (method() === 'GET' && !vivo_pedido() && in_array($rutaBase, $rutasNav, true) && auth_user()) {
     log_app('ver.' . $rutaBase, ['tipo' => 'nav', 'detalle' => 'Ingresó a la pantalla «' . $rutaBase . '»']);
 }
 

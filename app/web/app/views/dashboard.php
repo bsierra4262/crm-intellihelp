@@ -19,7 +19,7 @@ $u = auth_user();
 
 <?php include APP . '/views/_aviso_gcal.php'; ?>
 
-<div class="cards">
+<div class="cards" data-vivo="numeros">
     <a class="card stat stat-link" href="<?= e(url('posibles')) ?>">
         <span class="stat-label">Posibles clientes</span>
         <span class="stat-value"><?= number_format($m['posibles'], 0, ',', '.') ?></span>
@@ -66,7 +66,7 @@ $u = auth_user();
         <?php endif; ?>
     </div>
 
-    <div class="card" data-vivo>
+    <div class="card" data-vivo-campanas>
         <div class="card-head">
             <h2>Campañas en curso</h2>
             <a class="btn btn-ghost btn-sm" href="<?= e(url('campanas')) ?>">Ver todas</a>

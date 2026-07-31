@@ -176,7 +176,8 @@ if (PHP_SAPI !== 'cli') {
             // reaccione; la navegación normal se manda al login con el aviso.
             $ruta = current_route();
             $esAjax = (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest')
-                   || str_starts_with($ruta, 'api/') || str_starts_with($ruta, 'api-');
+                   || str_starts_with($ruta, 'api/') || str_starts_with($ruta, 'api-')
+                   || isset($_GET['__vivo']);
             if ($esAjax) {
                 http_response_code(440);
                 header('Content-Type: application/json; charset=utf-8');
@@ -185,6 +186,12 @@ if (PHP_SAPI !== 'cli') {
             }
             redirect('login?expiro=' . $motivo);
         }
-        $_SESSION['ultima_actividad'] = $ahora;
+        // El refresco automático NO cuenta como actividad. Lo dispara el
+        // navegador solo, cada pocos segundos, con la pantalla abierta y nadie
+        // delante: si contara, una pantalla olvidada mantendría la sesión viva
+        // para siempre y el cierre automático no cerraría nunca nada.
+        if (!isset($_GET['__vivo'])) {
+            $_SESSION['ultima_actividad'] = $ahora;
+        }
     }
 }

@@ -1,5 +1,5 @@
 <?php /** @var array $f @var array $data @var array $usuarios */ ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Contactos</h1>
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> personas en la base</p>
@@ -67,7 +67,7 @@
     </div>
 </form>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead>

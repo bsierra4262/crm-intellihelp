@@ -194,23 +194,96 @@ function lista_cargar_contactos(int $listaId, array $filtro): int
     return $n;
 }
 
+/**
+ * SQL de los datos reales de un miembro de lista.
+ *
+ * `lista_miembros` guarda el correo, el nombre y la empresa con los que se
+ * agregó a la persona. Cuando el miembro es un contacto del CRM esa copia se
+ * queda vieja apenas alguien edita la ficha: la lista sigue mostrando —y, lo
+ * que es peor, sigue escribiendo a— el correo anterior. Pasó: se cambió un
+ * correo a otro dominio y la lista mostraba el viejo para siempre.
+ *
+ * Así que cuando hay un contacto atrás, manda el contacto. La copia queda como
+ * respaldo para los correos sueltos importados, que no tienen ficha detrás y
+ * son el motivo por el que esas columnas existen.
+ */
+function lista_miembro_sql(): string
+{
+    return "COALESCE(NULLIF(ct.email, ''), NULLIF(pc.email, ''), m.email) AS email,
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ', ct.nombre, ct.apellido)), ''),
+                     NULLIF(TRIM(CONCAT_WS(' ', pc.nombre, pc.apellido)), ''),
+                     m.nombre) AS nombre,
+            COALESCE(NULLIF(cu.nombre, ''), NULLIF(pc.empresa, ''), m.empresa) AS empresa";
+}
+
+/** Los JOIN que hacen falta para lo de arriba. */
+function lista_miembro_join(): string
+{
+    return 'LEFT JOIN contactos ct         ON ct.id = m.contacto_id
+            LEFT JOIN cuentas cu           ON cu.id = ct.cuenta_id
+            LEFT JOIN posibles_clientes pc ON pc.id = m.posible_cliente_id';
+}
+
 function lista_miembros(int $listaId, array $f = []): array
 {
+    $datos = lista_miembro_sql();
+    $join  = lista_miembro_join();
     $w = ['m.lista_id = ?'];
     $p = [$listaId];
     if (!empty($f['q'])) {
-        $w[] = '(m.email LIKE ? OR m.nombre LIKE ? OR m.empresa LIKE ?)';
+        // Se busca sobre los datos vivos, no sobre la copia: si no, buscar el
+        // correo nuevo de alguien no lo encontraba en la lista donde está.
+        $w[] = "(COALESCE(ct.email, pc.email, m.email) LIKE ?
+                 OR CONCAT_WS(' ', ct.nombre, ct.apellido, pc.nombre, pc.apellido, m.nombre) LIKE ?
+                 OR COALESCE(cu.nombre, pc.empresa, m.empresa) LIKE ?)";
         $like = '%' . $f['q'] . '%';
         array_push($p, $like, $like, $like);
     }
     $where = 'WHERE ' . implode(' AND ', $w);
-    $total = (int) qv("SELECT COUNT(*) FROM lista_miembros m $where", $p);
+    $total = (int) qv("SELECT COUNT(*) FROM lista_miembros m $join $where", $p);
     $pg    = paginar($total, $f['page'] ?? 1, 50);
-    $rows  = q("SELECT m.*, (d.email IS NOT NULL) AS dado_de_baja
+    $rows  = q("SELECT m.id, m.lista_id, m.contacto_id, m.posible_cliente_id, m.creado_en,
+                       $datos,
+                       (d.email IS NOT NULL) AS dado_de_baja,
+                       COALESCE(ct.no_email, 0) AS no_email,
+                       COALESCE(ct.email_rebotado, 0) AS email_rebotado
                 FROM lista_miembros m
-                LEFT JOIN desuscripciones d ON d.email = m.email
-                $where ORDER BY m.empresa, m.nombre LIMIT {$pg['per']} OFFSET {$pg['offset']}", $p)->fetchAll();
+                $join
+                LEFT JOIN desuscripciones d ON d.email = COALESCE(NULLIF(ct.email,''), NULLIF(pc.email,''), m.email)
+                $where ORDER BY empresa, nombre LIMIT {$pg['per']} OFFSET {$pg['offset']}", $p)->fetchAll();
     return $pg + ['rows' => $rows, 'total' => $total];
+}
+
+/**
+ * Alinea la copia guardada en las listas con la ficha del contacto.
+ *
+ * Con el COALESCE de arriba alcanza para mostrar y para enviar bien, pero la
+ * columna `email` además sostiene la clave única de la lista (una persona una
+ * sola vez) y se usa para cruzar bajas. Si queda desfasada, esa clave protege
+ * al correo equivocado. Se corre al guardar un contacto.
+ *
+ * El correo nuevo puede chocar con otro miembro que ya lo tenía: en ese caso
+ * el que sobra se borra, porque son la misma persona en la misma lista.
+ */
+function lista_sincronizar_contacto(int $contactoId): int
+{
+    $ct = q1('SELECT ct.id, ct.email, ct.nombre, ct.apellido, cu.nombre AS empresa
+              FROM contactos ct LEFT JOIN cuentas cu ON cu.id = ct.cuenta_id
+              WHERE ct.id = ?', [$contactoId]);
+    if (!$ct) { return 0; }
+
+    $email   = normalizar_email((string)$ct['email']);
+    $nombre  = trim($ct['nombre'] . ' ' . $ct['apellido']);
+    $n       = 0;
+    foreach (q('SELECT id, lista_id FROM lista_miembros WHERE contacto_id = ?', [$contactoId])->fetchAll() as $m) {
+        if ($email !== '') {
+            q('DELETE FROM lista_miembros WHERE lista_id = ? AND email = ? AND id <> ?',
+              [(int)$m['lista_id'], $email, (int)$m['id']]);
+        }
+        $n += q('UPDATE lista_miembros SET email = ?, nombre = ?, empresa = ? WHERE id = ?',
+                [$email !== '' ? $email : 'sin-correo@invalido.local', $nombre, $ct['empresa'], (int)$m['id']])->rowCount();
+    }
+    return $n;
 }
 
 // ------------------------------------------------------------
@@ -341,10 +414,14 @@ function campana_preparar(int $campanaId): array
     if (!$c['plantilla_id']) { throw new RuntimeException('La campaña no tiene una plantilla.'); }
 
     $res = ['agregados' => 0, 'omitidos' => 0, 'motivos' => []];
-    $miembros = q('SELECT m.*, ct.no_email, ct.email_rebotado
-                   FROM lista_miembros m
-                   LEFT JOIN contactos ct ON ct.id = m.contacto_id
-                   WHERE m.lista_id = ?', [(int)$c['lista_id']])->fetchAll();
+    // Los datos salen de la ficha del contacto, no de la copia que guardó la
+    // lista el día que se armó. Con la copia, cambiar el correo de alguien no
+    // servía de nada: la campaña le seguía escribiendo a la dirección vieja.
+    $datos    = lista_miembro_sql();
+    $join     = lista_miembro_join();
+    $miembros = q("SELECT m.contacto_id, $datos, ct.no_email, ct.email_rebotado
+                   FROM lista_miembros m $join
+                   WHERE m.lista_id = ?", [(int)$c['lista_id']])->fetchAll();
 
     foreach ($miembros as $m) {
         $email  = normalizar_email($m['email']);

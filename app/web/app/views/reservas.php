@@ -1,5 +1,5 @@
 <?php /** @var array $f @var array $rows @var array $data */ ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Reuniones reservadas</h1>
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> reservas desde la agenda pública</p>
@@ -31,7 +31,7 @@
     </div>
 </form>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead>

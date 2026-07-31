@@ -1,5 +1,5 @@
 <?php /** @var array $rows @var ?string $nuevaClave */ ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>API</h1>
         <p class="muted">Claves para que otros sistemas (ITHOS, Jarvis) consulten el CRM</p>
@@ -49,7 +49,7 @@
     </form>
 </div>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead><tr><th>Clave</th><th>Permiso</th><th>Estado</th><th class="num prio-2">Usos</th>

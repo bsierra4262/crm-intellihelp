@@ -86,6 +86,24 @@ function rutas_a_probar(): array
         'lista-ver'       => ['_id_de' => 'listas'],
         'campana-editar'  => ['_r' => 'campana-form',   '_id_de' => 'campanas'],
         'plantilla-editar'=> ['_r' => 'plantilla-form', '_id_de' => 'plantillas'],
+
+        // --- El refresco automático de cada pantalla ---
+        // Se piden las mismas pantallas con `__vivo=1`, que es como las pide el
+        // navegador solo cada pocos segundos. Tienen que traer el cuerpo sin el
+        // layout y con al menos una zona marcada: si no traen zonas, el refresco
+        // no actualiza nada y la pantalla queda congelada sin que nada avise.
+        'vivo:dashboard'  => ['_r' => 'dashboard',   '_vivo' => true],
+        'vivo:contactos'  => ['_r' => 'contactos',   '_vivo' => true],
+        'vivo:campanas'   => ['_r' => 'campanas',    '_vivo' => true],
+        'vivo:listas'     => ['_r' => 'listas',      '_vivo' => true],
+        'vivo:lista-ver'  => ['_r' => 'lista-ver',   '_vivo' => true, '_id_de' => 'listas'],
+        'vivo:reservas'   => ['_r' => 'reservas',    '_vivo' => true],
+        'vivo:alertas'    => ['_r' => 'alertas',     '_vivo' => true],
+        'vivo:actividades'=> ['_r' => 'actividades', '_vivo' => true],
+        'vivo:negocios'   => ['_r' => 'negocios',    '_vivo' => true],
+        'vivo:cuentas'    => ['_r' => 'cuentas',     '_vivo' => true],
+        'vivo:posibles'   => ['_r' => 'posibles',    '_vivo' => true],
+        'vivo:campana-ver'=> ['_r' => 'campana-ver', '_vivo' => true, '_id_de' => 'campanas'],
     ];
 }
 
@@ -117,7 +135,9 @@ if ($modo === '--limpiar') {
     $ruta      = $params['_r'] ?? $clave;
     $sinSesion = !empty($params['_sin_sesion']);
     $idDe      = $params['_id_de'] ?? null;
-    unset($params['_r'], $params['_sin_sesion'], $params['_id_de']);
+    $vivo      = !empty($params['_vivo']);
+    unset($params['_r'], $params['_sin_sesion'], $params['_id_de'], $params['_vivo']);
+    if ($vivo) { $params['__vivo'] = '1'; }
 
     // Fingir una request web para que el bootstrap y las vistas funcionen.
     $_SERVER['REQUEST_METHOD'] = 'GET';
@@ -156,6 +176,41 @@ if ($modo === '--limpiar') {
         $_SESSION = ['uid' => $uid, 'login_en' => time(), 'ultima_actividad' => time(), '_csrf' => str_repeat('a', 64)];
     }
 
+    // El refresco automático corta la ejecución con `exit` en cuanto terminó de
+    // escribir el cuerpo —es lo correcto: no tiene que seguir dibujando el
+    // layout—, así que lo que venga después de esta línea nunca se ejecuta y
+    // las comprobaciones tienen que hacerse al cerrar el proceso.
+    if ($vivo) {
+        register_shutdown_function(static function (): void {
+            $salida = (string) ob_get_clean();
+            $largo  = strlen($salida);
+            // Se busca la hoja de estilos, que la escribe SÓLO el layout. Buscar
+            // «</html>» acá daba un falso positivo: la ficha de una campaña
+            // muestra la vista previa del correo, que es un documento HTML
+            // entero, así que esa etiqueta viene del contenido y no del marco.
+            if (str_contains($salida, 'assets/css/app.css')) {
+                fwrite(STDERR, "EL REFRESCO TRAJO EL LAYOUT ENTERO\n");
+                exit(6);
+            }
+            if (!str_contains($salida, 'data-vivo=')) {
+                fwrite(STDERR, "EL REFRESCO NO TRAE NINGUNA ZONA MARCADA: la pantalla no se actualizaría\n");
+                exit(7);
+            }
+            // La huella tiene que venir al principio: es lo que el navegador
+            // devuelve para que el servidor sepa que ya tiene esta versión.
+            if (!preg_match('/^<!--vivo:[0-9a-f]{32}-->/', $salida)) {
+                fwrite(STDERR, "EL REFRESCO NO TRAE LA HUELLA: mandaría la pantalla entera cada vez\n");
+                exit(8);
+            }
+            if ($largo < 200) {
+                fwrite(STDERR, "SALIDA SOSPECHOSAMENTE CORTA ($largo bytes)\n$salida\n");
+                exit(3);
+            }
+            fwrite(STDOUT, "ok $largo\n");
+            exit(0);
+        });
+    }
+
     // Las páginas escriben cabeceras; en CLI eso no molesta.
     ob_start();
     try {
@@ -182,6 +237,8 @@ if ($modo === '--limpiar') {
         // a mitad de camino, PHP volcaba igual lo que llevaba escrito: salía el
         // HTML suelto, sin <head> y por lo tanto sin estilos, que es la pared
         // de texto que se vio en pantalla. «No reventó» no alcanza como prueba.
+        // Si una pantalla del refresco llega hasta acá es que NO cortó, y eso
+        // significa que dibujó el layout entero: lo juzga el cierre de arriba.
         if (stripos($salida, '</html>') === false || stripos($salida, 'app.css') === false) {
             fwrite(STDERR, "SALIÓ SIN EL LAYOUT: falta </html> o la hoja de estilos\n");
             exit(4);

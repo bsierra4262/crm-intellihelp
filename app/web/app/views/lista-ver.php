@@ -1,5 +1,5 @@
 <?php /** @var array $l @var array $data @var array $f @var array $usuarios */ ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1><?= e($l['nombre']) ?></h1>
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> destinatarios<?= $l['descripcion'] ? ' · ' . e($l['descripcion']) : '' ?></p>
@@ -84,7 +84,7 @@
     </div>
 </form>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead><tr><th>Destinatario</th><th>Correo</th><th class="prio-2">Empresa</th><th>Estado</th><th class="acts">Acciones</th></tr></thead>
@@ -101,9 +101,22 @@
                     <td data-label="Correo"><?= e($m['email']) ?></td>
                     <td data-label="Empresa" class="prio-2"><?= e(recortar($m['empresa'], 30) ?: '—') ?></td>
                     <td data-label="Estado">
-                        <?= $m['dado_de_baja']
-                            ? '<span class="badge badge-rej">Dado de baja</span>'
-                            : '<span class="badge badge-ok">Habilitado</span>' ?>
+                        <?php
+                        // El estado tiene que anticipar lo que va a pasar cuando
+                        // se mande la campaña. Antes sólo miraba las bajas, así
+                        // que un contacto rebotado o marcado «no incluir» decía
+                        // «Habilitado» acá y después la campaña lo salteaba sin
+                        // que nadie entendiera por qué.
+                        if ($m['dado_de_baja']) {
+                            echo '<span class="badge badge-rej" title="Pidió no recibir más correos">Dado de baja</span>';
+                        } elseif (!empty($m['email_rebotado'])) {
+                            echo '<span class="badge badge-rej" title="Su correo rebotó: no se le va a escribir">Rebotado</span>';
+                        } elseif (!empty($m['no_email'])) {
+                            echo '<span class="badge badge-warn" title="La ficha está marcada como «no incluir en campañas»">No incluir</span>';
+                        } else {
+                            echo '<span class="badge badge-ok">Habilitado</span>';
+                        }
+                        ?>
                     </td>
                     <td class="acts" data-label="Acciones">
                         <form class="inline-form" method="post">

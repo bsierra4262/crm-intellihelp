@@ -1,7 +1,7 @@
 <?php /** @var array $rows @var int $sinLeer */
 $tipos = notif_tipos();
 ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Alertas</h1>
         <p class="muted">
@@ -35,7 +35,7 @@ $tipos = notif_tipos();
         </div>
     </div>
 <?php else: ?>
-    <div class="card table-card">
+    <div class="card table-card" data-vivo="tabla">
         <div class="table-scroll">
             <table class="grid">
                 <thead><tr><th>Cuándo</th><th>Qué pasó</th><th class="prio-2">Tipo</th><th class="acts">Acciones</th></tr></thead>

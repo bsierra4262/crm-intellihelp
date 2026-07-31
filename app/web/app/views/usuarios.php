@@ -1,5 +1,5 @@
 <?php /** @var array $rows */ ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Usuarios</h1>
         <p class="muted">Entran con su cuenta de Google del dominio. No hay contraseñas que administrar.</p>
@@ -12,7 +12,7 @@
     Desde acá le cambiás el rol o la desactivás.
 </div>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th class="prio-2">Google Calendar</th>

@@ -3,7 +3,7 @@
 $u = auth_user();
 $usuarioSlug = explode('@', (string)$u['email'])[0];
 ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Agenda</h1>
         <p class="muted">Tu página pública de reservas, con Google Calendar y Meet</p>
@@ -40,7 +40,7 @@ $usuarioSlug = explode('@', (string)$u['email'])[0];
     </div>
 <?php endif; ?>
 
-<div class="card table-card mb-4">
+<div class="card table-card mb-4" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead><tr><th>Tipo de reunión</th><th>Duración</th><th>Enlace público</th><th>Estado</th><th class="acts">Acciones</th></tr></thead>

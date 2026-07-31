@@ -1,5 +1,5 @@
 <?php /** @var array $rows */ ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Listas de destinatarios</h1>
         <p class="muted">A quién se le manda cada campaña</p>
@@ -10,7 +10,7 @@
     </div>
 </div>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead><tr><th>Lista</th><th>Segmento</th><th class="num">Miembros</th><th class="prio-2">Descripción</th><th class="prio-3">Creada</th><th class="acts">Acciones</th></tr></thead>

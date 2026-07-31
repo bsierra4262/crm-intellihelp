@@ -1,7 +1,7 @@
 <?php /** @var ?array $aviso @var array $rows @var ?array $editar @var array $usuarios */
 $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
 ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Cuentas de correo</h1>
         <p class="muted">Desde qué casillas salen las campañas</p>
@@ -43,7 +43,7 @@ foreach ($rows as $rc) {
     </div>
 <?php endforeach; ?>
 
-<div class="card table-card mb-4">
+<div class="card table-card mb-4" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead>

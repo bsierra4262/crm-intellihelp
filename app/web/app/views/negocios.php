@@ -1,5 +1,5 @@
 <?php /** @var array $f @var array $data @var array $usuarios @var array $etapas */ ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Negocios</h1>
         <p class="muted">
@@ -49,7 +49,7 @@
     </div>
 </form>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead>

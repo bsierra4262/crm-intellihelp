@@ -17,7 +17,7 @@ $boton = function (string $accion, string $etiqueta, string $ic, string $clase =
        . '>' . icon($ic, 16) . e($etiqueta) . '</button></form>';
 };
 ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1><?= e($c['nombre']) ?></h1>
         <p class="muted">
@@ -182,7 +182,7 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
     </div>
 </form>
 
-<div class="card table-card" data-vivo-tabla>
+<div class="card table-card" data-vivo="cola" data-vivo-tabla>
     <div class="table-scroll">
         <table class="grid">
             <thead>

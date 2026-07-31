@@ -483,6 +483,54 @@ ok('sigue mirando después de terminar, más despacio',
    str_contains($vivo, 'reprogramar(') && str_contains($vivo, 'LENTO'));
 ok('no consulta con la pestaña en segundo plano', str_contains($vivo, 'doc.hidden'));
 
+echo "== Todo el sistema se actualiza solo, no sólo las campañas ==\n";
+// Una lista guardaba una COPIA del correo del día que se armó. Se cambiaba el
+// correo de un contacto y la lista seguía mostrando el viejo para siempre; peor
+// todavía, la campaña le escribía a esa dirección vieja. El contacto tiene que
+// mandar siempre que haya un contacto atrás.
+ok('la lista lee el correo de la ficha, no de la copia que guardó',
+   str_contains($campanas, 'function lista_miembro_sql(')
+   && str_contains($campanas, 'COALESCE(NULLIF(ct.email'));
+ok('y la campaña arma los envíos con ese dato, no con la copia',
+   preg_match('/campana_preparar.*?lista_miembro_sql\(\)/s', $campanas) === 1);
+ok('al guardar un contacto se alinean sus listas',
+   str_contains($campanas, 'function lista_sincronizar_contacto(')
+   && str_contains((string) @file_get_contents($WEB . '/app/crm.php'), 'lista_sincronizar_contacto($id)'));
+// El estado de la lista tiene que anticipar lo que va a pasar al enviar: antes
+// un rebotado decía «Habilitado» y después la campaña lo salteaba.
+ok('el estado del destinatario contempla rebotados y «no incluir»',
+   preg_match('/email_rebotado.*Rebotado.*no_email.*No incluir/s',
+              (string) @file_get_contents($WEB . '/app/views/lista-ver.php')) === 1);
+
+$secc = (string) @file_get_contents($WEB . '/assets/js/secciones.js');
+ok('existe el refresco genérico de pantallas', $secc !== '');
+ok('el layout lo carga', str_contains((string) @file_get_contents($WEB . '/app/views/layout.php'), 'secciones.js'));
+// Con 18 pantallas marcadas, que una se olvide no se nota mirando.
+$marcadas = 0;
+foreach (glob($WEB . '/app/views/*.php') ?: [] as $v) {
+    if (str_contains((string) @file_get_contents($v), 'data-vivo="')) { $marcadas++; }
+}
+ok('las pantallas con listado están marcadas como vivas', $marcadas >= 18, "sólo $marcadas marcadas");
+// Nada de ETag: la CDN del hosting se come `If-None-Match` y no llega a PHP.
+// La huella tiene que viajar por donde nadie la pueda tocar.
+ok('la huella viaja en el HTML y vuelve por la dirección, no por una cabecera',
+   str_contains($hlp ?? '', "<!--vivo:") && str_contains($hlp ?? '', "\$_GET['__h']"));
+ok('cuando no cambió nada la respuesta viene vacía', str_contains($hlp ?? '', 'http_response_code(204)'));
+// Dos fallas que venían juntas: enlaces rotos y refresco que nunca converge.
+ok('los parámetros del refresco no se filtran a los enlaces de la pantalla',
+   str_contains($hlp ?? '', "unset(\$q['r'], \$q['__vivo'], \$q['__h'])"));
+// Y lo más delicado: el refresco lo dispara el navegador solo, sin nadie
+// delante. Si contara como actividad, el cierre automático no cerraría nunca.
+ok('el refresco NO cuenta como actividad para el cierre de sesión',
+   preg_match("/!isset\(\\\$_GET\['__vivo'\]\).*ultima_actividad'\] = \\\$ahora/s",
+              (string) @file_get_contents($WEB . '/app/bootstrap.php')) === 1);
+ok('ni ensucia la bitácora con una visita cada pocos segundos',
+   str_contains((string) @file_get_contents($WEB . '/index.php'), '!vivo_pedido()'));
+ok('el refresco no pisa lo que estás escribiendo',
+   str_contains($secc, 'zona.contains(act)') && str_contains($secc, 'function seguro('));
+ok('y deja ver qué cambió en vez de que los números salten solos',
+   str_contains($secc, 'vivo-cambio') && str_contains($CSS, '@keyframes vivo-destello'));
+
 echo "== Las respuestas tienen que poder detectarse ==\n";
 // El sistema detecta una respuesta leyendo UNA casilla concreta. Si el
 // «Responder a» apunta a otra dirección, la respuesta le llega a esa persona y

@@ -2,7 +2,7 @@
 $tipos = ['' => 'Todo', 'accion' => 'Acciones', 'nav' => 'Navegación', 'auth' => 'Accesos',
           'error' => 'Errores', 'sistema' => 'Sistema'];
 ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>CRON</h1>
         <p class="muted">Todo lo que pasa en el sistema queda registrado acá</p>
@@ -88,7 +88,7 @@ $tipos = ['' => 'Todo', 'accion' => 'Acciones', 'nav' => 'Navegación', 'auth' =
     </p>
 <?php endif; ?>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead>

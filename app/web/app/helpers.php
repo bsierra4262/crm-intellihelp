@@ -173,6 +173,51 @@ final class Vista
 }
 
 /**
+ * ¿Esta request es el refresco automático de una pantalla?
+ *
+ * El navegador vuelve a pedir la MISMA dirección con `__vivo=1` cada pocos
+ * segundos y se queda sólo con las zonas marcadas. No hace falta un endpoint
+ * por pantalla: la pantalla ya sabe dibujarse.
+ */
+function vivo_pedido(): bool
+{
+    return isset($_GET['__vivo']);
+}
+
+/**
+ * Contesta el refresco: manda el cuerpo sin el layout, o nada si no cambió.
+ *
+ * Casi todas las consultas devuelven exactamente lo mismo que la anterior —no
+ * pasó nada en esos ocho segundos—. Con la huella del contenido, esas
+ * respuestas viajan vacías (304) y el navegador ni se entera: no repinta, no
+ * pierde el lugar donde estabas, no parpadea. Sólo cuando algo cambió de
+ * verdad se manda el HTML.
+ */
+function vivo_responder(string $cuerpo): void
+{
+    $huella = md5($cuerpo);
+
+    header('Content-Type: text/html; charset=utf-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('X-LiteSpeed-Cache-Control: no-cache');
+
+    // Nada de ETag ni de 304. Esto se probó contra el servidor de verdad: la
+    // CDN que tiene el hosting adelante se COME la cabecera `If-None-Match`
+    // —no llega a PHP—, así que el servidor no tenía forma de enterarse de que
+    // el navegador ya tenía esa versión y le mandaba la pantalla entera cada
+    // vez. El camino que sí funciona es el que no depende de cabeceras: la
+    // huella viaja adentro del HTML y vuelve como un parámetro más de la
+    // dirección, que ningún intermediario puede tocar.
+    if (isset($_GET['__h']) && (string)$_GET['__h'] === $huella) {
+        http_response_code(204);   // sin contenido: no cambió nada
+        exit;
+    }
+
+    echo '<!--vivo:' . $huella . "-->\n" . $cuerpo;
+    exit;
+}
+
+/**
  * Dibuja una vista dentro del layout.
  *
  * La vista y el layout se ejecutan en ámbitos separados: así una variable de la
@@ -199,6 +244,12 @@ function render(string $vista, array $vars = [], string $titulo = ''): void
             'mensaje' => 'El error quedó registrado. Probá de nuevo; si sigue pasando, avisanos.',
         ]))->html();
         $titulo = 'Error';
+    }
+
+    // El refresco automático se lleva sólo el cuerpo: el menú, la cabecera y
+    // los estilos ya están en la pantalla y no cambian.
+    if (vivo_pedido()) {
+        vivo_responder($cuerpo);
     }
 
     // Estos tres no son datos de la vista sino del marco que la rodea, y los
@@ -527,7 +578,13 @@ function paginar(int $total, $page, int $per = 25): array
 function query_con(array $cambios): string
 {
     $q = $_GET;
-    unset($q['r']);
+    // Los parámetros del refresco automático NO son de la pantalla y no pueden
+    // filtrarse a los enlaces. Si se colaran pasaban dos cosas, las dos malas:
+    // hacer clic en «página 2» devolvía la pantalla sin diseño (porque seguía
+    // pidiendo el refresco), y como la huella del contenido quedaba escrita
+    // adentro del propio contenido, cada respuesta cambiaba respecto de la
+    // anterior y el servidor volvía a mandar la pantalla entera cada vez.
+    unset($q['r'], $q['__vivo'], $q['__h']);
     foreach ($cambios as $k => $v) {
         if ($v === null || $v === '') { unset($q[$k]); } else { $q[$k] = $v; }
     }

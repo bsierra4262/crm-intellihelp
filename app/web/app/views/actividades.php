@@ -3,7 +3,7 @@ $vistaActual = ($f['vencidas'] ?? '') === '1' ? 'vencidas' : ($f['vista'] ?: 'pe
 $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta semana',
            'vencidas' => 'Vencidas', 'completadas' => 'Completadas'];
 ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Actividades</h1>
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> tareas, llamadas y reuniones</p>
@@ -55,7 +55,7 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
     </div>
 </form>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead>

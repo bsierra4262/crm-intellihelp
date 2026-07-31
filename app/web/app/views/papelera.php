@@ -1,6 +1,6 @@
 <?php /** @var string $entidad @var array $defs @var array $rows @var array $conteos
  *  @var int $dias @var array $motivos */ ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Papelera</h1>
         <p class="muted">Lo que se elimina queda acá <?= (int)$dias ?> días y se puede recuperar</p>
@@ -23,7 +23,7 @@
     <?php endforeach; ?>
 </div>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead><tr><th><?= e($defs[$entidad]['etiqueta']) ?></th><th>Por qué</th><th>Eliminado</th>

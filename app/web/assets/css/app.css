@@ -685,6 +685,19 @@ td.wrap{white-space:normal}
 .alertas-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;
   width:38px;height:38px;border-radius:10px;color:var(--muted);flex:none;transition:.15s}
 .alertas-btn:hover{background:var(--soft);color:var(--primary)}
+/* ---- Refresco automático de las pantallas (secciones.js) ----
+   Cuando una zona se actualiza sola hay que avisarlo. Si los números cambian
+   sin más, el ojo no lo registra: mirás la pantalla, había un 3, ahora hay un
+   4, y no sabés si siempre estuvo así. El destello dura lo justo para que se
+   note dónde pasó algo y se apaga solo. */
+@keyframes vivo-destello{
+  0%  {box-shadow:0 0 0 3px var(--warn-bg), 0 0 0 4px #f0dcb8}
+  100%{box-shadow:0 0 0 3px transparent,   0 0 0 4px transparent}
+}
+.vivo-cambio{animation:vivo-destello 1.6s ease-out;border-radius:12px}
+/* A quien le molesta el movimiento, no se lo mostramos. */
+@media (prefers-reduced-motion:reduce){ .vivo-cambio{animation:none} }
+
 /* `display` propio pisa el `hidden` del navegador, así que el globo se veía con
    un cero adentro cuando no había ninguna alerta. */
 .alertas-n[hidden]{display:none}

@@ -1,5 +1,5 @@
 <?php /** @var array $rows @var array $preajustes */ ?>
-<div class="page-head">
+<div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Plantillas de correo</h1>
         <p class="muted">El diseño y el texto que se manda en las campañas</p>
@@ -31,7 +31,7 @@
     </div>
 </div>
 
-<div class="card table-card">
+<div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead>
