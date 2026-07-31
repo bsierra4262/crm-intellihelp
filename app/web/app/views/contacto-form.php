@@ -95,7 +95,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
             <label class="fld wide"><span>Sitio web</span>
                 <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255">
             </label>
-            <div class="fld wide" style="justify-content:flex-end">
+            <div class="fld wide abajo">
                 <label class="switch">
                     <input type="checkbox" name="no_email" value="1" <?= !empty($c['no_email']) ? 'checked' : '' ?>>
                     <span class="track"></span>

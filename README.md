@@ -402,10 +402,10 @@ Y agendar la tarea automática cada 5 minutos:
 Regla del proyecto: **cada defecto detectado incorpora un test** para impedir su reaparición.
 
 ```bash
-php test/run_tests.php               # 128 casos de lógica pura, sin base ni red
+php test/run_tests.php               # 138 casos de lógica pura, sin base ni red
 bash test/smoke.sh                   # 53 comprobaciones HTTP contra el sitio desplegado
 bash test/render.sh                  # 35 pantallas ejecutadas de verdad, con sesión
-php  test/ui_test.php                # 26 reglas de interfaz y responsive
+php  test/ui_test.php                # 57 reglas de interfaz, responsive y sesión
 python test/verificar_unificacion.py # 14 aserciones sobre la base unificada
 ```
 

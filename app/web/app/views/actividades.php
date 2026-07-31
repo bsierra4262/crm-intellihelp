@@ -13,7 +13,7 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
     </div>
 </div>
 
-<div class="seg" style="margin-bottom:1rem">
+<div class="seg mb-4">
     <?php foreach ($vistas as $k => $etiqueta): ?>
         <a class="seg-item <?= $vistaActual === $k ? 'active' : '' ?>"
            href="<?= e(url('actividades' . query_con(['vista' => $k === 'pendientes' ? null : $k, 'vencidas' => null, 'page' => null]))) ?>"><?= e($etiqueta) ?></a>
@@ -71,13 +71,14 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
             </thead>
             <tbody>
             <?php if (!$data['rows']): ?>
-                <tr><td colspan="7" class="empty">No hay actividades en esta vista.</td></tr>
+                <tr><td colspan="7" class="empty">No hay actividades en esta vista. Probá cambiando el filtro de arriba,
+                    o <a href="<?= e(url('actividad-form')) ?>">creá una tarea, llamada o reunión</a>.</td></tr>
             <?php else: foreach ($data['rows'] as $a): [$txt, $cls] = actividad_vencimiento($a); ?>
                 <tr>
                     <td data-label="Asunto">
                         <a href="<?= e(url('actividad-form?id=' . (int)$a['id'])) ?>"><strong><?= e($a['asunto']) ?></strong></a>
                         <?php if ($a['meet_url']): ?>
-                            <a href="<?= e($a['meet_url']) ?>" target="_blank" rel="noopener" class="chip" style="margin-left:.4rem"><?= icon('video', 12) ?>Meet</a>
+                            <a href="<?= e($a['meet_url']) ?>" target="_blank" rel="noopener" class="chip"><?= icon('video', 12) ?>Meet</a>
                         <?php endif; ?>
                     </td>
                     <td data-label="Tipo"><?= e(tipos_actividad()[$a['tipo']] ?? $a['tipo']) ?></td>

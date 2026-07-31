@@ -16,14 +16,14 @@ $entId = (int)($_GET['id'] ?? 0);
 <div class="card">
     <div class="card-head"><h2>Notas</h2></div>
     <?php if ($ent): ?>
-    <form method="post" action="<?= e(url('nota-guardar')) ?>" style="margin-bottom:.9rem">
+    <form method="post" action="<?= e(url('nota-guardar')) ?>" class="mb-3">
         <?= csrf_field() ?>
         <input type="hidden" name="entidad" value="<?= e($ent) ?>">
         <input type="hidden" name="entidad_id" value="<?= $entId ?>">
         <label class="fld">
             <textarea name="cuerpo" rows="3" placeholder="Escribí lo que pasó en la reunión, la llamada o el correo…" required></textarea>
         </label>
-        <div style="margin-top:.5rem"><button class="btn btn-primary btn-sm"><?= icon('nota', 14) ?>Agregar nota</button></div>
+        <div class="mt-3"><button class="btn btn-primary btn-sm"><?= icon('nota', 14) ?>Agregar nota</button></div>
     </form>
     <?php endif; ?>
 
@@ -35,7 +35,7 @@ $entId = (int)($_GET['id'] ?? 0);
                 <div class="tl-item">
                     <div class="tl-when"><?= fecha_hora($n['creado_en']) ?> · <?= e($n['autor'] ?: 'sistema') ?></div>
                     <?php if ($n['titulo']): ?><div class="tl-title"><?= e($n['titulo']) ?></div><?php endif; ?>
-                    <div class="tl-detail" style="white-space:pre-wrap;color:var(--ink)"><?= e($n['cuerpo']) ?></div>
+                    <div class="tl-detail cuerpo"><?= e($n['cuerpo']) ?></div>
                 </div>
             <?php endforeach; ?>
         </div>

@@ -10,9 +10,9 @@
     </div>
 </div>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="card mb-4">
     <div class="card-head"><h2>Cargar contactos desde el CRM</h2></div>
-    <p class="muted small" style="margin:-.3rem 0 .8rem">
+    <p class="muted small card-intro">
         Se agregan los contactos que cumplan el filtro y tengan correo cargado.
         Los que ya están en la lista, los dados de baja y los que rebotaron se saltean solos.
     </p>
@@ -54,9 +54,9 @@
     </form>
 </div>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="card mb-4">
     <div class="card-head"><h2>Agregar correos a mano</h2></div>
-    <p class="muted small" style="margin:-.3rem 0 .8rem">
+    <p class="muted small card-intro">
         Para cuando querés mandarle a unas pocas direcciones puntuales. Pegalas separadas por
         coma, espacio o una por línea. Si alguna ya existe como contacto del CRM, se enlaza sola.
     </p>
@@ -67,7 +67,7 @@
             <textarea name="correos" rows="3" required
                       placeholder="juan@empresa.com, maria@otra.com&#10;pedro@tercera.com"></textarea>
         </label>
-        <div style="margin-top:.6rem">
+        <div class="mt-3">
             <button class="btn btn-primary btn-sm"><?= icon('mas', 15) ?>Agregar a la lista</button>
         </div>
     </form>

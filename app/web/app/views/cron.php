@@ -30,12 +30,12 @@ $tipos = ['' => 'Todo', 'accion' => 'Acciones', 'nav' => 'Navegación', 'auth' =
     </div>
     <div class="card stat">
         <span class="stat-label">Última tarea automática</span>
-        <span class="stat-value" style="font-size:18px"><?= $ultima ? fecha_hora($ultima) : 'nunca' ?></span>
+        <span class="stat-value sm"><?= $ultima ? fecha_hora($ultima) : 'nunca' ?></span>
         <span class="stat-foot"><?= $ultima ? tiempo_relativo($ultima) : 'Falta agendarla en el hosting' ?></span>
     </div>
 </div>
 
-<div class="seg" style="margin-bottom:1rem">
+<div class="seg mb-4">
     <?php foreach ($tipos as $k => $etiqueta): ?>
         <a class="seg-item <?= (string)$f['tipo'] === (string)$k ? 'active' : '' ?>"
            href="<?= e(url('cron' . query_con(['tipo' => $k ?: null, 'page' => null]))) ?>">
@@ -60,7 +60,7 @@ $tipos = ['' => 'Todo', 'accion' => 'Acciones', 'nav' => 'Navegación', 'auth' =
 </form>
 
 <?php if (!empty($data['ventana_default'])): ?>
-    <p class="muted small" style="margin:-.4rem 0 .8rem">
+    <p class="muted small card-intro">
         <?= icon('reloj', 13) ?> Mostrando los últimos <?= (int)$data['ventana_meses'] ?> meses.
         El histórico completo no se borra nunca: elegí una fecha «Desde» anterior para verlo.
     </p>
@@ -89,7 +89,7 @@ $tipos = ['' => 'Todo', 'accion' => 'Acciones', 'nav' => 'Navegación', 'auth' =
                         </div>
                     </td>
                     <td data-label="Acción"><span class="mono"><?= e($r['accion']) ?></span></td>
-                    <td data-label="Detalle" style="white-space:normal"><?= e($r['detalle'] ?: '—') ?></td>
+                    <td data-label="Detalle" class="wrap"><?= e($r['detalle'] ?: '—') ?></td>
                     <td data-label="Tipo" class="prio-3">
                         <span class="badge <?= $r['tipo'] === 'error' ? 'badge-rej' : ($r['tipo'] === 'auth' ? 'badge-info' : 'badge-neutral') ?>"><?= e($r['tipo']) ?></span>
                     </td>

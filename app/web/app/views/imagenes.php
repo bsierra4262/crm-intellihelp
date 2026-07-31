@@ -11,16 +11,16 @@
 
 <?php if ($aviso): ?><div class="flash flash-<?= e($aviso[0]) ?>"><?= e($aviso[1]) ?></div><?php endif; ?>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="card mb-4">
     <div class="card-head"><h2>Subir una imagen</h2></div>
-    <p class="muted small" style="margin:-.3rem 0 .9rem">
+    <p class="muted small card-intro">
         Ideal por debajo de <strong>100 KB</strong> y no más ancha de <strong>600 px</strong>: es el ancho del correo.
         Las imágenes pesadas tardan en cargar y perjudican la entrega. Acordate de que muchos
         clientes bloquean las imágenes por defecto, así que el mensaje nunca puede depender sólo de ellas.
     </p>
     <form method="post" enctype="multipart/form-data" class="urow">
         <?= csrf_field() ?>
-        <label class="filefield" style="flex:1 1 320px">
+        <label class="filefield ancho">
             <input type="file" name="archivo" accept="image/png,image/jpeg,image/gif,image/webp" required>
             <span class="btn btn-ghost btn-sm"><?= icon('subir', 15) ?>Elegir imagen</span>
             <span class="nombre">Ningún archivo seleccionado</span>

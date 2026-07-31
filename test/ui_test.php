@@ -97,7 +97,10 @@ ok('las columnas tienen ancho mínimo', str_contains($kcol, 'min-width'));
 
 echo "== Sin controles nativos crudos ==\n";
 $archivosSueltos = preg_match_all('/<input[^>]*type=["\']file["\'][^>]*>/i', $html, $mm);
-$dentroDeCampo   = preg_match_all('/class="filefield"[\s\S]{0,200}?type=["\']file["\']/i', $html);
+// Se busca la clase dentro de la lista, no el atributo entero: con
+// `class="filefield"` exacto, agregarle una segunda clase al mismo elemento
+// hacía fallar la comprobación aunque el componente siguiera estando.
+$dentroDeCampo   = preg_match_all('/class="[^"]*\bfilefield\b[^"]*"[\s\S]{0,200}?type=["\']file["\']/i', $html);
 ok('todo campo de archivo usa el componente propio', $archivosSueltos === $dentroDeCampo,
    "→ $archivosSueltos campos, $dentroDeCampo con componente");
 ok('los on/off usan el toggle propio', !preg_match('/type=["\']checkbox["\'][^>]*>(?![\s\S]{0,80}class="track")/', $html)
@@ -134,6 +137,100 @@ ok('los filtros usan la misma estructura', substr_count($html, 'class="filters c
 
 echo "== Cache-busting ==\n";
 ok('los assets van versionados', str_contains($layout, 'ASSETS_V'));
+
+// ============================================================
+//  Pasada completa de diseño
+// ============================================================
+
+echo "== Estilos en línea ==\n";
+// Antes había 163 estilos escritos a mano en las vistas: el mismo párrafo bajo
+// el título de una tarjeta estaba con seis márgenes distintos, y por eso dos
+// pantallas parecidas se veían diferentes. Lo único que puede seguir yendo en
+// línea es lo que depende de un dato (el ancho de una barra de avance, el color
+// que eligió el usuario para una etapa), porque eso no se puede saber de antemano.
+$sueltos = [];
+foreach ($vistas as $v) {
+    foreach (preg_split('/\R/', (string) file_get_contents($v)) as $nl => $linea) {
+        if (preg_match_all('/style="([^"]*)"/', $linea, $m)) {
+            foreach ($m[1] as $val) {
+                if (!str_contains($val, '<?=')) { $sueltos[] = basename($v) . ':' . ($nl + 1) . ' ' . $val; }
+            }
+        }
+    }
+}
+ok('ninguna vista tiene estilos en línea fijos', $sueltos === [],
+   '→ ' . count($sueltos) . ': ' . implode(' | ', array_slice($sueltos, 0, 3)));
+
+echo "== Espaciado por escala, no a ojo ==\n";
+ok('existe la escala de espaciado', preg_match('/--sp-4\s*:/', $CSS) === 1);
+ok('el párrafo de una tarjeta tiene una sola clase', str_contains($CSS, '.card-intro{'));
+ok('las utilidades de margen salen de la escala',
+   preg_match('/\.mt-4\{margin-top:var\(--sp-4\)\}/', $CSS) === 1);
+// El margen negativo que pega el párrafo al título va UNA sola vez, en la clase.
+$negativos = preg_match_all('/margin:\s*-\.\d+rem/', $html);
+ok('el margen negativo no está repetido por las vistas', $negativos === 0, "→ $negativos casos");
+
+echo "== Texto largo en el celular ==\n";
+// Medido sobre la base real: 3.577 de 28.112 correos (12,7 %) no entran en una
+// pantalla de 320 px, y el más largo se pasa por 126 px. Sin regla de corte se
+// salen de la tarjeta. Va `anywhere` y no `break-word` porque la celda es flex:
+// sólo `anywhere` reduce el ancho mínimo del elemento, que es lo que desborda.
+$movil = '';
+if (preg_match('/@media \(max-width:768px\)\{(.+?)\n\}/s', $CSS, $m)) { $movil = $m[1]; }
+ok('existe el bloque de tabla en celular', $movil !== '');
+ok('las celdas cortan las direcciones largas', str_contains($movil, 'overflow-wrap:anywhere'),
+   '→ un correo de 48 caracteres desborda la tarjeta');
+ok('el rótulo de la celda no se corta', str_contains($movil, 'overflow-wrap:normal'));
+ok('los botones de acción se pueden tocar con el dedo',
+   preg_match('/\.act\{min-width:40px;min-height:40px\}/', $movil) === 1,
+   '→ 29 px es chico para el dedo, el mínimo es 40');
+
+echo "== Nada duplicado entre vistas ==\n";
+// El mismo par etiqueta/valor estaba copiado como función anónima en tres
+// fichas, y cada copia había quedado distinta: por eso un correo se veía de una
+// forma en un contacto y de otra en una empresa.
+$helpers = (string) @file_get_contents($WEB . '/app/helpers.php');
+ok('el par etiqueta/valor vive en un solo lugar', str_contains($helpers, 'function dato('));
+ok('ninguna ficha se define su propia copia',
+   preg_match('/\$dato\s*=\s*function/', $html) !== 1);
+foreach (['contacto-ver.php', 'cuenta-ver.php', 'posible-ver.php'] as $f) {
+    $c = (string) @file_get_contents($WEB . '/app/views/' . $f);
+    ok("$f usa el helper compartido", str_contains($c, 'dato(') && !str_contains($c, '$dato('));
+}
+
+echo "== Estados vacíos con salida ==\n";
+// Una pantalla vacía que sólo dice «no hay nada» deja a la persona trabada.
+// Cada una tiene que decir cuál es el paso siguiente.
+foreach (['campanas.php' => 'plantilla', 'listas.php' => 'contactos',
+          'reservas.php' => 'tipo de reunión', 'actividades.php' => 'filtro',
+          'plantillas.php' => 'diseños', 'lista-ver.php' => 'Cargala'] as $arch => $pista) {
+    $c = (string) @file_get_contents($WEB . '/app/views/' . $arch);
+    ok("$arch explica qué hacer cuando está vacío", stripos($c, $pista) !== false);
+}
+
+echo "== Cierre automático de sesión ==\n";
+// El servidor es el que corta de verdad; esto comprueba que además exista el
+// aviso, para que la sesión no se caiga sin explicación mientras alguien mira
+// la pantalla —el editor de plantillas puede estar veinte minutos sin recargar.
+$idle = (string) @file_get_contents($WEB . '/assets/js/idle.js');
+$boot = (string) @file_get_contents($WEB . '/app/bootstrap.php');
+$rutas = (string) @file_get_contents($WEB . '/index.php');
+$salir = (string) @file_get_contents($WEB . '/app/pages/logout.php');
+$entrar = (string) @file_get_contents($WEB . '/app/pages/login.php');
+ok('el servidor corta la sesión vencida', str_contains($boot, 'idle_ttl') && str_contains($boot, 'auth_logout()'));
+ok('el servidor contesta 440 a las llamadas en segundo plano', str_contains($boot, '440'));
+ok('existe el aviso del navegador', $idle !== '');
+ok('el layout carga el aviso', str_contains($layout, 'idle.js'));
+ok('el layout le pasa la configuración', str_contains($layout, '__sesion'));
+ok('la ruta del latido está registrada', str_contains($rutas, "'api-sesion'"));
+ok('el latido existe', file_exists($WEB . '/app/pages/api-sesion.php'));
+ok('el aviso usa el modal de la aplicación',
+   str_contains($idle, 'modal-head') && str_contains($idle, 'modal-foot'),
+   '→ si se inventara su propio marcado sería el único cartel distinto de la app');
+ok('el foco arranca en «Seguir conectado»', str_contains($idle, 'seguir')
+   && str_contains($idle, '.focus()'), '→ si no, un Enter distraído cierra la sesión');
+ok('la salida distingue el motivo', str_contains($salir, 'inactividad') && str_contains($salir, 'expiro'));
+ok('el login explica por qué se cerró', str_contains($entrar, 'inactividad'));
 
 echo "\n" . str_repeat('=', 60) . "\n";
 printf("  %d comprobaciones de interfaz · %d correctas · %d fallidas\n", $T, $T - $F, $F);

@@ -102,8 +102,49 @@ y el versionado, [SemVer](https://semver.org/lang/es/).
   assets, 32 pantallas ejecutadas de verdad con una sesión de administrador, y 14 aserciones
   sobre la base de contactos unificada.
 
+### Added
+
+- **Cierre automático de sesión**, con el mismo criterio que la aplicación de tickets:
+  10 minutos de inactividad y 8 horas de sesión como máximo. Quien corta de verdad es el
+  servidor —destruye la sesión vencida en la request siguiente, colabore o no el navegador—,
+  pero ahora además hay **aviso con cuenta regresiva** un minuto antes, para que la sesión no
+  se caiga sin explicación mientras alguien está mirando la pantalla. Mientras se trabaja se
+  manda un latido (`api-sesion`, como mucho uno por minuto) para que no venza en las pantallas
+  que no recargan, como el editor de plantillas. El aviso usa el modal de la aplicación, y el
+  foco arranca en «Seguir conectado» para que un Enter distraído no cierre la sesión. El login
+  explica por qué se cerró, y la auditoría distingue el cierre manual del automático.
+
+### Changed
+
+- **Pasada completa de diseño sobre las 39 pantallas.** El problema de fondo no eran los
+  botones sueltos sino que **el sistema de diseño existía y las vistas no lo usaban**: había
+  **163 estilos escritos a mano** en el marcado. El mismo párrafo explicativo debajo del título
+  de una tarjeta estaba con **seis márgenes distintos** (`-.5rem 0 1rem`, `-.3rem 0 .8rem`,
+  `-.4rem 0 .8rem`…), y por eso dos pantallas parecidas se veían diferentes. Ahora esas piezas
+  tienen nombre (`.card-intro`, `.col-stack`, `.row-sep`, `.act-row`, `.correo-vista`,
+  `.pub-pad`…) y el espaciado sale de la escala `--sp-*`. **Quedan 17 estilos en línea, y son
+  los únicos que corresponden**: anchos de barras de avance y colores que elige el usuario,
+  que no se pueden saber de antemano. El test los distingue.
+- **El par etiqueta/valor de las fichas vive en un solo lugar** (`dato()` en `helpers.php`).
+  Estaba copiado como función anónima dentro de tres vistas y cada copia había quedado un poco
+  distinta, así que el mismo correo se veía de una forma en la ficha de un contacto y de otra
+  en la de una empresa.
+- **Los estados vacíos dicen qué hacer.** «Todavía no hay campañas» no ayuda a nadie: ahora
+  explica que se arma con una plantilla, una lista y la campaña que junta las dos, con los
+  enlaces. Lo mismo en claves de API, reservas y actividades.
+- **Los campos dentro del encabezado de una pantalla** usan el estilo de campo de la aplicación.
+  El selector de mes de Reportes estaba estilado a mano porque la regla base no lo alcanzaba,
+  así que era el único campo del sistema que se veía distinto.
+
 ### Fixed
 
+- **Los correos largos se salían de la tarjeta en el celular.** Las celdas de tabla no tenían
+  regla de corte, y una dirección no tiene espacios donde partir. Medido sobre la base real:
+  **3.577 de 28.112 direcciones (el 12,7 %) no entran en una pantalla de 320 px**, y la más
+  larga se pasaba por 126 px. Va `overflow-wrap:anywhere` y no `break-word` porque la celda es
+  flex: sólo `anywhere` reduce el ancho mínimo del elemento, que es lo que desborda.
+- **Los botones de acción no se podían tocar con el dedo.** Medían 29 px, pensados para el
+  mouse; en el celular pasan a 40 px sin cambiar de aspecto.
 - **BUG #6** — Las tarjetas del panel mostraban el rótulo, el número y el pie **en una sola
   línea**: `.stat-link{display:block}` pisaba el `flex-direction:column` de `.stat`.
 - **BUG #7** — Los botones **Filtrar** y **Limpiar** salían gigantes en las pantallas donde

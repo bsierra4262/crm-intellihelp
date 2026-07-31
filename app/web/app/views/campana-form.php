@@ -67,7 +67,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
 
     <div class="card form-card">
         <h2 class="sec">De quién viene</h2>
-        <p class="muted small" style="margin:-.5rem 0 1rem">
+        <p class="muted small card-intro">
             Elegí desde qué casilla sale esta campaña. Cada cuenta tiene su propio tope diario y
             su propia reputación, así que se pueden correr <strong>varias campañas en paralelo</strong>
             sin que se pisen.
@@ -117,7 +117,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
 
     <div class="card form-card">
         <h2 class="sec">Ritmo de envío</h2>
-        <p class="muted small" style="margin:-.5rem 0 1rem">
+        <p class="muted small card-intro">
             La pausa entre correos es lo que evita que el proveedor nos marque como spam.
             Por debajo de 25 segundos el ritmo se vuelve robótico; por encima de 45 la campaña
             se hace eterna. El valor por defecto da unos 80–100 correos por hora.

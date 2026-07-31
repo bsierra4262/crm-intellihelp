@@ -61,7 +61,7 @@ $colorEstado = [
     <div class="filter-actions">
         <button class="btn btn-primary btn-sm"><?= icon('filtro', 15) ?>Filtrar</button>
         <button type="button" class="btn btn-ghost btn-sm" data-limpiar>Limpiar</button>
-        <label class="switch" style="margin-left:auto">
+        <label class="switch push">
             <input type="checkbox" name="convertidos" value="1" <?= $f['convertidos'] === '1' ? 'checked' : '' ?>>
             <span class="track"></span><span class="small">Mostrar también los convertidos</span>
         </label>

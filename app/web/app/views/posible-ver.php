@@ -1,24 +1,13 @@
 <?php
 /** @var array $p @var array $notas @var array $actividades @var array $linea */
 $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
-$dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
-    $v = trim((string)$valor);
-    echo '<div><div class="k">' . e($etiqueta) . '</div><div class="v' . ($v === '' ? ' empty' : '') . '">';
-    if ($v === '')            { echo '—'; }
-    elseif ($tipo === 'mail') { echo '<a href="mailto:' . e($v) . '">' . e($v) . '</a>'; }
-    elseif ($tipo === 'tel')  { echo '<a href="tel:' . e(preg_replace('/[^\d+]/', '', $v)) . '">' . e($v) . '</a>'; }
-    elseif ($tipo === 'url')  { $h = preg_match('#^https?://#i', $v) ? $v : 'https://' . $v;
-                                echo '<a href="' . e($h) . '" target="_blank" rel="noopener">' . e(recortar($v, 40)) . '</a>'; }
-    else                      { echo e($v); }
-    echo '</div></div>';
-};
 ?>
 <div class="detail-head">
     <span class="avatar-fallback"><?= e(iniciales($nombre)) ?></span>
-    <div style="flex:1;min-width:0">
+    <div class="grow">
         <h1><?= e($nombre) ?></h1>
         <div class="sub"><?= e(implode(' · ', array_filter([$p['cargo'], $p['empresa']]))) ?></div>
-        <div style="margin-top:.4rem;display:flex;gap:.4rem;flex-wrap:wrap">
+        <div class="tag-row">
             <span class="badge badge-info"><?= e($p['estado']) ?></span>
             <?php if ($p['calificacion']): ?><span class="badge badge-pend"><?= e($p['calificacion']) ?></span><?php endif; ?>
             <?php if ($p['fuente']): ?><span class="badge badge-neutral"><?= e($p['fuente']) ?></span><?php endif; ?>
@@ -44,7 +33,7 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
 <?php endif; ?>
 
 <div class="detail">
-    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+    <div class="col-stack">
         <?php if (!$p['convertido_en']): ?>
         <div class="card">
             <div class="card-head"><h2>Avanzar el estado</h2></div>
@@ -65,22 +54,22 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
             <div class="card-head"><h2>Datos</h2></div>
             <div class="kv">
                 <?php
-                $dato('Empresa', $p['empresa']);
-                $dato('Cargo', $p['cargo']);
-                $dato('Correo', $p['email'], 'mail');
-                $dato('Correo secundario', $p['email2'], 'mail');
-                $dato('Teléfono directo', $p['telefono'], 'tel');
-                $dato('Móvil', $p['movil'], 'tel');
-                $dato('Conmutador', $p['conmutador'], 'tel');
-                $dato('Sitio web', $p['sitio_web'], 'url');
-                $dato('LinkedIn', $p['linkedin'], 'url');
-                $dato('Sector', $p['sector']);
-                $dato('Empleados', $p['empleados']);
-                $dato('Propietario', $p['propietario']);
-                $dato('Localidad', $p['localidad']);
-                $dato('Provincia', $p['provincia']);
-                $dato('País', $p['pais']);
-                $dato('Última actividad', $p['ultima_actividad_en'] ? tiempo_relativo($p['ultima_actividad_en']) : '');
+                dato('Empresa', $p['empresa']);
+                dato('Cargo', $p['cargo']);
+                dato('Correo', $p['email'], 'mail');
+                dato('Correo secundario', $p['email2'], 'mail');
+                dato('Teléfono directo', $p['telefono'], 'tel');
+                dato('Móvil', $p['movil'], 'tel');
+                dato('Conmutador', $p['conmutador'], 'tel');
+                dato('Sitio web', $p['sitio_web'], 'url');
+                dato('LinkedIn', $p['linkedin'], 'url');
+                dato('Sector', $p['sector']);
+                dato('Empleados', $p['empleados']);
+                dato('Propietario', $p['propietario']);
+                dato('Localidad', $p['localidad']);
+                dato('Provincia', $p['provincia']);
+                dato('País', $p['pais']);
+                dato('Última actividad', $p['ultima_actividad_en'] ? tiempo_relativo($p['ultima_actividad_en']) : '');
                 ?>
             </div>
         </div>
@@ -88,12 +77,12 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
         <?php if (trim((string)$p['descripcion']) !== ''): ?>
         <div class="card">
             <div class="card-head"><h2>Notas del registro</h2></div>
-            <p style="white-space:pre-wrap;margin:0"><?= e($p['descripcion']) ?></p>
+            <p class="pre-wrap m-0"><?= e($p['descripcion']) ?></p>
         </div>
         <?php endif; ?>
     </div>
 
-    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+    <div class="col-stack">
         <?php include APP . '/views/_notas.php'; ?>
         <?php include APP . '/views/_actividades_panel.php'; ?>
         <div class="card">

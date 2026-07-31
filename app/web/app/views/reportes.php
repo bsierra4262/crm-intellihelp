@@ -15,12 +15,12 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
         <p class="muted">Embudo, pronóstico y rendimiento de las campañas</p>
     </div>
     <form class="head-actions" method="get" action="<?= e(url('reportes')) ?>">
-        <input type="month" name="periodo" value="<?= e($periodo) ?>" data-auto style="min-height:36px;padding:.4rem .7rem;border:1px solid var(--line);border-radius:var(--radius-xs)">
+        <input type="month" name="periodo" value="<?= e($periodo) ?>" data-auto>
         <button class="btn btn-primary btn-sm">Ver</button>
     </form>
 </div>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="card mb-4">
     <div class="card-head"><h2>Embudo por etapa</h2><span class="small muted">Todos los negocios abiertos e históricos</span></div>
     <?php foreach ($etapas as $e): ?>
         <div class="bar-row">
@@ -31,7 +31,7 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
     <?php endforeach; ?>
 </div>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="card mb-4">
     <div class="card-head"><h2>Pronóstico de <?= e($periodo) ?></h2></div>
     <div class="table-scroll">
         <table class="grid">
@@ -57,7 +57,7 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
             </tbody>
         </table>
     </div>
-    <p class="muted small" style="margin:.8rem 0 0">
+    <p class="muted small card-intro mt-3 mb-0">
         El objetivo sale de la cuota del período. El «ponderado» es el importe de cada negocio
         multiplicado por la probabilidad de su etapa.
     </p>
@@ -121,7 +121,7 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
                 </tbody>
             </table>
         </div>
-        <p class="muted small" style="margin:.8rem 0 0">
+        <p class="muted small card-intro mt-3 mb-0">
             Un porcentaje de rebote por encima del 5 % es señal de que la base necesita limpieza:
             los proveedores penalizan al remitente.
         </p>

@@ -26,7 +26,7 @@
         <?php endif; ?>
     </div>
     <?php if (!empty($resultado['detalle_omitidos'])): ?>
-        <div class="card" style="margin-bottom:1rem">
+        <div class="card mb-4">
             <div class="card-head"><h2>Qué se omitió y por qué</h2></div>
             <?php foreach ($resultado['detalle_omitidos'] as $motivo => $n): ?>
                 <div class="bar-row">
@@ -44,7 +44,7 @@
 
     <div class="card form-card">
         <h2 class="sec">Contactos de Zoho CRM</h2>
-        <p class="muted small" style="margin:-.5rem 0 1rem">
+        <p class="muted small card-intro">
             Subí el CSV tal como sale del exportador de Zoho. El sistema:
             crea las <strong>empresas únicas</strong> y les engancha los contactos (no las duplica),
             normaliza <strong>provincia, país y localidad</strong>, descarta la basura de los campos mal
@@ -83,7 +83,7 @@
                 </select>
                 <i class="hint">Se usa cuando el propietario del CSV no existe como usuario del CRM.</i>
             </label>
-            <div class="fld wide" style="justify-content:flex-end">
+            <div class="fld wide abajo">
                 <label class="switch">
                     <input type="checkbox" name="simular" value="1" checked>
                     <span class="track"></span>
@@ -99,7 +99,7 @@
 </form>
 
 <?php if ($lotes): ?>
-<div class="card" style="margin-top:1rem">
+<div class="card mt-4">
     <div class="card-head"><h2>Importaciones anteriores</h2></div>
     <div class="table-scroll">
         <table class="grid">

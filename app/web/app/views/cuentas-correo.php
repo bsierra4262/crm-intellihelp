@@ -19,7 +19,7 @@ $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
     es por remitente</strong> — si una campaña sale mal, se quema esa casilla y no las demás.
 </div>
 
-<div class="card table-card" style="margin-bottom:1rem">
+<div class="card table-card mb-4">
     <div class="table-scroll">
         <table class="grid">
             <thead>
@@ -90,7 +90,7 @@ $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
 
     <div class="card form-card">
         <h2 class="sec"><?= !empty($editar['id']) ? 'Editar la cuenta' : 'Agregar una cuenta' ?></h2>
-        <p class="muted small" style="margin:-.5rem 0 1rem">
+        <p class="muted small card-intro">
             Con Google Workspace hay que usar una <strong>contraseña de aplicación</strong>, no la
             contraseña normal. Se genera desde la seguridad de la cuenta de Google.
         </p>
@@ -142,8 +142,8 @@ $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
             </label>
         </div>
 
-        <h3 style="margin:1.4rem 0 .6rem">Casilla de entrada (rebotes y respuestas)</h3>
-        <p class="muted small" style="margin:-.3rem 0 .8rem">Si la dejás vacía se usa la misma cuenta de salida.</p>
+        <h3 class="mt-6 mb-3">Casilla de entrada (rebotes y respuestas)</h3>
+        <p class="muted small card-intro">Si la dejás vacía se usa la misma cuenta de salida.</p>
         <div class="grid-fields">
             <label class="fld"><span>Servidor</span><input name="imap_host" value="<?= $e2('imap_host', 'imap.gmail.com') ?>"></label>
             <label class="fld"><span>Puerto</span><input type="number" name="imap_port" value="<?= $e2('imap_port', '993') ?>"></label>

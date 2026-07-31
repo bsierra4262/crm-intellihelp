@@ -10,30 +10,30 @@ $meses       = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep
         <div class="pub-head">
             <img src="<?= e(url('assets/img/ITH-logo-139x75.png')) ?>" alt="INTELLIHELP">
             <div>
-                <h1 style="font-size:20px;margin:0"><?= e($tipo['nombre']) ?></h1>
-                <p class="muted small" style="margin:0">con <?= e($tipo['usuario']) ?> · INTELLIHELP</p>
+                <h1><?= e($tipo['nombre']) ?></h1>
+                <p class="muted small m-0">con <?= e($tipo['usuario']) ?> · INTELLIHELP</p>
             </div>
         </div>
 
         <div class="pub-body">
             <div class="pub-info">
-                <p class="urow" style="gap:.5rem;color:var(--muted);font-size:13.5px">
+                <p class="urow meta">
                     <?= icon('reloj', 16) ?><?= (int)$tipo['duracion_min'] ?> minutos
                 </p>
                 <?php if ($tipo['con_meet']): ?>
-                <p class="urow" style="gap:.5rem;color:var(--muted);font-size:13.5px">
+                <p class="urow meta">
                     <?= icon('video', 16) ?>Videollamada por Google Meet
                 </p>
                 <?php endif; ?>
-                <p class="urow" style="gap:.5rem;color:var(--muted);font-size:13.5px">
+                <p class="urow meta">
                     <?= icon('agenda', 16) ?>Hora de Argentina (UTC−3)
                 </p>
                 <?php if (trim((string)$tipo['descripcion']) !== ''): ?>
-                    <p style="margin-top:1rem;white-space:pre-wrap"><?= e($tipo['descripcion']) ?></p>
+                    <p class="mt-4 pre-wrap"><?= e($tipo['descripcion']) ?></p>
                 <?php endif; ?>
 
                 <?php if (!$conectado): ?>
-                    <div class="flash flash-warn" style="margin-top:1.2rem">
+                    <div class="flash flash-warn mt-5">
                         La agenda no está sincronizada en este momento. Podés reservar igual y te
                         confirmamos por correo.
                     </div>
@@ -42,9 +42,9 @@ $meses       = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep
 
             <div class="pub-slots">
                 <?php if (!$dias): ?>
-                    <div class="empty-state" style="padding:2rem 0">
+                    <div class="empty-state compacto">
                         <?= icon('agenda', 34) ?>
-                        <h2 style="font-size:16px">No hay horarios disponibles</h2>
+                        <h2>No hay horarios disponibles</h2>
                         <p class="small">Escribinos y coordinamos a mano.</p>
                     </div>
                 <?php else: ?>
@@ -59,7 +59,7 @@ $meses       = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep
                         <?php endforeach; ?>
                     </div>
 
-                    <h2 style="margin-bottom:.7rem"><?= e(ucfirst(fecha_larga($diaSel))) ?></h2>
+                    <h2 class="mb-3"><?= e(ucfirst(fecha_larga($diaSel))) ?></h2>
                     <div class="slot-grid" id="slots">
                         <?php foreach ($slotsDelDia as $ts): ?>
                             <button type="button" class="slot" data-ts="<?= (int)$ts ?>"><?= date('H:i', $ts) ?></button>
@@ -69,28 +69,28 @@ $meses       = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep
                         <?php endif; ?>
                     </div>
 
-                    <form method="post" action="<?= e(url('reservar')) ?>" id="formReserva" hidden style="margin-top:1.2rem">
+                    <form method="post" action="<?= e(url('reservar')) ?>" id="formReserva" hidden class="mt-5">
                         <input type="hidden" name="tipo_id" value="<?= (int)$tipo['id'] ?>">
                         <input type="hidden" name="inicio" id="inputInicio" value="">
                         <input type="hidden" name="campana_id" value="<?= $campana ?: '' ?>">
                         <div class="flash flash-info" id="avisoHorario"></div>
                         <label class="fld"><span>Nombre y apellido <i class="req">*</i></span>
                             <input name="nombre" maxlength="160" required></label>
-                        <label class="fld" style="margin-top:.7rem"><span>Correo <i class="req">*</i></span>
+                        <label class="fld mt-3"><span>Correo <i class="req">*</i></span>
                             <input type="email" name="email" maxlength="190" required></label>
-                        <label class="fld" style="margin-top:.7rem"><span>Empresa</span>
+                        <label class="fld mt-3"><span>Empresa</span>
                             <input name="empresa" maxlength="200"></label>
-                        <label class="fld" style="margin-top:.7rem"><span>Teléfono</span>
+                        <label class="fld mt-3"><span>Teléfono</span>
                             <input name="telefono" maxlength="60"></label>
-                        <label class="fld" style="margin-top:.7rem"><span>¿De qué querés que hablemos?</span>
+                        <label class="fld mt-3"><span>¿De qué querés que hablemos?</span>
                             <textarea name="comentario" rows="3"></textarea></label>
-                        <button class="btn btn-primary btn-block" style="margin-top:1rem">Confirmar la reunión</button>
+                        <button class="btn btn-primary btn-block mt-4">Confirmar la reunión</button>
                     </form>
                 <?php endif; ?>
             </div>
         </div>
     </div>
-    <p class="muted small" style="text-align:center;margin-top:1rem">© <?= date('Y') ?> INTELLIHELP S.A.</p>
+    <p class="muted small pub-foot">© <?= date('Y') ?> INTELLIHELP S.A.</p>
 </div>
 
 <script>

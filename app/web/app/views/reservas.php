@@ -24,7 +24,7 @@
     <div class="filter-actions">
         <button class="btn btn-primary btn-sm"><?= icon('filtro', 15) ?>Filtrar</button>
         <button type="button" class="btn btn-ghost btn-sm" data-limpiar>Limpiar</button>
-        <label class="switch" style="margin-left:auto">
+        <label class="switch push">
             <input type="checkbox" name="todos" value="1" <?= $f['todos'] === '1' ? 'checked' : '' ?>>
             <span class="track"></span><span class="small">Ver las de todo el equipo</span>
         </label>
@@ -40,7 +40,9 @@
             </thead>
             <tbody>
             <?php if (!$rows): ?>
-                <tr><td colspan="7" class="empty">Todavía no hay reuniones reservadas.</td></tr>
+                <tr><td colspan="7" class="empty">Todavía nadie reservó. Las reuniones aparecen acá solas cuando
+                    alguien entra por el enlace público de un <a href="<?= e(url('agenda')) ?>">tipo de reunión</a>
+                    y elige un horario.</td></tr>
             <?php else: foreach ($rows as $r): ?>
                 <tr>
                     <td data-label="Cuándo">

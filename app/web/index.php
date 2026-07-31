@@ -79,6 +79,7 @@ $rutas = [
     // --- API de lectura ---
     'api/estado'      => ['public' => true],
     'api-log'         => ['public' => false],
+    'api-sesion'      => ['public' => false],   // latido del cierre por inactividad
 
     // --- Administración ---
     'usuarios'        => ['public' => false, 'admin' => true],

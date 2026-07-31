@@ -1,27 +1,10 @@
 <?php
 /** @var array $c @var array $notas @var array $actividades @var array $negocios
  *  @var array $envios @var array $linea */
-$dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
-    $v = trim((string)$valor);
-    echo '<div><div class="k">' . e($etiqueta) . '</div><div class="v' . ($v === '' ? ' empty' : '') . '">';
-    if ($v === '') {
-        echo '—';
-    } elseif ($tipo === 'mail') {
-        echo '<a href="mailto:' . e($v) . '">' . e($v) . '</a>';
-    } elseif ($tipo === 'tel') {
-        echo '<a href="tel:' . e(preg_replace('/[^\d+]/', '', $v)) . '">' . e($v) . '</a>';
-    } elseif ($tipo === 'url') {
-        $href = preg_match('#^https?://#i', $v) ? $v : 'https://' . $v;
-        echo '<a href="' . e($href) . '" target="_blank" rel="noopener">' . e(recortar($v, 40)) . '</a>';
-    } else {
-        echo e($v);
-    }
-    echo '</div></div>';
-};
 ?>
 <div class="detail-head">
     <span class="avatar-fallback"><?= e(iniciales($c['nombre_completo'])) ?></span>
-    <div style="flex:1;min-width:0">
+    <div class="grow">
         <h1><?= e($c['nombre_completo']) ?></h1>
         <div class="sub">
             <?= e($c['cargo'] ?: 'Sin cargo cargado') ?>
@@ -29,7 +12,7 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
                 · <a href="<?= e(url('cuenta-ver?id=' . (int)$c['cuenta_id'])) ?>"><?= e($c['cuenta']) ?></a>
             <?php endif; ?>
         </div>
-        <div style="margin-top:.4rem;display:flex;gap:.4rem;flex-wrap:wrap">
+        <div class="tag-row">
             <?php if ($c['no_email']): ?><span class="badge badge-rej">Dado de baja</span><?php endif; ?>
             <?php if ($c['email_rebotado']): ?><span class="badge badge-pend">Correo rebotado</span><?php endif; ?>
             <?php if ($c['fuente']): ?><span class="badge badge-info"><?= e($c['fuente']) ?></span><?php endif; ?>
@@ -43,21 +26,21 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
 </div>
 
 <div class="detail">
-    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+    <div class="col-stack">
         <div class="card">
             <div class="card-head"><h2>Datos de contacto</h2></div>
             <div class="kv">
                 <?php
-                $dato('Correo principal', $c['email'], 'mail');
-                $dato('Correo secundario', $c['email2'], 'mail');
-                $dato('Correo terciario', $c['email3'], 'mail');
-                $dato('Teléfono directo', $c['telefono'], 'tel');
-                $dato('Móvil', $c['movil'], 'tel');
-                $dato('Conmutador', $c['conmutador'], 'tel');
-                $dato('LinkedIn', $c['linkedin'], 'url');
-                $dato('Sitio web', $c['sitio_web'], 'url');
-                $dato('Departamento', $c['departamento']);
-                $dato('Propietario', $c['propietario']);
+                dato('Correo principal', $c['email'], 'mail');
+                dato('Correo secundario', $c['email2'], 'mail');
+                dato('Correo terciario', $c['email3'], 'mail');
+                dato('Teléfono directo', $c['telefono'], 'tel');
+                dato('Móvil', $c['movil'], 'tel');
+                dato('Conmutador', $c['conmutador'], 'tel');
+                dato('LinkedIn', $c['linkedin'], 'url');
+                dato('Sitio web', $c['sitio_web'], 'url');
+                dato('Departamento', $c['departamento']);
+                dato('Propietario', $c['propietario']);
                 ?>
             </div>
         </div>
@@ -66,11 +49,11 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
             <div class="card-head"><h2>Ubicación</h2></div>
             <div class="kv">
                 <?php
-                $dato('Domicilio', $c['calle']);
-                $dato('Localidad', $c['localidad']);
-                $dato('Provincia', $c['provincia']);
-                $dato('Código postal', $c['codigo_postal']);
-                $dato('País', $c['pais']);
+                dato('Domicilio', $c['calle']);
+                dato('Localidad', $c['localidad']);
+                dato('Provincia', $c['provincia']);
+                dato('Código postal', $c['codigo_postal']);
+                dato('País', $c['pais']);
                 ?>
             </div>
         </div>
@@ -78,7 +61,7 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
         <?php if (trim((string)$c['descripcion']) !== ''): ?>
         <div class="card">
             <div class="card-head"><h2>Notas del registro</h2></div>
-            <p style="white-space:pre-wrap;margin:0"><?= e($c['descripcion']) ?></p>
+            <p class="pre-wrap m-0"><?= e($c['descripcion']) ?></p>
         </div>
         <?php endif; ?>
 
@@ -129,7 +112,7 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
         <?php endif; ?>
     </div>
 
-    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+    <div class="col-stack">
         <?php include APP . '/views/_notas.php'; ?>
         <?php include APP . '/views/_actividades_panel.php'; ?>
 

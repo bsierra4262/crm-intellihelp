@@ -11,22 +11,22 @@
 <div class="cards">
     <div class="card stat">
         <span class="stat-label">Correo de salida</span>
-        <span class="stat-value" style="font-size:18px"><?= $smtp ? 'Configurado' : 'Sin configurar' ?></span>
+        <span class="stat-value sm"><?= $smtp ? 'Configurado' : 'Sin configurar' ?></span>
         <span class="stat-foot"><?= $smtp ? 'Las campañas pueden enviarse' : 'Las campañas no van a salir' ?></span>
     </div>
     <div class="card stat">
         <span class="stat-label">Casilla de entrada</span>
-        <span class="stat-value" style="font-size:18px"><?= $imap ? 'Configurada' : 'Sin configurar' ?></span>
+        <span class="stat-value sm"><?= $imap ? 'Configurada' : 'Sin configurar' ?></span>
         <span class="stat-foot"><?= $imap ? 'Se leen rebotes y respuestas' : 'No se detectan rebotes' ?></span>
     </div>
     <div class="card stat">
         <span class="stat-label">Modo</span>
-        <span class="stat-value" style="font-size:18px"><?= $s('app_entorno', 'testing') === 'testing' ? 'Prueba' : 'Producción' ?></span>
+        <span class="stat-value sm"><?= $s('app_entorno', 'testing') === 'testing' ? 'Prueba' : 'Producción' ?></span>
         <span class="stat-foot"><?= $s('app_entorno', 'testing') === 'testing' ? 'Sólo se escribe a la lista interna' : 'Los correos salen a clientes reales' ?></span>
     </div>
     <div class="card stat">
         <span class="stat-label">Última corrida del cron</span>
-        <span class="stat-value" style="font-size:18px"><?= $cron ? fecha_hora($cron) : 'nunca' ?></span>
+        <span class="stat-value sm"><?= $cron ? fecha_hora($cron) : 'nunca' ?></span>
         <span class="stat-foot"><?= $cron ? tiempo_relativo($cron) : 'Falta agendarlo en el hosting' ?></span>
     </div>
 </div>
@@ -57,7 +57,7 @@
 
     <div class="card form-card">
         <h2 class="sec">Datos de la empresa</h2>
-        <p class="muted small" style="margin:-.5rem 0 1rem">
+        <p class="muted small card-intro">
             Son los que usan las plantillas de campaña: el bloque de contacto, el botón de
             WhatsApp y las variables <code class="mono">{{remitente_empresa}}</code> y
             <code class="mono">{{empresa_web}}</code>.
@@ -85,7 +85,7 @@
 
     <div class="card form-card">
         <h2 class="sec">Cuenta desde la que salen los correos</h2>
-        <div class="flash flash-info" style="margin:-.3rem 0 1rem">
+        <div class="flash flash-info card-intro">
             <strong>Con Google Workspace hace falta una «contraseña de aplicación»</strong>, no la
             contraseña con la que entrás a Google. Se genera en
             <em>Cuenta de Google → Seguridad → Verificación en dos pasos → Contraseñas de aplicaciones</em>
@@ -130,7 +130,7 @@
 
     <div class="card form-card">
         <h2 class="sec">Casilla donde llegan los rebotes y las respuestas</h2>
-        <p class="muted small" style="margin:-.5rem 0 1rem">
+        <p class="muted small card-intro">
             Es la <strong>bandeja de entrada</strong> de la misma cuenta. De ahí el sistema lee los avisos
             de correo no entregado (<code class="mono">mailer-daemon</code>, <code class="mono">postmaster</code>)
             y las respuestas de los clientes, para marcarlas en el CRM.
@@ -175,7 +175,7 @@
     </div>
 </form>
 
-<div class="card" style="margin-top:1rem">
+<div class="card mt-4">
     <div class="card-head"><h2>Probar la configuración</h2></div>
     <div class="urow">
         <form class="inline-form" method="post"><?= csrf_field() ?>
@@ -193,7 +193,7 @@
     </div>
 </div>
 
-<div class="card" style="margin-top:1rem">
+<div class="card mt-4">
     <div class="card-head"><h2>Tarea automática</h2></div>
     <p class="muted small">
         Para que las campañas se manden solas, que se lean los rebotes y que salgan los recordatorios

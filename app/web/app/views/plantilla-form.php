@@ -32,7 +32,7 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
             <label class="fld"><span>Carpeta</span>
                 <input name="carpeta" value="<?= $v('carpeta') ?>" maxlength="80" placeholder="Outsourcing, Consultoría…">
             </label>
-            <div class="fld" style="justify-content:flex-end">
+            <div class="fld abajo">
                 <label class="switch">
                     <input type="checkbox" name="activo" value="1" <?= !empty($p['activo']) ? 'checked' : '' ?>>
                     <span class="track"></span><span>Disponible para campañas</span>
@@ -57,8 +57,8 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
             </button>
         <?php endforeach; ?>
 
-        <h2 class="sec" style="margin-top:1.4rem">Variables</h2>
-        <p class="muted small" style="margin:-.4rem 0 .6rem">Tocá una para copiarla.</p>
+        <h2 class="sec mt-6">Variables</h2>
+        <p class="muted small card-intro">Tocá una para copiarla.</p>
         <div class="ed-vars">
             <?php foreach (variables_plantilla() as $var => $desc): ?>
                 <button type="button" class="chip ed-var" data-var="<?= e($var) ?>" title="<?= e($desc) ?>"><?= e($var) ?></button>
@@ -86,7 +86,7 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
 </div>
 
 <!-- ---------- Vista previa + control anti-spam ---------- -->
-<div class="rep-grid" style="margin-top:1rem;align-items:start">
+<div class="rep-grid mt-4">
     <div class="card">
         <div class="card-head">
             <h2>Vista previa</h2>
@@ -95,13 +95,13 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
                 <button type="button" class="seg-item" data-vista="movil">Celular</button>
             </div>
         </div>
-        <p class="small muted" style="margin:0 0 .6rem">
+        <p class="small muted mb-3 m-0">
             <strong>Asunto:</strong> <span id="vistaAsunto"><?= e($asuntoVista) ?></span>
         </p>
         <div class="ed-preview" id="preview">
             <iframe id="previewFrame" title="Vista previa del correo"></iframe>
         </div>
-        <p class="small muted" style="margin:.6rem 0 0">
+        <p class="small muted mt-3 m-0">
             Se ve con datos de ejemplo (Juan Pérez, de ACME S.A.). En el envío real se reemplazan
             por los datos de cada destinatario.
         </p>
@@ -113,7 +113,7 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
             <span class="small muted" id="chequeoResumen"></span>
         </div>
         <div id="chequeoCuerpo"></div>
-        <p class="small muted" style="margin-top:.8rem">
+        <p class="small muted mt-3">
             Estas reglas no son opiniones: son los límites reales de los clientes de correo
             y de los filtros de spam. Un correo que las respeta llega; uno que no, se pierde.
         </p>

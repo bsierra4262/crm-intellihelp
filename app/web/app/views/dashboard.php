@@ -75,8 +75,8 @@ $u = auth_user();
             <?php foreach ($campanas as $c):
                 $pct = $c['total'] > 0 ? min(100, round(100 * $c['enviados'] / $c['total'])) : 0;
             ?>
-                <div style="margin-bottom:.9rem">
-                    <div class="urow" style="justify-content:space-between">
+                <div class="mb-3">
+                    <div class="urow entre">
                         <a href="<?= e(url('campana-ver?id=' . (int)$c['id'])) ?>" class="strong"><?= e($c['nombre']) ?></a>
                         <span class="badge <?= $c['estado'] === 'enviando' ? 'badge-ok' : 'badge-neutral' ?>"><?= e($c['estado']) ?></span>
                     </div>

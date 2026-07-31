@@ -6,21 +6,10 @@ foreach ($negocios as $n) {
     if ($n['etapa_tipo'] === 'abierta') { $abierto += (float)$n['importe']; }
     if ($n['etapa_tipo'] === 'ganada')  { $ganado  += (float)$n['importe']; }
 }
-$dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
-    $v = trim((string)$valor);
-    echo '<div><div class="k">' . e($etiqueta) . '</div><div class="v' . ($v === '' ? ' empty' : '') . '">';
-    if ($v === '')                { echo '—'; }
-    elseif ($tipo === 'mail')     { echo '<a href="mailto:' . e($v) . '">' . e($v) . '</a>'; }
-    elseif ($tipo === 'tel')      { echo '<a href="tel:' . e(preg_replace('/[^\d+]/', '', $v)) . '">' . e($v) . '</a>'; }
-    elseif ($tipo === 'url')      { $h = preg_match('#^https?://#i', $v) ? $v : 'https://' . $v;
-                                    echo '<a href="' . e($h) . '" target="_blank" rel="noopener">' . e(recortar($v, 40)) . '</a>'; }
-    else                          { echo e($v); }
-    echo '</div></div>';
-};
 ?>
 <div class="detail-head">
     <span class="avatar-fallback"><?= e(iniciales($c['nombre'])) ?></span>
-    <div style="flex:1;min-width:0">
+    <div class="grow">
         <h1><?= e($c['nombre']) ?></h1>
         <div class="sub">
             <?= e(implode(' · ', array_filter([$c['tipo'], $c['sector'], $c['localidad'], $c['provincia']]))) ?: 'Sin datos adicionales' ?>
@@ -48,28 +37,28 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
     </div>
     <div class="card stat">
         <span class="stat-label">Alta</span>
-        <span class="stat-value" style="font-size:19px"><?= fecha_corta($c['creado_en']) ?></span>
+        <span class="stat-value sm"><?= fecha_corta($c['creado_en']) ?></span>
     </div>
 </div>
 
 <div class="detail">
-    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+    <div class="col-stack">
         <div class="card">
             <div class="card-head"><h2>Datos de la empresa</h2></div>
             <div class="kv">
                 <?php
-                $dato('CUIT', $c['cuit'] ? formatear_cuit($c['cuit']) : '');
-                $dato('Condición IVA', $c['condicion_iva']);
-                $dato('Teléfono', $c['telefono'], 'tel');
-                $dato('Correo', $c['email'], 'mail');
-                $dato('Sitio web', $c['sitio_web'], 'url');
-                $dato('LinkedIn', $c['linkedin'], 'url');
-                $dato('Empleados', $c['empleados']);
-                $dato('Propietario', $c['propietario']);
-                $dato('Domicilio', $c['calle']);
-                $dato('Localidad', $c['localidad']);
-                $dato('Provincia', $c['provincia']);
-                $dato('País', $c['pais']);
+                dato('CUIT', $c['cuit'] ? formatear_cuit($c['cuit']) : '');
+                dato('Condición IVA', $c['condicion_iva']);
+                dato('Teléfono', $c['telefono'], 'tel');
+                dato('Correo', $c['email'], 'mail');
+                dato('Sitio web', $c['sitio_web'], 'url');
+                dato('LinkedIn', $c['linkedin'], 'url');
+                dato('Empleados', $c['empleados']);
+                dato('Propietario', $c['propietario']);
+                dato('Domicilio', $c['calle']);
+                dato('Localidad', $c['localidad']);
+                dato('Provincia', $c['provincia']);
+                dato('País', $c['pais']);
                 ?>
             </div>
         </div>
@@ -125,7 +114,7 @@ $dato = function (string $etiqueta, $valor, string $tipo = 'texto') {
         </div>
     </div>
 
-    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+    <div class="col-stack">
         <?php include APP . '/views/_notas.php'; ?>
         <?php include APP . '/views/_actividades_panel.php'; ?>
         <div class="card">

@@ -1,11 +1,11 @@
 <?php /** @var ?array $r @var bool $ok */ ?>
-<div class="pub-wrap" style="max-width:520px">
+<div class="pub-wrap angosta">
     <div class="pub-card">
         <div class="pub-head">
             <img src="<?= e(url('assets/img/ITH-logo-139x75.png')) ?>" alt="INTELLIHELP">
-            <div><h1 style="font-size:19px;margin:0">Cancelar la reunión</h1></div>
+            <div><h1>Cancelar la reunión</h1></div>
         </div>
-        <div style="padding:1.5rem">
+        <div class="pub-pad">
             <?php if (!$r): ?>
                 <div class="flash flash-error">El enlace no es válido.</div>
             <?php elseif ($ok || $r['estado'] === 'cancelada'): ?>
@@ -14,11 +14,11 @@
                 <p>Vas a cancelar la reunión del
                     <strong><?= e(fecha_larga((string)$r['inicia_el'])) ?>
                     a las <?= date('H:i', strtotime((string)$r['inicia_el'])) ?> h</strong>.</p>
-                <form method="post" style="margin-top:1rem">
+                <form method="post" class="mt-4">
                     <label class="fld"><span>Motivo (opcional)</span>
                         <textarea name="motivo" rows="3" placeholder="Nos ayuda a mejorar"></textarea>
                     </label>
-                    <button class="btn btn-danger btn-block" style="margin-top:1rem">Cancelar la reunión</button>
+                    <button class="btn btn-danger btn-block mt-4">Cancelar la reunión</button>
                 </form>
             <?php endif; ?>
         </div>

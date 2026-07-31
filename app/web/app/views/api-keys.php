@@ -9,11 +9,11 @@
 <?php if ($nuevaClave): ?>
     <div class="flash flash-success">
         <strong>Copiala ahora:</strong> es la única vez que se muestra completa.<br>
-        <code class="mono" style="font-size:13px;word-break:break-all"><?= e($nuevaClave) ?></code>
+        <code class="mono clave"><?= e($nuevaClave) ?></code>
     </div>
 <?php endif; ?>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="card mb-4">
     <div class="card-head"><h2>Nueva clave</h2></div>
     <form method="post" class="urow">
         <?= csrf_field() ?>
@@ -34,7 +34,8 @@
                        <th class="prio-3">Último uso</th><th class="prio-4">Creada por</th><th class="acts">Acciones</th></tr></thead>
             <tbody>
             <?php if (!$rows): ?>
-                <tr><td colspan="7" class="empty">Todavía no hay claves generadas.</td></tr>
+                <tr><td colspan="7" class="empty">Todavía no hay claves. Se generan para que otro sistema
+                    pueda leer los datos del CRM sin usar tu usuario. Si no vas a conectar nada, no hace falta ninguna.</td></tr>
             <?php else: foreach ($rows as $t): ?>
                 <tr>
                     <td data-label="Clave">

@@ -4,7 +4,7 @@
 ?>
 <div class="detail-head">
     <span class="avatar-fallback" style="background:<?= e($n['etapa_color']) ?>"><?= icon('negocios', 22) ?></span>
-    <div style="flex:1;min-width:0">
+    <div class="grow">
         <h1><?= e($n['nombre']) ?></h1>
         <div class="sub">
             <?php if ($n['cuenta_id']): ?>
@@ -32,17 +32,17 @@
     </div>
     <div class="card stat">
         <span class="stat-label">Cierre estimado</span>
-        <span class="stat-value" style="font-size:19px"><?= fecha_corta($n['fecha_cierre']) ?></span>
+        <span class="stat-value sm"><?= fecha_corta($n['fecha_cierre']) ?></span>
         <span class="stat-foot"><?= $n['fecha_cierre'] ? tiempo_relativo($n['fecha_cierre']) : '' ?></span>
     </div>
     <div class="card stat">
         <span class="stat-label">Etapa</span>
-        <span class="stat-value" style="font-size:19px;color:<?= e($n['etapa_color']) ?>"><?= e($n['etapa']) ?></span>
+        <span class="stat-value sm" style="color:<?= e($n['etapa_color']) ?>"><?= e($n['etapa']) ?></span>
         <span class="stat-foot"><?= e($n['embudo']) ?></span>
     </div>
 </div>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="card mb-4">
     <div class="card-head"><h2>Mover de etapa</h2></div>
     <form method="post" action="<?= e(url('negocio-etapa')) ?>" class="urow">
         <?= csrf_field() ?>
@@ -60,7 +60,7 @@
 </div>
 
 <div class="detail">
-    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+    <div class="col-stack">
         <div class="card">
             <div class="card-head"><h2>Detalle</h2></div>
             <div class="kv">
@@ -78,7 +78,7 @@
                 <div><div class="k">Cerrado</div><div class="v"><?= $n['cerrado_en'] ? fecha_hora($n['cerrado_en']) : '—' ?></div></div>
             </div>
             <?php if (trim((string)$n['descripcion']) !== ''): ?>
-                <p style="white-space:pre-wrap;margin:1rem 0 0;padding-top:1rem;border-top:1px solid var(--line-soft)"><?= e($n['descripcion']) ?></p>
+                <p class="desc-sep"><?= e($n['descripcion']) ?></p>
             <?php endif; ?>
         </div>
 
@@ -104,7 +104,7 @@
         </div>
     </div>
 
-    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+    <div class="col-stack">
         <?php include APP . '/views/_notas.php'; ?>
         <?php include APP . '/views/_actividades_panel.php'; ?>
         <div class="card">

@@ -60,7 +60,7 @@ img{max-width:100%}
 
 /* ---------- Campos ---------- */
 input,select,textarea{font-family:inherit;font-size:14px;color:var(--ink)}
-.fld input,.fld select,.fld textarea,.filters input,.filters select,.urow select,.urow input{
+.fld input,.fld select,.fld textarea,.filters input,.filters select,.urow select,.urow input,.head-actions input,.head-actions select{
   width:100%;padding:.6rem .75rem;border:1px solid var(--line);border-radius:var(--radius-xs);
   background:var(--surface);transition:.15s;min-height:40px}
 .fld textarea{min-height:90px;resize:vertical;line-height:1.5}
@@ -223,6 +223,16 @@ table.grid tfoot .totals td{background:var(--soft);font-weight:700;border-top:2p
     border-bottom:1px solid var(--line-soft);white-space:normal;text-align:right}
   table.grid tr td:last-child{border-bottom:0}
   table.grid td::before{content:attr(data-label);font-weight:700;color:var(--muted);text-align:left;font-size:12px;flex:none}
+  /* Un correo largo no tiene espacios donde cortar, así que sin esta regla se
+     sale de la tarjeta. Medido sobre la base real: 3.577 de 28.112 direcciones
+     (el 12,7%) no entran en una pantalla de 320px, y la más larga se pasa por
+     126px. Va `anywhere` y no `break-word` porque la celda es flex: sólo
+     `anywhere` achica el ancho mínimo del elemento, que es lo que desborda. */
+  table.grid td{overflow-wrap:anywhere;min-width:0}
+  table.grid td::before{overflow-wrap:normal}
+  /* En el escritorio el objetivo es el mouse y alcanzan 29px, pero con el dedo
+     hace falta más: los iconos de acción se agrandan sin cambiar de aspecto. */
+  table.grid td.acts .act{min-width:40px;min-height:40px}
   table.grid td.acts{justify-content:flex-end}
   table.grid .empty{display:block;text-align:center}
   .table-card{background:transparent;border:none;box-shadow:none}
@@ -479,6 +489,85 @@ body.publica{background:radial-gradient(120% 120% at 50% 0,#f4eefc 0,#f6f5fa 60%
 .ed-gal:hover{border-color:var(--primary)}
 .ed-gal img{width:100%;height:76px;object-fit:contain;background:var(--soft);border-radius:6px}
 .ed-gal span{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ============================================================
+   Utilidades de espaciado y piezas repetidas
+   ------------------------------------------------------------
+   Antes cada pantalla se inventaba su propio margen: el mismo párrafo
+   explicativo debajo del título de una tarjeta estaba escrito con seis valores
+   distintos (-.5rem 0 1rem, -.3rem 0 .8rem, -.4rem 0 .8rem...). Eso es medir a
+   ojo y es lo que hacía que dos pantallas parecidas se vieran distintas.
+   Estas clases atan ese espaciado a la escala --sp-* y le ponen nombre a las
+   piezas que se repetían.
+   ============================================================ */
+.mt-3{margin-top:var(--sp-3)} .mt-4{margin-top:var(--sp-4)}
+.mt-5{margin-top:var(--sp-5)} .mt-6{margin-top:var(--sp-6)}
+.mb-3{margin-bottom:var(--sp-3)} .mb-4{margin-bottom:var(--sp-4)}
+.mb-6{margin-bottom:var(--sp-6)} .m-0{margin:0}
+
+/* Párrafo que explica de qué va una tarjeta. Va pegado al título de arriba y
+   separado del contenido de abajo: por eso el margen superior negativo, que
+   compensa el margin-bottom del .card-head. */
+.card-intro{margin:-.35rem 0 var(--sp-4);color:var(--muted);font-size:13px;line-height:1.55;max-width:78ch}
+.card-intro:last-child{margin-bottom:0}
+.card-head + .card-intro{margin-top:-.15rem}
+
+/* Columna de tarjetas apiladas (las dos mitades de una pantalla de detalle). */
+.col-stack{display:flex;flex-direction:column;gap:var(--sp-4);min-width:0}
+.grow{flex:1;min-width:0}
+.centro{text-align:center}
+.pre-wrap{white-space:pre-wrap}
+.wrap{white-space:normal}
+td.wrap{white-space:normal}
+.push{margin-left:auto}
+/* Campo que se alinea con el borde inferior de la fila (botones dentro de una
+   grilla de campos, que si no quedan flotando arriba). */
+.fld.abajo{justify-content:flex-end}
+/* Fila con separador, para listas cortas dentro de una tarjeta. */
+.row-sep{padding:var(--sp-2) 0;border-bottom:1px solid var(--line-soft)}
+.row-sep:last-child{border-bottom:none}
+.tag-row{margin-top:.4rem;display:flex;gap:.4rem;flex-wrap:wrap}
+.urow.meta{gap:var(--sp-2);color:var(--muted);font-size:13.5px}
+
+/* Cifra de una tarjeta de estado cuando el valor es una palabra o una fecha y
+   no un número: 26px de la escala normal la parte en dos líneas. */
+.stat-value.sm{font-size:18px;font-weight:700;letter-spacing:0}
+
+/* ---------- Páginas públicas (agenda, baja, error) ----------
+   Son las únicas que ve alguien de afuera de la empresa, así que el encabezado
+   y el cuerpo tienen que ser iguales en las cuatro. */
+.pub-wrap.angosta{max-width:560px}
+.pub-head h1{font-size:19px;margin:0;line-height:1.3}
+.pub-head p{margin:0}
+.pub-pad{padding:var(--sp-6)}
+.pub-foot{text-align:center;margin-top:var(--sp-4);font-size:12.5px;color:var(--muted)}
+@media (max-width:520px){ .pub-pad{padding:var(--sp-4)} }
+
+/* ---------- Piezas con nombre propio ---------- */
+.mt-1{margin-top:.25rem}
+.urow.entre{justify-content:space-between}
+/* Interruptor que ocupa el ancho de la tarjeta, para opciones con texto largo. */
+.switch.bloque{display:flex}
+/* Fila de una actividad en el panel lateral de una ficha. */
+.act-row{display:flex;gap:.6rem;align-items:flex-start;padding:var(--sp-2) 0;border-bottom:1px solid var(--line-soft)}
+.act-row:last-child{border-bottom:none}
+.act-row .ic{color:var(--muted);flex:none;margin-top:2px}
+.act-row .strong{font-size:13px}
+/* Texto libre de una nota o descripción: respeta los saltos de línea que
+   escribió la persona en vez de aplastarlos en un solo párrafo. */
+.tl-detail.cuerpo{white-space:pre-wrap;color:var(--ink)}
+.desc-sep{white-space:pre-wrap;margin:var(--sp-4) 0 0;padding-top:var(--sp-4);border-top:1px solid var(--line-soft)}
+/* Marco de la vista previa del correo dentro de la campaña: fondo blanco fijo
+   porque el correo trae sus propios colores y no debe heredar los de la app. */
+.correo-vista{border:1px solid var(--line);border-radius:var(--radius-sm);padding:var(--sp-4);
+  background:#fff;overflow-x:auto}
+.err-code{font-size:52px;font-weight:800;color:var(--line);letter-spacing:-.03em;line-height:1}
+.empty-state.compacto{padding:var(--sp-8) 0}
+.empty-state.compacto h2{font-size:16px}
+.stat-value .muted{font-size:15px;font-weight:600}
+.mono.clave{font-size:13px;word-break:break-all}
+.filefield.ancho{flex:1 1 320px}
+.rep-grid{align-items:start}
 
 @media (max-width:1200px){
   .editor{grid-template-columns:minmax(0,1fr) 300px}

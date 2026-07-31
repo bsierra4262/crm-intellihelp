@@ -11,7 +11,7 @@
     </div>
 </div>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="card mb-4">
     <div class="card-head">
         <h2>Empezar desde un diseño armado</h2>
         <span class="small muted">Se copia y después lo editás como quieras</span>

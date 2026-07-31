@@ -56,7 +56,7 @@
     <div class="filter-actions">
         <button class="btn btn-primary btn-sm"><?= icon('filtro', 15) ?>Filtrar</button>
         <button type="button" class="btn btn-ghost btn-sm" data-limpiar>Limpiar</button>
-        <label class="switch" style="margin-left:auto">
+        <label class="switch push">
             <input type="checkbox" name="no_email" value="1" <?= $f['no_email'] === '1' ? 'checked' : '' ?>>
             <span class="track"></span><span class="small">Sólo dados de baja</span>
         </label>

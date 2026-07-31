@@ -68,7 +68,7 @@ foreach ($cols as $c) {
                             <span><?= $n['fecha_cierre'] ? fecha_corta($n['fecha_cierre']) : 'sin fecha' ?></span>
                         </div>
                         <?php if ($n['propietario']): ?>
-                            <div class="small muted" style="margin-top:.25rem"><?= e($n['propietario']) ?></div>
+                            <div class="small muted mt-1"><?= e($n['propietario']) ?></div>
                         <?php endif; ?>
                     </a>
                 <?php endforeach; endif; ?>

@@ -52,9 +52,9 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
             </label>
         </div>
 
-        <h3 style="margin:1.4rem 0 .6rem">Horario laboral</h3>
+        <h3 class="mt-6 mb-3">Horario laboral</h3>
         <?php foreach ($nombresDia as $dia => $etiqueta): $act = isset($porDia[$dia]); ?>
-            <div class="urow" style="padding:.35rem 0;border-bottom:1px solid var(--line-soft)">
+            <div class="urow row-sep">
                 <label class="switch w-dia">
                     <input type="checkbox" name="dias[]" value="<?= $dia ?>" <?= $act ? 'checked' : '' ?>>
                     <span class="track"></span><span><?= e($etiqueta) ?></span>
@@ -68,11 +68,11 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
 
     <div class="card form-card">
         <h2 class="sec">Opciones</h2>
-        <label class="switch" style="display:flex;margin-bottom:.8rem">
+        <label class="switch bloque mb-3">
             <input type="checkbox" name="con_meet" value="1" <?= !empty($t['con_meet']) ? 'checked' : '' ?>>
             <span class="track"></span><span>Crear un Google Meet automáticamente en cada reserva</span>
         </label>
-        <label class="switch" style="display:flex">
+        <label class="switch bloque">
             <input type="checkbox" name="activo" value="1" <?= !empty($t['activo']) ? 'checked' : '' ?>>
             <span class="track"></span><span>Publicar la página (si lo apagás, el enlace deja de funcionar)</span>
         </label>

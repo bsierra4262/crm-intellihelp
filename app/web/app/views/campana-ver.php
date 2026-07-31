@@ -39,7 +39,7 @@ $boton = function (string $accion, string $etiqueta, string $ic, string $clase =
 $pasos = campana_pasos($c);
 $faltan = array_filter($pasos, fn($p) => !$p['ok']);
 ?>
-<div class="card pasos" style="margin-bottom:1rem">
+<div class="card pasos mb-4">
     <div class="card-head">
         <h2>Cómo arrancar esta campaña</h2>
         <span class="small <?= $faltan ? 'warn' : 'muted' ?>">
@@ -87,7 +87,7 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
 <div class="cards">
     <div class="card stat">
         <span class="stat-label">Enviados</span>
-        <span class="stat-value"><?= (int)$c['enviados'] ?> <span class="muted" style="font-size:15px">/ <?= (int)$c['total'] ?></span></span>
+        <span class="stat-value"><?= (int)$c['enviados'] ?> <span class="muted">/ <?= (int)$c['total'] ?></span></span>
         <div class="progreso"><i class="<?= $pct >= 100 ? 'ok' : '' ?>" style="width:<?= $pct ?>%"></i></div>
     </div>
     <div class="card stat">
@@ -108,7 +108,7 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
 </div>
 
 <?php if ($motivos): ?>
-<div class="card" style="margin-bottom:1rem">
+<div class="card mb-4">
     <div class="card-head"><h2>Por qué se omitieron destinatarios</h2></div>
     <?php foreach ($motivos as $m): ?>
         <div class="bar-row">
@@ -121,10 +121,10 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
 <?php endif; ?>
 
 <?php if ($vista): ?>
-<div class="card" style="margin-bottom:1rem">
+<div class="card mb-4">
     <div class="card-head"><h2>Vista previa</h2><span class="small muted">Como lo va a recibir <?= e($vista['para']) ?></span></div>
-    <p style="margin:0 0 .6rem"><strong>Asunto:</strong> <?= e($vista['asunto']) ?></p>
-    <div style="border:1px solid var(--line);border-radius:var(--radius-sm);padding:1rem;background:#fff;overflow-x:auto">
+    <p class="mb-3 m-0"><strong>Asunto:</strong> <?= e($vista['asunto']) ?></p>
+    <div class="correo-vista">
         <?= $vista['html'] ?>
     </div>
 </div>

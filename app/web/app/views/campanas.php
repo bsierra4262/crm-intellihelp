@@ -61,7 +61,10 @@
             </thead>
             <tbody>
             <?php if (!$data['rows']): ?>
-                <tr><td colspan="8" class="empty">Todavía no hay campañas.</td></tr>
+                <tr><td colspan="8" class="empty">Todavía no hay campañas. Se arma en tres pasos:
+                    una <a href="<?= e(url('plantillas')) ?>">plantilla</a> con el diseño del correo,
+                    una <a href="<?= e(url('listas')) ?>">lista</a> con los destinatarios y
+                    la campaña que junta las dos. Después la pantalla de la campaña te va marcando qué falta.</td></tr>
             <?php else: foreach ($data['rows'] as $c):
                 $pct = $c['total'] > 0 ? min(100, (int)round(100 * $c['enviados'] / $c['total'])) : 0;
             ?>

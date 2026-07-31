@@ -15,7 +15,7 @@
     plazo se borra de verdad.
 </div>
 
-<div class="seg" style="margin-bottom:1rem">
+<div class="seg mb-4">
     <?php foreach ($defs as $k => $d): ?>
         <a class="seg-item <?= $entidad === $k ? 'active' : '' ?>" href="<?= e(url('papelera?entidad=' . $k)) ?>">
             <?= e($d['etiqueta']) ?> <span class="badge badge-neutral"><?= (int)$conteos[$k] ?></span>

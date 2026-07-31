@@ -258,6 +258,41 @@ function recortar(?string $t, int $largo = 60): string
     return mb_strlen($t) > $largo ? mb_substr($t, 0, $largo - 1) . '…' : $t;
 }
 
+/**
+ * Imprime un par etiqueta/valor de una ficha (contacto, empresa, posible cliente).
+ *
+ * Estaba copiado como función anónima dentro de tres vistas, y cada copia había
+ * quedado un poco distinta: por eso el mismo dato se veía de una forma en la
+ * ficha de un contacto y de otra en la de una empresa. Al haber una sola copia,
+ * un correo se muestra igual en todas las pantallas.
+ *
+ * Un valor vacío no se esconde: se muestra un guión en gris. Un campo que
+ * desaparece deja la duda de si el dato falta o si la pantalla se rompió.
+ *
+ * @param string $tipo texto | mail | tel | url
+ */
+function dato(string $etiqueta, $valor, string $tipo = 'texto'): void
+{
+    $v = trim((string)$valor);
+    echo '<div><div class="k">' . e($etiqueta) . '</div>'
+       . '<div class="v' . ($v === '' ? ' empty' : '') . '">';
+    if ($v === '') {
+        echo '—';
+    } elseif ($tipo === 'mail') {
+        echo '<a href="mailto:' . e($v) . '">' . e($v) . '</a>';
+    } elseif ($tipo === 'tel') {
+        // El href se limpia de espacios y guiones; el texto se muestra tal cual
+        // lo cargaron, que es como lo reconoce quien lo leyó.
+        echo '<a href="tel:' . e((string)preg_replace('/[^\d+]/', '', $v)) . '">' . e($v) . '</a>';
+    } elseif ($tipo === 'url') {
+        $href = preg_match('#^https?://#i', $v) ? $v : 'https://' . $v;
+        echo '<a href="' . e($href) . '" target="_blank" rel="noopener">' . e(recortar($v, 40)) . '</a>';
+    } else {
+        echo e($v);
+    }
+    echo '</div></div>';
+}
+
 /** Token aleatorio de 32 caracteres (enlaces públicos, desuscripción). */
 function token32(): string
 {

@@ -170,7 +170,8 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
 <?php else: ?>
     <?= $content ?>
 <?php endif; ?>
-<?php if ($u): ?><script defer src="<?= $asset('assets/js/app.js') ?>?v=<?= ASSETS_V ?>"></script><?php endif; ?>
+<?php if ($u): ?><script defer src="<?= $asset('assets/js/app.js') ?>?v=<?= ASSETS_V ?>"></script>
+<script defer src="<?= $asset('assets/js/idle.js') ?>?v=<?= ASSETS_V ?>"></script><?php endif; ?>
 <?= $extraFoot ?>
 </body>
 </html>

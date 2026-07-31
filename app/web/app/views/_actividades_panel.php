@@ -21,12 +21,12 @@ $entId = (int)($_GET['id'] ?? 0);
         <p class="muted small">No hay tareas, llamadas ni reuniones asociadas.</p>
     <?php else: ?>
         <?php foreach ($actividades as $a): [$txt, $cls] = actividad_vencimiento($a); ?>
-            <div style="display:flex;gap:.6rem;align-items:flex-start;padding:.5rem 0;border-bottom:1px solid var(--line-soft)">
-                <span style="color:var(--muted);flex:none;margin-top:2px">
+            <div class="act-row">
+                <span class="ic">
                     <?= icon(['tarea' => 'tareas', 'llamada' => 'llamadas', 'reunion' => 'agenda'][$a['tipo']] ?? 'tareas', 16) ?>
                 </span>
-                <div style="flex:1;min-width:0">
-                    <a href="<?= e(url('actividad-form?id=' . (int)$a['id'])) ?>" class="strong" style="font-size:13px"><?= e($a['asunto']) ?></a>
+                <div class="grow">
+                    <a href="<?= e(url('actividad-form?id=' . (int)$a['id'])) ?>" class="strong"><?= e($a['asunto']) ?></a>
                     <div class="small muted"><?= e($a['propietario'] ?: 'sin asignar') ?></div>
                 </div>
                 <span class="badge <?= e($cls) ?>"><?= e($txt) ?></span>

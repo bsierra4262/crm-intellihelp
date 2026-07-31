@@ -25,7 +25,7 @@ $dominio  = google_cfg()['allowed_domain'] ?? 'intellihelp.tech';
                 </svg>
                 Ingresar con Google Workspace
             </a>
-            <p class="muted" style="text-align:center;font-size:12.5px;margin-top:14px;">
+            <p class="muted pub-foot">
                 Acceso exclusivo con tu cuenta <strong>@<?= e($dominio) ?></strong>
             </p>
         <?php else: ?>

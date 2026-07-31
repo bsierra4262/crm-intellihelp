@@ -49,7 +49,7 @@ $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
 
     <div class="card form-card">
         <h2 class="sec">Negocio (opcional)</h2>
-        <label class="switch" style="margin-bottom:1rem">
+        <label class="switch mb-4">
             <input type="checkbox" name="crear_negocio" value="1" checked>
             <span class="track"></span>
             <span>Crear también una oportunidad de venta</span>
@@ -71,7 +71,7 @@ $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
                 <input type="date" name="negocio_cierre" value="<?= e(date('Y-m-d', strtotime('+30 days'))) ?>">
             </label>
         </div>
-        <p class="muted small" style="margin-top:.8rem">
+        <p class="muted small mt-3">
             El negocio arranca en la primera etapa del embudo. Podés cambiar el importe y la fecha cuando quieras.
         </p>
     </div>
