@@ -124,6 +124,16 @@ function actividad_guardar(array $d, ?int $id = null): int
         'descripcion'        => ($d['descripcion'] ?? null) ?: null,
     ];
 
+    // La marca de completada la lleva `completada_en`, no el estado: es la
+    // columna que miran los listados, el panel y el contador de vencidas.
+    // Elegir «Completada» en el formulario cambiaba sólo el texto del estado y
+    // la actividad seguía apareciendo entre las pendientes.
+    if ($campos['estado'] === 'Completada') {
+        $campos['completada_en'] = date('Y-m-d H:i:s');
+    } elseif ($id) {
+        $campos['completada_en'] = null;   // se reabre si le sacan el estado
+    }
+
     if ($id) {
         $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($campos)));
         q("UPDATE actividades SET $sets WHERE id = ?", [...array_values($campos), $id]);

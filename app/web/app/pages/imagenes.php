@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-require_login();
+require_admin();
 
 $aviso = null;
 

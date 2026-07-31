@@ -98,7 +98,28 @@ function _n($v, int $def, int $min = 0, int $max = 9999): int
 /** Escapa y convierte los saltos de línea en <br>. */
 function _parr(string $texto): string
 {
-    return nl2br(e($texto), false);
+    // Se escapa PRIMERO y recién después se buscan las direcciones: así el
+    // texto de quien escribe nunca puede inyectar HTML, y el «&» de una
+    // dirección con parámetros ya viaja como «&amp;», que es lo correcto
+    // dentro de un href.
+    $html = e($texto);
+
+    // Una dirección escrita dentro de un párrafo se convierte en enlace. Sin
+    // esto salía como texto pelado: el destinatario la veía pero no podía
+    // tocarla, y en el celular ni siquiera se puede copiar cómodo. Pasaba con
+    // el enlace para cancelar una reunión, entre otros.
+    $html = preg_replace_callback(
+        '#https?://[^\s<>"\']+#',
+        static function (array $m): string {
+            $url = rtrim($m[0], '.,;:)]}');          // la puntuación final no es parte
+            $cola = substr($m[0], strlen($url));
+            return '<a href="' . $url . '" style="color:inherit;text-decoration:underline;">'
+                 . $url . '</a>' . $cola;
+        },
+        $html
+    ) ?? $html;
+
+    return nl2br($html, false);
 }
 
 /** Alineación válida. */
@@ -220,7 +241,7 @@ function bloque_html(array $b, array $a, array $ctx): string
             if ($src === '') { return ''; }
             $ancho = _n($b['ancho'] ?? '', 512, 40, CORREO_ANCHO);
             $alt   = trim((string)($b['alt'] ?? ''));
-            $enl   = _url($b['enlace'] ?? '');
+            $enl   = _url($b['enlace'] ?? $b['url'] ?? '');
             $img = '<img src="' . e($src) . '" alt="' . e($alt) . '" width="' . $ancho . '"'
                  . ' style="width:100%;max-width:' . $ancho . 'px;height:auto;display:block;border:0;'
                  . 'outline:none;text-decoration:none;border-radius:8px;">';
@@ -233,7 +254,7 @@ function bloque_html(array $b, array $a, array $ctx): string
 
         case 'boton':
             $texto = trim((string)($b['texto'] ?? 'Ver más'));
-            $enl   = _url($b['enlace'] ?? '');
+            $enl   = _url($b['enlace'] ?? $b['url'] ?? '');
             if ($enl === '') { return ''; }
             $bg    = _c($b['fondo'] ?? '', _c($a['marca'], '#5b2d91'));
             $fg    = _c($b['color'] ?? '', '#ffffff');
@@ -450,7 +471,7 @@ function bloques_texto(array $bloques, array $ctx = []): string
                 $out[] = '';
                 break;
             case 'boton':
-                $enl = _url($b['enlace'] ?? '');
+                $enl = _url($b['enlace'] ?? $b['url'] ?? '');
                 if ($enl !== '') { $out[] = trim((string)($b['texto'] ?? 'Ver más')) . ': ' . $enl; $out[] = ''; }
                 break;
             case 'agenda':

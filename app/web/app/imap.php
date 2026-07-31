@@ -453,11 +453,22 @@ function imap_revisar(int $diasPrimeraVez = 30, ?array $cfg = null, string $etiq
         $maxUid = $ultimo;
 
         foreach ($uids as $uid) {
-            $maxUid = max($maxUid, $uid);
             $res['revisados']++;
 
             $h = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[HEADER])");
-            if (!$h['ok']) { continue; }
+            if (!$h['ok']) {
+                // No se pudo leer. El puntero NO avanza: si avanzara, este
+                // mensaje quedaría dado por procesado y ese rebote —o esa
+                // respuesta de un cliente— se perdería para siempre, sin que
+                // nadie se entere. Se corta acá y la próxima corrida reintenta
+                // desde este mismo mensaje.
+                log_app('imap.lectura_fallida', ['tipo' => 'error',
+                    'detalle' => 'No se pudo leer el mensaje ' . $uid . ' de ' . $etiquetaBuzon
+                               . '. Se reintenta en la próxima corrida.']);
+                break;
+            }
+            // Recién ahora se da por leído.
+            $maxUid = max($maxUid, $uid);
             $cab    = $h['crudo'];
             $de     = imap_direccion(imap_cabecera($cab, 'From'));
             $asunto = imap_texto(imap_cabecera($cab, 'Subject'));

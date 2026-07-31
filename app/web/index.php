@@ -53,7 +53,9 @@ $rutas = [
     'plantillas'      => ['public' => false],
     'plantilla-form'  => ['public' => false],
     'plantilla-vista' => ['public' => false],
-    'imagenes'        => ['public' => false],
+    // Administración: el menú ya las trataba así, pero la ruta no lo decía y
+    // se podía entrar escribiendo la dirección a mano.
+    'imagenes'        => ['public' => false, 'admin' => true],
     'img'             => ['public' => true],   // sirve las imágenes de las campañas
     'cuentas-correo'  => ['public' => false, 'admin' => true],
     'listas'          => ['public' => false],
@@ -65,7 +67,7 @@ $rutas = [
     'reservas'        => ['public' => false],
 
     'reportes'        => ['public' => false],
-    'importar'        => ['public' => false],
+    'importar'        => ['public' => false, 'admin' => true],
     'registro-eliminar' => ['public' => false],
     'nota-guardar'    => ['public' => false],
     'buscar'          => ['public' => false],
@@ -109,8 +111,16 @@ if (empty($def['public']) && !auth_user()) {
     redirect('login');
 }
 if (!empty($def['admin']) && !auth_is_admin()) {
+    // Antes esto era un `exit('Acceso denegado.')`: una pantalla en blanco con
+    // una línea de texto, sin diseño y sin forma de volver. Se usa la pantalla
+    // de error del sistema, que explica y ofrece una salida.
     http_response_code(403);
-    exit('Acceso denegado.');
+    render('error', [
+        'codigo'  => 403,
+        'titulo'  => 'Esta pantalla es de administración',
+        'mensaje' => 'Tu usuario no tiene permiso para entrar acá. Si necesitás acceso, pedíselo a un administrador.',
+    ], 'Sin permiso');
+    exit;
 }
 
 // Registro de navegación para el CRON: cada visita GET a una pantalla real.

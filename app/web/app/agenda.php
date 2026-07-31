@@ -265,7 +265,20 @@ function agenda_cancelar(string $token, string $motivo = ''): bool
     $r = q1("SELECT * FROM agenda_reservas WHERE token = ? AND estado = 'confirmada'", [$token]);
     if (!$r) { return false; }
     if (!empty($r['gcal_event_id'])) {
-        try { gcal_borrar_evento((int)$r['usuario_id'], (string)$r['gcal_event_id']); } catch (\Throwable $e) {}
+        // El fallo de Google acá se tragaba con un catch vacío y encima se
+        // ignoraba el valor de retorno: la reunión quedaba cancelada en el CRM
+        // y viva en el calendario del vendedor, que la seguía viendo ocupada.
+        try {
+            if (!gcal_borrar_evento((int)$r['usuario_id'], (string)$r['gcal_event_id'])) {
+                log_app('agenda.gcal_borrar_error', ['tipo' => 'error', 'entidad' => 'reserva',
+                    'entidad_id' => (int)$r['id'],
+                    'detalle' => 'La reunión se canceló en el CRM pero Google no borró el evento: '
+                               . 'hay que sacarlo del calendario a mano.']);
+            }
+        } catch (\Throwable $e) {
+            log_app('agenda.gcal_borrar_error', ['tipo' => 'error', 'entidad' => 'reserva',
+                'entidad_id' => (int)$r['id'], 'detalle' => $e->getMessage()]);
+        }
     }
     q("UPDATE agenda_reservas SET estado = 'cancelada' WHERE id = ?", [(int)$r['id']]);
     if (!empty($r['actividad_id'])) {
@@ -359,9 +372,9 @@ function agenda_ics(array $reserva, array $tipo, string $metodo = 'REQUEST'): st
  * línea, ancho de 600, versión en texto plano). Antes era HTML escrito a mano
  * que llegaba como un título violeta y tres párrafos sueltos.
  */
-function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacion'): void
+function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacion'): bool
 {
-    if (!smtp_configurado() || empty($reserva['invitado_email'])) { return; }
+    if (!smtp_configurado() || empty($reserva['invitado_email'])) { return false; }
 
     $inicio  = strtotime((string)$reserva['inicia_el']);
     $cuando  = ucfirst(fecha_larga((string)$reserva['inicia_el'])) . ' a las ' . date('H:i', $inicio) . ' h';
@@ -399,7 +412,7 @@ function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacio
 
     if ($clase !== 'cancelacion') {
         if ($meet !== '') {
-            $bloques[] = ['tipo' => 'boton', 'texto' => 'Entrar por Google Meet', 'url' => $meet,
+            $bloques[] = ['tipo' => 'boton', 'texto' => 'Entrar por Google Meet', 'enlace' => $meet,
                           'fondo' => '#663399', 'color' => '#ffffff', 'alineacion' => 'center'];
             $bloques[] = ['tipo' => 'texto', 'texto' => 'Si el botón no te funciona, copiá este enlace: ' . $meet];
         } else {
@@ -434,12 +447,21 @@ function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacio
         $extra['ics_metodo'] = 'REQUEST';
     }
 
+    // Responder al correo tiene que llegarle a la persona con la que es la
+    // reunión, no a la casilla del sistema: si alguien contesta «no puedo, lo
+    // corremos», esa respuesta no puede caer en un buzón que nadie mira.
+    if (!empty($tipo['usuario_email'])) {
+        $extra['responder_a'] = (string)$tipo['usuario_email'];
+    }
+
     $err = null;
     if (!enviar_correo_simple((string)$reserva['invitado_email'],
                               $titulo . ' · ' . (string)($tipo['nombre'] ?? ''), $html, $err, $extra)) {
         log_app('agenda.correo_error', ['tipo' => 'error', 'entidad' => 'reserva',
             'entidad_id' => (int)$reserva['id'], 'detalle' => (string)$err]);
+        return false;
     }
+    return true;
 }
 
 /** Manda los recordatorios de las reuniones de las próximas 24 h (lo llama el cron). */
@@ -453,7 +475,11 @@ function agenda_recordatorios(): int
                   AND r.inicia_el BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 24 HOUR)")->fetchAll();
     $n = 0;
     foreach ($filas as $r) {
-        agenda_avisar($r, $r, 'recordatorio');
+        // Sólo se marca si SALIÓ. Antes se marcaba siempre, así que un correo
+        // que falló —o que ni se intentó porque no había casilla configurada—
+        // quedaba como enviado y no se reintentaba nunca: el recordatorio se
+        // perdía y la base decía que había salido.
+        if (!agenda_avisar($r, $r, 'recordatorio')) { continue; }
         q('UPDATE agenda_reservas SET recordatorio_enviado_en = NOW() WHERE id = ?', [(int)$r['id']]);
         $n++;
     }

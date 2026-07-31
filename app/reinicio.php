@@ -165,7 +165,7 @@ function reinicio_sembrar(): array
         'sitio_web'      => 'https://intellihelp.tech',
         'provincia'      => 'Buenos Aires',
         'pais'           => 'Argentina',
-        'fuente'         => 'Interno',
+        'fuente'         => 'Otro',
         'propietario_id' => $duenio,
         'descripcion'    => 'Contacto de prueba: sirve para mandarse una campaña y ver cómo llega.',
     ];

@@ -7,7 +7,11 @@ verify_csrf();
 
 $entidad = (string)($_POST['entidad'] ?? '');
 $id      = (int)($_POST['id'] ?? 0);
-$volver  = preg_replace('/[^a-z0-9\-]/', '', (string)($_POST['volver'] ?? 'dashboard'));
+// La ruta de vuelta puede traer parámetros («papelera?entidad=contactos»).
+// El filtro anterior borraba el «?» y el «=», así que la dirección quedaba
+// pegoteada y restaurar algo terminaba en una pantalla de 404.
+$volver = (string)($_POST['volver'] ?? 'dashboard');
+$volver = preg_replace('/[^a-z0-9\-_?=&]/i', '', $volver) ?: 'dashboard';
 $accion  = ($_POST['accion'] ?? 'eliminar') === 'restaurar' ? 'restaurar' : 'eliminar';
 
 if (!$id || !isset(tablas_papelera()[$entidad])) {

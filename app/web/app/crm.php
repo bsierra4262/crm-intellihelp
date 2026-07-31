@@ -332,9 +332,29 @@ function contacto_guardar(array $d, ?int $id = null): int
         'codigo_postal'  => ($d['codigo_postal'] ?? null) ?: null,
         'pais'           => normalizar_pais($d['pais'] ?? null),
         'descripcion'    => ($d['descripcion'] ?? null) ?: null,
-        'no_email'       => !empty($d['no_email']) ? 1 : 0,
     ];
+
+    // «No incluir en campañas» sólo se toca si vino en los datos. Es una
+    // decisión de la persona, no un campo más: la importación no manda esta
+    // clave, y ponerla en cero a ciegas hacía que cada reimportación borrara
+    // todas las bajas que la gente había pedido.
+    if (array_key_exists('no_email', $d)) {
+        $campos['no_email'] = !empty($d['no_email']) ? 1 : 0;
+    }
+
     if ($id) {
+        // Con `_solo_completar` no se pisa lo que ya está cargado con un valor
+        // vacío. Importar un archivo con menos columnas que la ficha borraba en
+        // silencio teléfonos, cargos y direcciones que ya estaban, mientras la
+        // pantalla informaba «N actualizados» como si todo hubiera ido bien.
+        if (!empty($d['_solo_completar'])) {
+            $antes = q1('SELECT * FROM contactos WHERE id = ?', [$id]) ?: [];
+            foreach ($campos as $k => $v) {
+                if (($v === null || $v === '') && isset($antes[$k]) && $antes[$k] !== null && $antes[$k] !== '') {
+                    $campos[$k] = $antes[$k];
+                }
+            }
+        }
         $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($campos)));
         q("UPDATE contactos SET $sets WHERE id = ?", [...array_values($campos), $id]);
         log_app('contacto.editar', ['entidad' => 'contacto', 'entidad_id' => $id,

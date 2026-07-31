@@ -23,6 +23,14 @@ if (is_post()) {
                 if (!$listaId) {
                     throw new RuntimeException('Elegí a qué lista cargar los correos.');
                 }
+                if ($simular) {
+                    // Antes esta rama ignoraba la casilla y guardaba igual: se
+                    // marcaba «Simular primero» y los correos entraban lo mismo.
+                    throw new RuntimeException(
+                        'La simulación todavía no está disponible para cargar correos a una lista. '
+                      . 'Destildá «Simular primero» para hacerlo de verdad, o usá el destino '
+                      . '«Contactos y empresas», que sí simula.');
+                }
                 $resultado = importar_lista_csv($archivo['tmp_name'], $listaId) + ['modo' => 'lista'];
             } else {
                 $resultado = importar_contactos_zoho(

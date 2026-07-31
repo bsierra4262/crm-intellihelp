@@ -322,6 +322,18 @@ ok('el cifrado no deja el texto en claro', !str_contains($cifr, $claro));
 eq('descifra correctamente',      descifrar($cifr), $claro);
 eq('blob corrupto no revienta',   descifrar('no-es-base64-valido'), '');
 
+echo "== Direcciones dentro de un párrafo del correo ==\n";
+// Una dirección escrita en un párrafo salía como texto pelado: el destinatario
+// la veía y no podía tocarla. Pasaba con el enlace para cancelar una reunión.
+$p = bloques_render([['tipo' => 'texto', 'texto' => 'Cancelá acá: https://intellihelp.tech/r/x?t=abc y listo.']]);
+ok('una dirección se vuelve enlace', str_contains($p, '<a href="https://intellihelp.tech/r/x?t=abc"'));
+$p2 = bloques_render([['tipo' => 'texto', 'texto' => 'Entrá a https://intellihelp.tech.']]);
+ok('el punto final no queda dentro del enlace', str_contains($p2, 'href="https://intellihelp.tech"'));
+// El texto lo escribe una persona: nunca puede meter HTML en el correo.
+$p3 = bloques_render([['tipo' => 'texto', 'texto' => '<script>alert(1)</script> y https://ok.com']]);
+ok('el texto de quien escribe no puede inyectar HTML', !str_contains($p3, '<script>'));
+ok('y la dirección sigue funcionando', str_contains($p3, 'href="https://ok.com"'));
+
 echo "== Invitación de calendario (el botón de aceptar del correo) ==\n";
 // El archivo de calendario es lo que hace que Gmail muestre «Sí / No / Quizás».
 // Si se pasa del ancho o corta un acento al medio, el cliente lo descarta y el

@@ -11,6 +11,20 @@ if (!$c) {
     exit;
 }
 
+// Volver a habilitar a alguien que se había dado de baja. La pantalla de baja
+// le promete al destinatario que puede pedir el alta otra vez, así que tiene
+// que haber una forma de hacerlo desde acá.
+if (is_post() && ($_POST['accion'] ?? '') === 'reactivar') {
+    verify_csrf();
+    require_admin();
+    $ok = reactivar_suscripcion((string)$c['email']);
+    flash($ok
+        ? 'Listo: ' . $c['email'] . ' vuelve a recibir campañas.'
+        : 'No figuraba dado de baja, así que no hizo falta cambiar nada.',
+        $ok ? 'success' : 'info');
+    redirect('contacto-ver?id=' . $id);
+}
+
 render('contacto-ver', [
     'c'           => $c,
     'notas'       => notas_de('contacto', $id),

@@ -241,6 +241,91 @@ ok('el foco arranca en «Seguir conectado»', str_contains($idle, 'seguir')
 ok('la salida distingue el motivo', str_contains($salir, 'inactividad') && str_contains($salir, 'expiro'));
 ok('el login explica por qué se cerró', str_contains($entrar, 'inactividad'));
 
+// ============================================================
+//  Regresiones de la auditoría
+//  Cada una es un defecto que estuvo de verdad en el código.
+// ============================================================
+$campanas  = (string) @file_get_contents($WEB . '/app/campanas.php');
+$bloques   = (string) @file_get_contents($WEB . '/app/bloques.php');
+$agendaPhp = (string) @file_get_contents($WEB . '/app/agenda.php');
+$imapPhp   = (string) @file_get_contents($WEB . '/app/imap.php');
+$crmPhp    = (string) @file_get_contents($WEB . '/app/crm.php');
+$importa   = (string) @file_get_contents($WEB . '/app/importador.php');
+$cronPhp   = (string) (@file_get_contents(dirname($WEB) . '/cron.php') ?: @file_get_contents($WEB . '/cron.php'));
+$accion    = (string) @file_get_contents($WEB . '/app/pages/campana-accion.php');
+
+echo "== Campañas: lo que se prometía y no pasaba ==\n";
+// El botón se armaba con la clave «url» y el motor leía «enlace»: devolvía
+// vacío y el botón desaparecía del correo sin ningún aviso.
+ok('un bloque con enlace acepta las dos claves',
+   substr_count($bloques, "\$b['enlace'] ?? \$b['url'] ?? ''") >= 3);
+ok('el botón del correo de la agenda usa la clave que el motor lee',
+   !preg_match("/'tipo'\s*=>\s*'boton'[^\]]*'url'\s*=>/", $agendaPhp));
+// El seguimiento de aperturas estaba construido entero menos la línea que lo
+// mete en el correo, así que nadie pedía nunca el píxel.
+ok('el píxel de apertura se inserta en el correo', str_contains($campanas, "url_abs('px?t="));
+ok('y la campaña muestra las aperturas',
+   str_contains((string) @file_get_contents($WEB . '/app/views/campana-ver.php'), 'Aperturas'));
+// Un envío se pasa a «enviando» antes de hablar con el servidor: si el proceso
+// muere ahí, quedaba trabado y la campaña se daba por completada igual.
+ok('los envíos trabados vuelven a la cola', str_contains($campanas, "estado = 'pendiente'\n                     WHERE estado = 'enviando'")
+   || preg_match("/UPDATE envios SET estado = 'pendiente'\s*\n\s*WHERE estado = 'enviando'/", $campanas) === 1);
+ok('una campaña con envíos a medias no se da por completada',
+   str_contains($campanas, "estado IN ('pendiente','enviando')"));
+// Mandaba uno por corrida y el cron corre cada 5 minutos: 12 por hora, no 80.
+ok('la corrida manda varios y respeta la pausa',
+   str_contains($campanas, 'sleep($pausa)') && str_contains($campanas, '$hasta'));
+ok('el cron le da presupuesto de tiempo a la corrida',
+   preg_match('/campanas_despachar\(\d+,\s*\d+\)/', $cronPhp) === 1);
+ok('la fecha de arranque programa de verdad', str_contains($accion, "'programada'"));
+
+echo "== Nada se pisa ni se pierde ==\n";
+// Reimportar un archivo con menos columnas borraba lo que ya estaba cargado.
+ok('la importación completa huecos y no pisa', str_contains($crmPhp, '_solo_completar'));
+ok('y la usa al actualizar', str_contains($importa, "\$datos['_solo_completar'] = true"));
+// Cada reimportación ponía «no_email» en cero y borraba las bajas pedidas.
+ok('la baja de campañas sólo se toca si viene en los datos',
+   str_contains($crmPhp, "array_key_exists('no_email', \$d)"));
+ok('la importación ya no manda esa clave', !preg_match("/'no_email'\s*=>\s*0/", $importa));
+// El puntero de la casilla avanzaba antes de leer: un rebote ilegible se daba
+// por procesado y no se volvía a mirar nunca.
+ok('el lector de la casilla no da por leído lo que no pudo leer',
+   strpos($imapPhp, "\$maxUid = max(\$maxUid, \$uid);") > strpos($imapPhp, "if (!\$h['ok'])"));
+// Dos corridas solapadas mandaban el mismo correo dos veces.
+ok('el cron no se pisa consigo mismo', str_contains($cronPhp, "GET_LOCK('crm_cron'"));
+ok('y suelta el bloqueo al terminar', str_contains($cronPhp, "RELEASE_LOCK('crm_cron'"));
+
+echo "== Lo que la pantalla promete, se puede hacer ==\n";
+// La pantalla de baja promete el alta de nuevo y no había forma de darla.
+ok('una baja se puede revertir', str_contains($campanas, 'function reactivar_suscripcion'));
+ok('y hay un botón para hacerlo',
+   str_contains((string) @file_get_contents($WEB . '/app/views/contacto-ver.php'), 'reactivar'));
+// Elegir «Completada» cambiaba el texto y la actividad seguía en pendientes.
+ok('marcar una actividad como completada la completa',
+   str_contains((string) @file_get_contents($WEB . '/app/actividades.php'), "'completada_en'"));
+// Restaurar de la papelera terminaba en un 404 porque se rompía la dirección.
+ok('restaurar vuelve a la pantalla correcta',
+   str_contains((string) @file_get_contents($WEB . '/app/pages/registro-eliminar.php'), '?=&'));
+// «Simular primero» se ignoraba al cargar correos a una lista: guardaba igual.
+ok('simular no guarda a escondidas',
+   str_contains((string) @file_get_contents($WEB . '/app/pages/importar.php'), 'La simulación todavía no está disponible'));
+
+echo "== Permisos y pantallas de error ==\n";
+$idx  = (string) @file_get_contents($WEB . '/index.php');
+$auth = (string) @file_get_contents($WEB . '/app/auth.php');
+// El menú las escondía pero la ruta no las protegía: se entraba a mano.
+ok('imágenes es de administración también en la ruta',
+   preg_match("/'imagenes'\s*=>\s*\[[^\]]*'admin'\s*=>\s*true/", $idx) === 1);
+ok('importar también', preg_match("/'importar'\s*=>\s*\[[^\]]*'admin'\s*=>\s*true/", $idx) === 1);
+// El rechazo salía como una línea de texto en una pantalla en blanco, sin
+// diseño y sin forma de volver. Se comprueba en positivo —que dibujen la
+// pantalla de error— y no por ausencia del texto viejo: el comentario que
+// explica el arreglo cita ese texto, y la comprobación se disparaba sola.
+ok('el tablero rechaza con la pantalla de error',
+   preg_match("/!auth_is_admin\(\)\)\s*\{[^}]*render\('error'/s", $idx) === 1);
+ok('y require_admin también',
+   preg_match("/function require_admin[^}]*render\('error'/s", $auth) === 1);
+
 echo "\n" . str_repeat('=', 60) . "\n";
 printf("  %d comprobaciones de interfaz · %d correctas · %d fallidas\n", $T, $T - $F, $F);
 if ($fallos) {

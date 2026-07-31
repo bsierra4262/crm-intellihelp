@@ -44,12 +44,32 @@ if ($porWeb) {
     header('Content-Type: text/plain; charset=utf-8');
 }
 
+// Una sola corrida a la vez. El encabezado de este archivo prometía que era
+// seguro correrlo muchas veces, pero no había ningún bloqueo: dos corridas
+// solapadas leían los mismos envíos pendientes y los mandaban las dos, así que
+// el destinatario recibía el correo duplicado. Pasa fácil, porque además del
+// cron cada 5 minutos se puede disparar por URL con la clave de Ajustes.
+if (!qv("SELECT GET_LOCK('crm_cron', 0)")) {
+    $msg = 'Ya hay una corrida en curso. Esta se saltea para no duplicar envíos.';
+    if ($porWeb) { echo $msg . PHP_EOL; } else { fwrite(STDOUT, $msg . PHP_EOL); }
+    exit(0);
+}
+// El bloqueo se suelta solo al cerrar la conexión, pero se libera explícito
+// por si el proceso sigue vivo.
+register_shutdown_function(static function (): void {
+    try { qv("SELECT RELEASE_LOCK('crm_cron')"); } catch (\Throwable $e) {}
+});
+
 $t0     = microtime(true);
 $lineas = [];
 
 // ---- 1. Campañas ----
 try {
-    $r = campanas_despachar(3);
+    // 240 s de presupuesto: el cron corre cada 5 minutos, así que la corrida
+    // termina con margen antes de que se dispare la siguiente. Con la pausa de
+    // 25-45 s eso da unos 6 a 9 correos por corrida y campaña: entre 80 y 100
+    // por hora, que es el ritmo que anuncia la pantalla.
+    $r = campanas_despachar(3, 240);
     $lineas[] = sprintf('campañas: %d enviados, %d rebotados, %d omitidos, %d errores',
         $r['enviados'], $r['rebotados'], $r['omitidos'], $r['errores']);
     if ($r['enviados'] || $r['rebotados'] || $r['errores']) {

@@ -546,6 +546,14 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
         $texto .= "\n\n---\nPara no recibir más correos: " . $baja;
     }
 
+    // Píxel de apertura. Estaba todo construido —la ruta, la página, las
+    // columnas de la base— menos esta línea, así que nadie lo pedía nunca y
+    // «abierto_en» quedaba siempre vacío. Va último y sin borde, para que no
+    // ensucie el diseño; los clientes que bloquean imágenes simplemente no lo
+    // cargan, y esa apertura no se cuenta. Es el comportamiento normal.
+    $html .= '<img src="' . e(url_abs('px?t=' . $envio['token'])) . '" width="1" height="1"'
+           . ' alt="" style="display:block;width:1px;height:1px;border:0;">';
+
     return [
         'para'        => (string)$envio['email'],
         'para_nombre' => (string)($envio['nombre'] ?? ''),
@@ -563,16 +571,42 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
 /**
  * Despacha correos pendientes. Lo llama el cron.
  *
- * Manda UNO por corrida y por campaña, y programa el siguiente con una pausa
- * aleatoria dentro del rango configurado. Ese rango (25–45 s por defecto) no es
- * capricho: por debajo, Gmail interpreta el ritmo como robótico y empieza a
- * marcar spam; por encima, la campaña se vuelve eterna.
+ * Manda de a varios por corrida, esperando entre uno y otro la pausa aleatoria
+ * configurada. Ese rango (25–45 s por defecto) no es capricho: por debajo,
+ * Gmail interpreta el ritmo como robótico y empieza a marcar spam; por encima,
+ * la campaña se vuelve eterna.
  *
+ * La corrida se corta sola al llegar a $segundos, para terminar antes de que el
+ * cron vuelva a dispararse. Antes mandaba UNO por campaña y por corrida y se
+ * iba: con el cron cada 5 minutos eso daba 12 correos por hora, mientras la
+ * pantalla prometía 80–100. Una campaña de 500 destinatarios tardaba 42 horas
+ * en vez de 5.
+ *
+ * @param int $segundos presupuesto de tiempo de esta corrida
  * @return array resumen de lo hecho
  */
-function campanas_despachar(int $maxPorCorrida = 5): array
+function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240): array
 {
     $res = ['enviados' => 0, 'rebotados' => 0, 'errores' => 0, 'omitidos' => 0, 'campanas' => []];
+    $hasta = microtime(true) + max(0, $segundos);
+
+    // Envíos que quedaron a mitad de camino. Se pasan a 'enviando' justo antes
+    // de hablar con el servidor, así que si el proceso se corta ahí (tope de
+    // tiempo del hosting, socket colgado, reinicio) la fila quedaba trabada en
+    // ese estado para siempre: nadie la volvía a tomar y, como sólo se contaban
+    // las pendientes, la campaña se daba por completada igual. Quince minutos
+    // es más que suficiente para cualquier envío real.
+    // Al tomar un envío se le pone `proximo_intento_en = NOW()`, que en ese
+    // estado significa «lo estoy trabajando ahora». Si esa marca quedó vieja,
+    // es que el proceso se cortó y hay que devolverlo a la cola.
+    $rescatados = q("UPDATE envios SET estado = 'pendiente'
+                     WHERE estado = 'enviando'
+                       AND (proximo_intento_en IS NULL
+                            OR proximo_intento_en < DATE_SUB(NOW(), INTERVAL 15 MINUTE))")->rowCount();
+    if ($rescatados > 0) {
+        log_app('campana.rescate', ['tipo' => 'sistema', 'actor' => 'cron',
+            'detalle' => $rescatados . ' envío(s) trabados volvieron a la cola']);
+    }
 
     $campanas = q("SELECT * FROM campanas
                    WHERE eliminado_en IS NULL AND estado IN ('enviando','programada')
@@ -611,10 +645,14 @@ function campanas_despachar(int $maxPorCorrida = 5): array
         $pendientes = q("SELECT * FROM envios
                          WHERE campana_id = ? AND estado = 'pendiente'
                            AND (proximo_intento_en IS NULL OR proximo_intento_en <= NOW())
-                         ORDER BY id LIMIT ?", [$cid, $maxPorCorrida])->fetchAll();
+                         ORDER BY id LIMIT ?", [$cid, max($maxPorCorrida, 1) * 6])->fetchAll();
 
         if (!$pendientes) {
-            $quedan = (int) qv("SELECT COUNT(*) FROM envios WHERE campana_id = ? AND estado = 'pendiente'", [$cid]);
+            // Se cuentan también las que están 'enviando': si hay una a mitad
+            // de camino la campaña NO terminó, y darla por completada dejaba a
+            // esa persona sin recibir nada, sin que nadie se enterara.
+            $quedan = (int) qv("SELECT COUNT(*) FROM envios
+                                WHERE campana_id = ? AND estado IN ('pendiente','enviando')", [$cid]);
             if ($quedan === 0) {
                 campana_recontar($cid);
                 campana_estado($cid, 'completada');
@@ -665,7 +703,8 @@ function campanas_despachar(int $maxPorCorrida = 5): array
             $msg = campana_armar_mensaje($completa, $envio, $cuenta);
             $msg['message_id'] = nuevo_message_id();
             $err = null;
-            q("UPDATE envios SET estado = 'enviando', intentos = intentos + 1, cuenta_correo_id = ? WHERE id = ?",
+            q("UPDATE envios SET estado = 'enviando', intentos = intentos + 1, cuenta_correo_id = ?,
+                      proximo_intento_en = NOW() WHERE id = ?",
               [$cuenta ? (int)$cuenta['id'] : null, (int)$envio['id']]);
             $resultado = smtp_enviar($fp, $msg, $err, $cfg);
 
@@ -704,11 +743,19 @@ function campanas_despachar(int $maxPorCorrida = 5): array
                 unset($sesiones[$clave]);
             }
 
-            // Pausa aleatoria antes del siguiente de ESTA campaña.
+            // Pausa aleatoria antes del siguiente de ESTA campaña. Es lo que
+            // hace que el ritmo parezca humano y no una máquina.
             $pausa = random_int((int)$c['pausa_min_seg'], (int)$c['pausa_max_seg']);
-            q('UPDATE envios SET proximo_intento_en = DATE_ADD(NOW(), INTERVAL ? SECOND)
-               WHERE campana_id = ? AND estado = \'pendiente\'', [$pausa, $cid]);
-            break;   // uno por campaña y por corrida: el ritmo lo marca el cron
+
+            // Si no entra otra pausa dentro del presupuesto de la corrida, se
+            // deja anotado para cuándo puede salir el siguiente y se corta acá:
+            // sigue la próxima corrida del cron, sin perder el ritmo.
+            if (microtime(true) + $pausa > $hasta) {
+                q("UPDATE envios SET proximo_intento_en = DATE_ADD(NOW(), INTERVAL ? SECOND)
+                   WHERE campana_id = ? AND estado = 'pendiente'", [$pausa, $cid]);
+                break;
+            }
+            sleep($pausa);
         }
 
         campana_recontar($cid);
@@ -731,6 +778,30 @@ function destinatario_de_prueba(string $email): bool
 // ------------------------------------------------------------
 
 /** Da de baja un correo de todas las campañas presentes y futuras. */
+/**
+ * Vuelve a habilitar a alguien que se había dado de baja.
+ *
+ * Existe porque la pantalla de baja le promete al destinatario «si fue un
+ * error, escribinos y te damos de alta otra vez», y no había ninguna forma de
+ * hacerlo: la fila de `desuscripciones` no se borraba desde ningún lado, así
+ * que destildar «No incluir en campañas» en la ficha no servía de nada y la
+ * persona seguía saliendo omitida en cada campaña.
+ *
+ * Queda registrado quién la reactivó: es una decisión que alguien tiene que
+ * poder justificar.
+ */
+function reactivar_suscripcion(string $email): bool
+{
+    $email = normalizar_email($email);
+    if ($email === '') { return false; }
+    $n = q('DELETE FROM desuscripciones WHERE email = ?', [$email])->rowCount();
+    q('UPDATE contactos SET no_email = 0 WHERE email = ?', [$email]);
+    q('UPDATE posibles_clientes SET no_email = 0 WHERE email = ?', [$email]);
+    log_app('campana.alta_manual', ['tipo' => 'accion',
+        'detalle' => 'Se volvió a habilitar ' . $email . ' para recibir campañas']);
+    return $n > 0;
+}
+
 function desuscribir(string $email, string $motivo = 'baja', ?int $campanaId = null, ?string $detalle = null): void
 {
     $email = normalizar_email($email);

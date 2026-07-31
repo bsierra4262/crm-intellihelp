@@ -43,4 +43,6 @@ render('campana-ver', [
     'testing' => es_testing(),
     'motivos' => q("SELECT motivo, COUNT(*) n FROM envios WHERE campana_id = ? AND estado = 'omitido'
                     GROUP BY motivo ORDER BY n DESC", [$id])->fetchAll(),
+    // Aperturas: el dato se venía guardando y no se mostraba en ningún lado.
+    'aperturas' => (int) qv('SELECT COUNT(*) FROM envios WHERE campana_id = ? AND abierto_en IS NOT NULL', [$id]),
 ], $c['nombre']);

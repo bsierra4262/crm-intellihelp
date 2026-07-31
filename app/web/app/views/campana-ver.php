@@ -1,5 +1,5 @@
 <?php
-/** @var array $c @var array $envios @var array $data @var array $f @var ?array $vista
+/** @var int $aperturas @var array $c @var array $envios @var array $data @var array $f @var ?array $vista
  *  @var bool $testing @var array $motivos */
 $pct   = $c['total'] > 0 ? min(100, (int)round(100 * $c['enviados'] / $c['total'])) : 0;
 $boton = function (string $accion, string $etiqueta, string $ic, string $clase = 'btn-ghost', array $confirmar = []) use ($c) {
@@ -89,6 +89,14 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
         <span class="stat-label">Enviados</span>
         <span class="stat-value"><?= (int)$c['enviados'] ?> <span class="muted">/ <?= (int)$c['total'] ?></span></span>
         <div class="progreso"><i class="<?= $pct >= 100 ? 'ok' : '' ?>" style="width:<?= $pct ?>%"></i></div>
+    </div>
+    <div class="card stat">
+        <span class="stat-label">Aperturas</span>
+        <span class="stat-value"><?= (int)$aperturas ?></span>
+        <span class="stat-foot">
+            <?= $c['enviados'] > 0 ? round(100 * $aperturas / $c['enviados'], 1) : 0 ?> % de los enviados.
+            Es un piso: muchos clientes bloquean las imágenes y esa apertura no se cuenta.
+        </span>
     </div>
     <div class="card stat">
         <span class="stat-label">Respuestas</span>

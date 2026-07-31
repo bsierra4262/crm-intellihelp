@@ -120,7 +120,14 @@ function require_admin(): void
 {
     require_login();
     if (!auth_is_admin()) {
+        // Con el diseño de siempre y una salida, no una línea de texto suelta
+        // en una pantalla en blanco.
         http_response_code(403);
-        exit('Acceso denegado: se requiere rol administrador.');
+        render('error', [
+            'codigo'  => 403,
+            'titulo'  => 'Esta pantalla es de administración',
+            'mensaje' => 'Tu usuario no tiene permiso para entrar acá. Si necesitás acceso, pedíselo a un administrador.',
+        ], 'Sin permiso');
+        exit;
     }
 }

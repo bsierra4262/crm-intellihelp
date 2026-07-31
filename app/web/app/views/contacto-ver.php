@@ -19,6 +19,16 @@
         </div>
     </div>
     <div class="head-actions">
+        <?php if ($c['no_email'] && auth_is_admin()): ?>
+            <form class="inline-form" method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="accion" value="reactivar">
+                <button class="btn btn-ghost"
+                        data-confirmar-titulo="Volver a habilitar"
+                        data-confirmar="<?= e($c['email']) ?> se había dado de baja. Al habilitarlo vuelve a recibir campañas. Hacelo sólo si te lo pidió."
+                        data-confirmar-ok="Habilitar"><?= icon('ok', 16) ?>Volver a habilitar</button>
+            </form>
+        <?php endif; ?>
         <a class="btn btn-ghost" href="<?= e(url('actividad-form?contacto_id=' . (int)$c['id'])) ?>"><?= icon('tareas', 16) ?>Nueva actividad</a>
         <a class="btn btn-ghost" href="<?= e(url('negocio-form?contacto_id=' . (int)$c['id'])) ?>"><?= icon('negocios', 16) ?>Nuevo negocio</a>
         <a class="btn btn-primary" href="<?= e(url('contacto-form?id=' . (int)$c['id'])) ?>"><?= icon('editar', 16) ?>Editar</a>

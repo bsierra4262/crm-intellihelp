@@ -33,8 +33,21 @@ try {
             // Preparar antes de arrancar evita el error clásico de iniciar una
             // campaña con la cola vacía porque se olvidaron el paso previo.
             campana_preparar($id);
-            campana_estado($id, 'enviando');
-            flash('Campaña iniciada. El envío avanza solo, con la pausa configurada.', 'success');
+
+            // Si tiene fecha de arranque a futuro, queda PROGRAMADA y el cron
+            // la larga a su hora. Antes ese campo se pedía, se guardaba y no lo
+            // miraba nadie: apretar «Iniciar» mandaba todo al instante, y la
+            // fecha elegida no servía para nada.
+            $c = campana_get($id);
+            $cuando = (string)($c['programada_para'] ?? '');
+            if ($cuando !== '' && strtotime($cuando) > time()) {
+                campana_estado($id, 'programada');
+                flash('Campaña programada para el ' . fecha_hora($cuando)
+                    . '. A esa hora arranca sola; no hace falta que dejes nada abierto.', 'success');
+            } else {
+                campana_estado($id, 'enviando');
+                flash('Campaña iniciada. El envío avanza solo, con la pausa configurada.', 'success');
+            }
             break;
 
         case 'pausar':

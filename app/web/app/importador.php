@@ -205,10 +205,10 @@ function importar_contactos_zoho(string $ruta, bool $simular = false, ?int $prop
                 'codigo_postal'  => $d['codigo_postal'],
                 'pais'           => $d['pais'],
                 'descripcion'    => $d['descripcion'],
-                'no_email'       => 0,
             ];
 
             if ($existente) {
+                $datos['_solo_completar'] = true;
                 contacto_guardar($datos, (int)$existente['id']);
                 $res['actualizados']++;
             } else {
