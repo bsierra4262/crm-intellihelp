@@ -183,6 +183,10 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
 <?php else: ?>
     <?= $content ?>
 <?php endif; ?>
+<?php /* Va en todas, también sin sesión: la página de reservar una reunión la
+         usa gente de afuera y era justo donde el campo de teléfono aceptaba
+         cualquier cosa, porque ahí no se cargaba ningún script. */ ?>
+<script defer src="<?= $asset('assets/js/campos.js') ?>?v=<?= ASSETS_V ?>"></script>
 <?php if ($u): ?><script defer src="<?= $asset('assets/js/app.js') ?>?v=<?= ASSETS_V ?>"></script>
 <script defer src="<?= $asset('assets/js/idle.js') ?>?v=<?= ASSETS_V ?>"></script>
 <script defer src="<?= $asset('assets/js/vivo.js') ?>?v=<?= ASSETS_V ?>"></script>

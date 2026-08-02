@@ -113,6 +113,10 @@ function cuenta_a_imap(array $c): array
         'port' => (int)(($c['imap_port'] ?? null) ?: 993),
         'user' => ($c['imap_user'] ?? null) ?: $c['smtp_user'],
         'pass' => descifrar((string)(($c['imap_pass'] ?? null) ?: $c['smtp_pass'])),
+        // Viaja con la configuración para que, al guardar una respuesta, quede
+        // anotado por qué casilla entró: contestarla tiene que salir por esa
+        // misma, no por la de siempre.
+        'cuenta_id' => (int)($c['id'] ?? 0) ?: null,
     ];
 }
 

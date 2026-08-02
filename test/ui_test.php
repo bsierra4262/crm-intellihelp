@@ -531,6 +531,70 @@ ok('el refresco no pisa lo que estás escribiendo',
 ok('y deja ver qué cambió en vez de que los números salten solos',
    str_contains($secc, 'vivo-cambio') && str_contains($CSS, '@keyframes vivo-destello'));
 
+echo "== Una respuesta se puede leer y contestar sin salir del CRM ==\n";
+// Lo único que se podía hacer con una respuesta era marcarla como leída. El
+// sistema avisaba de algo que después no podía mostrar: para leer qué había
+// dicho la persona había que irse al correo, y para contestarle también.
+$msg     = (string) @file_get_contents($WEB . '/app/mensajes.php');
+$imapSrc = (string) @file_get_contents($WEB . '/app/imap.php');
+ok('el correo que entra se guarda entero, no sólo la marca de que respondió',
+   $msg !== '' && str_contains($msg, 'function mensaje_entrante(')
+   && str_contains($imapSrc, 'mensaje_entrante(['));
+ok('se puede contestar desde adentro', str_contains($msg, 'function mensaje_responder('));
+ok('la respuesta sale por la misma casilla que recibió el original',
+   str_contains($msg, 'cuenta_correo_id'), 'contestar desde otra dirección rompe el hilo y la siguiente respuesta ya no se detecta');
+// Sin In-Reply-To/References, la respuesta le llega al cliente como un correo
+// suelto en vez de aparecer pegada a la conversación que él mismo empezó.
+ok('la respuesta se encadena al hilo del destinatario',
+   str_contains($msg, "'in_reply_to'") && str_contains($msg, "'referencias'")
+   && str_contains((string)@file_get_contents($WEB . '/app/envio.php'), "'In-Reply-To: '"));
+// El mismo correo releído no puede duplicarse.
+ok('el mismo correo no se guarda dos veces',
+   str_contains($msg, 'SELECT 1 FROM mensajes WHERE message_id = ?'));
+// Un correo real viene partido y codificado: guardando el crudo, la respuesta
+// se veía como «Hola, c=C3=B3mo est=C3=A1s» o como un bloque de base64.
+$imapSrc2 = $imapSrc;
+ok('el cuerpo del correo se decodifica de verdad',
+   str_contains($imapSrc2, 'function mime_partes(') && str_contains($imapSrc2, 'quoted-printable'));
+ok('y se pasa a UTF-8, así los acentos no se rompen', str_contains($imapSrc2, 'function mime_a_utf8('));
+ok('la cita del mensaje original queda plegada',
+   str_contains($imapSrc2, 'function mensaje_partir_cita('),
+   'si no, una respuesta de dos palabras queda enterrada bajo la campaña entera');
+ok('la alerta lleva a leer la respuesta, no a la ficha del contacto',
+   str_contains($campanas, "'url'        => 'conversacion?email='"));
+ok('abrir la conversación ya la marca como leída',
+   str_contains((string)@file_get_contents($WEB . '/app/pages/conversacion.php'), 'conversacion_marcar_leida($email)'));
+// `last_id()` devuelve la última escritura de la CONEXIÓN, no la de la tabla.
+// Leído después de la auditoría, el id que volvía era el del registro de
+// auditoría y quien llamaba se quedaba con un mensaje que no existe.
+ok('el id del mensaje se toma antes de escribir la auditoría',
+   preg_match('/\$nuevo = \(int\) last_id\(\);.*?log_app\(\'mensaje\.responder\'/s', $msg) === 1);
+ok('desde la campaña se entra a leer la respuesta',
+   str_contains((string)@file_get_contents($WEB . '/app/views/campana-ver.php'), "url('conversacion?email='"));
+
+echo "== El aviso se ve en pantalla, no sólo en un número chiquito ==\n";
+$vivoJs = (string) @file_get_contents($WEB . '/assets/js/vivo.js');
+ok('las alertas nuevas asoman en pantalla', str_contains($vivoJs, 'function avisar('));
+// Si no se toma nota de por dónde vamos, al abrir el CRM saltan de golpe todas
+// las alertas viejas.
+ok('al abrir el CRM no saltan las viejas de golpe', str_contains($vivoJs, 'if (visto === null)'));
+ok('el aviso se puede cerrar y se va solo', str_contains($vivoJs, 'function cerrar(') && str_contains($vivoJs, '9000'));
+ok('tiene estilo propio y no tapa la pantalla en el celular',
+   str_contains($CSS, '.avisos{position:fixed') && str_contains($CSS, '@media (max-width:520px){ .avisos'));
+
+echo "== Los campos no dejan escribir lo que no corresponde ==\n";
+// El servidor rechazaba un teléfono con letras, pero recién al enviar: el campo
+// te dejaba escribir «nknknknkn12312131» y el aviso llegaba después de haber
+// llenado todo el formulario.
+$campos = (string) @file_get_contents($WEB . '/assets/js/campos.js');
+ok('las letras no entran en un teléfono, se filtran al escribir', $campos !== '' && str_contains($campos, 'TELEFONO'));
+ok('y también se limpia lo que se pega desde otro lado', str_contains($campos, "'paste'"));
+ok('el cursor no se va al final al filtrar', str_contains($campos, 'setSelectionRange'));
+// La página pública de reservar una reunión no cargaba ningún script: era
+// justamente donde peor se portaba el campo de teléfono.
+ok('el filtro también corre en las pantallas públicas',
+   preg_match('/campos\.js.*?<\?php if \(\$u\)/s', $layout) === 1);
+
 echo "== Lo que pasa mientras la campaña manda se ve mientras pasa ==\n";
 // El cron leía la casilla DESPUÉS de despachar, y el despachador se lleva 240
 // segundos. Encima sólo cada 15 minutos. Resultado: la campaña terminaba

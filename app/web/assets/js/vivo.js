@@ -32,6 +32,49 @@
         var base   = (window.__sesion && window.__sesion.base) || '';
         var malas  = 0;
         var reloj  = null;
+        var visto  = null;   // id de la alerta más nueva que ya se mostró
+
+        // ------------------------------------------------------------------
+        //  El aviso en pantalla.
+        //
+        //  Un número chiquito arriba a la derecha no alcanza: si estás mirando
+        //  otra parte de la pantalla, no te enterás. Y enterarse de que un
+        //  cliente contestó es justamente lo que no puede esperar. Esto asoma,
+        //  se queda unos segundos y se va solo; con un clic te lleva a leerla.
+        // ------------------------------------------------------------------
+        function pila() {
+            var p = doc.querySelector('.avisos');
+            if (!p) {
+                p = doc.createElement('div');
+                p.className = 'avisos';
+                p.setAttribute('aria-live', 'polite');   // los lectores de pantalla también lo anuncian
+                doc.body.appendChild(p);
+            }
+            return p;
+        }
+
+        function avisar(a) {
+            var el = doc.createElement('a');
+            el.className = 'aviso aviso-' + (a.tipo || 'info');
+            el.href = a.url;
+            el.innerHTML = '<strong></strong><span></span><i class="aviso-x" aria-hidden="true">×</i>';
+            el.querySelector('strong').textContent = a.titulo || 'Novedad';
+            el.querySelector('span').textContent   = a.detalle || '';
+            el.querySelector('.aviso-x').addEventListener('click', function (ev) {
+                ev.preventDefault(); ev.stopPropagation(); cerrar(el);
+            });
+            pila().appendChild(el);
+            // Sin esto el navegador dibuja el elemento ya en su lugar y no hay
+            // transición: tiene que existir primero y moverse después.
+            requestAnimationFrame(function () { el.classList.add('visible'); });
+            setTimeout(function () { cerrar(el); }, 9000);
+        }
+
+        function cerrar(el) {
+            if (!el || !el.parentNode) { return; }
+            el.classList.remove('visible');
+            setTimeout(function () { if (el.parentNode) { el.parentNode.removeChild(el); } }, 300);
+        }
 
         function mirar() {
             if (doc.hidden) { return; }
@@ -47,6 +90,20 @@
                     // CRM está abierto en otra solapa, que es lo normal.
                     var base0 = doc.title.replace(/^\(\d+\+?\)\s*/, '');
                     doc.title = n > 0 ? '(' + (n > 99 ? '99+' : n) + ') ' + base0 : base0;
+
+                    // Las nuevas se avisan en pantalla. En la primera consulta
+                    // sólo se toma nota de por dónde vamos: si no, al abrir el
+                    // CRM te saltan de golpe todas las alertas viejas.
+                    var ultimas = d.ultimas || [];
+                    var masNueva = ultimas.length ? ultimas[0].id : 0;
+                    if (visto === null) { visto = masNueva; return; }
+                    if (masNueva <= visto) { return; }
+
+                    ultimas.filter(function (a) { return a.id > visto; })
+                           .reverse()                      // de la más vieja a la más nueva
+                           .slice(-3)                      // tres a la vez es el techo de lo legible
+                           .forEach(avisar);
+                    visto = masNueva;
                 })
                 .catch(function () { if (++malas >= 3 && reloj) { clearInterval(reloj); reloj = null; } });
         }

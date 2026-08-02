@@ -211,7 +211,15 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
                     <td data-label="Empresa" class="prio-2"><?= e(recortar($x['empresa'], 28) ?: '—') ?></td>
                     <td data-label="Estado"><span data-vivo-badge><?= badge_envio($x['estado']) ?></span></td>
                     <td data-label="Enviado" class="prio-3" data-vivo-enviado><?= $x['enviado_en'] ? fecha_hora($x['enviado_en']) : '—' ?></td>
-                    <td data-label="Respondió" class="prio-3" data-vivo-respondio><?= $x['respondido_en'] ? fecha_hora($x['respondido_en']) : '—' ?></td>
+                    <?php /* Si respondió, se entra a leer lo que dijo y a contestarle
+                             desde acá. Antes la fecha era sólo un dato: para saber
+                             QUÉ había contestado había que irse al correo. */ ?>
+                    <td data-label="Respondió" class="prio-3" data-vivo-respondio>
+                        <?php if ($x['respondido_en']): ?>
+                            <a href="<?= e(url('conversacion?email=' . urlencode((string)$x['email']))) ?>"
+                               title="Leer y contestar"><?= fecha_hora($x['respondido_en']) ?></a>
+                        <?php else: ?>—<?php endif; ?>
+                    </td>
                     <td data-label="Detalle" class="prio-4"><span class="small muted"><?= e(recortar($x['motivo'], 46) ?: '—') ?></span></td>
                 </tr>
             <?php endforeach; endif; ?>

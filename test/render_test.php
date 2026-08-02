@@ -84,6 +84,9 @@ function rutas_a_probar(): array
         'negocio-ver'     => ['_id_de' => 'negocios'],
         'campana-ver'     => ['_id_de' => 'campanas'],
         'lista-ver'       => ['_id_de' => 'listas'],
+        // La conversación se abre por correo, no por id: quien responde una
+        // campaña puede no estar cargado como contacto todavía.
+        'conversacion'    => ['_email_de' => 'mensajes'],
         'campana-editar'  => ['_r' => 'campana-form',   '_id_de' => 'campanas'],
         'plantilla-editar'=> ['_r' => 'plantilla-form', '_id_de' => 'plantillas'],
 
@@ -135,8 +138,9 @@ if ($modo === '--limpiar') {
     $ruta      = $params['_r'] ?? $clave;
     $sinSesion = !empty($params['_sin_sesion']);
     $idDe      = $params['_id_de'] ?? null;
+    $emailDe   = $params['_email_de'] ?? null;
     $vivo      = !empty($params['_vivo']);
-    unset($params['_r'], $params['_sin_sesion'], $params['_id_de'], $params['_vivo']);
+    unset($params['_r'], $params['_sin_sesion'], $params['_id_de'], $params['_vivo'], $params['_email_de']);
     if ($vivo) { $params['__vivo'] = '1'; }
 
     // Fingir una request web para que el bootstrap y las vistas funcionen.
@@ -151,6 +155,11 @@ if ($modo === '--limpiar') {
     require $web . '/app/bootstrap.php';
 
     // Id real de la ficha a probar, sacado de la base.
+    if ($emailDe !== null) {
+        $email = qv('SELECT de FROM `' . $emailDe . "` WHERE direccion = 'entrante' ORDER BY id LIMIT 1");
+        if (!$email) { fwrite(STDOUT, "ok 0\n"); exit(0); }   // todavía no respondió nadie
+        $_GET['email'] = $email;
+    }
     if ($idDe !== null) {
         $tieneBorrado = (bool) q1("SHOW COLUMNS FROM `$idDe` LIKE 'eliminado_en'");
         $id = qv('SELECT MIN(id) FROM `' . $idDe . '`' . ($tieneBorrado ? ' WHERE eliminado_en IS NULL' : ''));

@@ -192,6 +192,11 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
     if (!empty($msg['responder_a'])) { $cab .= 'Reply-To: <' . $msg['responder_a'] . ">\r\n"; }
     $cab .= 'Subject: =?UTF-8?B?' . base64_encode((string)($msg['asunto'] ?? '')) . "?=\r\n";
     $cab .= 'Message-ID: ' . $messageId . "\r\n";
+    // Sin estas dos, una respuesta escrita desde el CRM le llega al destinatario
+    // como un correo suelto en vez de aparecer pegada a la conversación que él
+    // mismo empezó. Es la diferencia entre contestar y escribir de nuevo.
+    if (!empty($msg['in_reply_to'])) { $cab .= 'In-Reply-To: ' . $msg['in_reply_to'] . "\r\n"; }
+    if (!empty($msg['referencias'])) { $cab .= 'References: ' . $msg['referencias'] . "\r\n"; }
     $cab .= 'Date: ' . date('r') . "\r\n";
     $cab .= "MIME-Version: 1.0\r\n";
     if (!empty($msg['baja_url'])) {

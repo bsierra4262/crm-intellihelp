@@ -37,7 +37,8 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <i class="hint">El rubro: petroleras, bancos, laboratorios. Sirve para segmentar las campañas.</i>
             </label>
             <label class="fld"><span>CUIT</span>
-                <input name="cuit" value="<?= e(formatear_cuit($c['cuit'] ?? '')) ?>" maxlength="13" placeholder="30-12345678-1">
+                <input name="cuit" value="<?= e(formatear_cuit($c['cuit'] ?? '')) ?>" maxlength="13" placeholder="30-12345678-1"
+                       data-solo="cuit" inputmode="numeric" pattern="[0-9]{2}-?[0-9]{8}-?[0-9]" title="Once números: 30-12345678-1">
                 <?php if (isset($errores['cuit'])): ?><i class="hint bad"><?= e($errores['cuit']) ?></i>
                 <?php else: ?><i class="hint">Se valida con el dígito verificador (módulo 11).</i><?php endif; ?>
             </label>

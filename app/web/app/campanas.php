@@ -1096,8 +1096,9 @@ function marcar_respuesta(string $email, string $asunto = ''): void
          'detalle'    => 'Campaña «' . ($camp['nombre'] ?? '') . '»'
                        . ($asunto !== '' ? ' · ' . recortar($asunto, 120) : ''),
          'entidad'    => 'campana', 'entidad_id' => (int)$envio['campana_id'],
-         'url'        => $quien ? 'contacto-ver?id=' . (int)$quien['id']
-                                : 'campana-ver?id=' . (int)$envio['campana_id']]);
+         // A la conversación, no a la ficha: lo que uno quiere al enterarse de
+         // una respuesta es LEERLA y contestarla, no ver los datos de contacto.
+         'url'        => 'conversacion?email=' . urlencode($email)]);
 
     log_app('campana.respuesta', ['tipo' => 'sistema', 'entidad' => 'campana',
         'entidad_id' => (int)$envio['campana_id'], 'actor' => $email,

@@ -61,6 +61,7 @@ $tablas = [
     'desuscripciones'    => 'bajas de suscripción',
     'import_lotes'       => 'lotes de importación',
     'notificaciones'     => 'alertas en pantalla y por correo',
+    'mensajes'           => 'conversaciones: lo que respondieron y lo que se contestó',
     'imap_estado'        => 'marca de por dónde iba la lectura de cada casilla',
     'actividad'          => 'registro de auditoría y del cron',
 ];

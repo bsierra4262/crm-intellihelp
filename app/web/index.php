@@ -94,6 +94,7 @@ $rutas = [
     'api-campana'     => ['public' => false],   // avance de las campañas, en vivo
     'api-alertas'     => ['public' => false],   // cuántas alertas sin leer
     'alertas'         => ['public' => false],
+    'conversacion'    => ['public' => false],   // leer y contestar sin salir del CRM
 
     // --- Administración ---
     'usuarios'        => ['public' => false, 'admin' => true],

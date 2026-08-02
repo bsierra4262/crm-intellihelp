@@ -238,6 +238,157 @@ function imap_cabecera(string $cabeceras, string $nombre): string
     return '';
 }
 
+/** Extrae el nombre de un encabezado tipo `Nombre <x@y.com>`. */
+function imap_nombre(string $cabecera): string
+{
+    $c = trim(imap_texto($cabecera));
+    if (preg_match('/^\s*"?([^"<]*?)"?\s*<[^>]+>/', $c, $m)) { return trim($m[1]); }
+    return '';
+}
+
+// ------------------------------------------------------------
+//  Leer el cuerpo de un correo
+//
+//  Un correo real no es texto: viene partido en pedazos, cada pedazo con su
+//  codificación y su juego de caracteres. Guardando el crudo, la respuesta de
+//  un cliente se veía como «Hola, c=C3=B3mo est=C3=A1s» o directamente como un
+//  bloque de base64. Para poder leerla y contestarla desde el CRM hay que
+//  armarla de verdad.
+// ------------------------------------------------------------
+
+/** Deshace la codificación de transporte de una parte. */
+function mime_decodificar(string $cuerpo, string $codificacion): string
+{
+    return match (strtolower(trim($codificacion))) {
+        'base64'           => (string) base64_decode(preg_replace('/\s+/', '', $cuerpo) ?? '', false),
+        'quoted-printable' => quoted_printable_decode($cuerpo),
+        default            => $cuerpo,
+    };
+}
+
+/** Pasa un texto a UTF-8 desde el juego que declare la parte. */
+function mime_a_utf8(string $texto, string $juego): string
+{
+    $juego = strtoupper(trim($juego)) ?: 'UTF-8';
+    if ($juego === 'UTF-8' || $juego === 'US-ASCII' || $juego === '') {
+        // Hay quien declara UTF-8 y manda otra cosa: si no es válido se
+        // reinterpreta, porque un texto roto es peor que uno aproximado.
+        return mb_check_encoding($texto, 'UTF-8') ? $texto : (string) mb_convert_encoding($texto, 'UTF-8', 'ISO-8859-1');
+    }
+    $conv = @mb_convert_encoding($texto, 'UTF-8', $juego);
+    return $conv !== false ? $conv : $texto;
+}
+
+/**
+ * Separa un correo crudo en su texto y su HTML.
+ *
+ * Recorre las partes (incluso anidadas: un correo con adjunto lleva adentro
+ * otro multipart con el texto y el HTML) y se queda con la primera de cada
+ * tipo. Los adjuntos se saltean: acá interesa lo que se lee.
+ *
+ * @return array{texto:string, html:string}
+ */
+function mime_partes(string $crudo, int $profundidad = 0): array
+{
+    $out = ['texto' => '', 'html' => ''];
+    if ($profundidad > 6) { return $out; }          // correo raro o malicioso
+
+    $corte = preg_split("/\r?\n\r?\n/", $crudo, 2);
+    $cab   = $corte[0] ?? '';
+    $cuerpo = $corte[1] ?? '';
+    $tipo  = strtolower(imap_cabecera($cab, 'Content-Type')) ?: 'text/plain';
+    $codif = imap_cabecera($cab, 'Content-Transfer-Encoding');
+
+    if (str_starts_with($tipo, 'multipart/') && preg_match('/boundary="?([^";\s]+)"?/i', $tipo, $m)) {
+        $sep    = '--' . $m[1];
+        $trozos = explode($sep, $cuerpo);
+        array_shift($trozos);                        // el preámbulo no es una parte
+        foreach ($trozos as $t) {
+            if (str_starts_with(ltrim($t), '--')) { break; }   // cierre del multipart
+            $p = mime_partes(ltrim($t, "\r\n"), $profundidad + 1);
+            if ($out['texto'] === '' && $p['texto'] !== '') { $out['texto'] = $p['texto']; }
+            if ($out['html']  === '' && $p['html']  !== '') { $out['html']  = $p['html']; }
+        }
+        return $out;
+    }
+
+    // Un adjunto no es contenido para leer.
+    if (stripos(imap_cabecera($cab, 'Content-Disposition'), 'attachment') === 0) { return $out; }
+
+    $juego = preg_match('/charset="?([^";\s]+)"?/i', $tipo, $m2) ? $m2[1] : 'UTF-8';
+    $texto = mime_a_utf8(mime_decodificar($cuerpo, $codif), $juego);
+
+    if (str_starts_with($tipo, 'text/html'))       { $out['html']  = $texto; }
+    elseif (str_starts_with($tipo, 'text/plain'))  { $out['texto'] = $texto; }
+    return $out;
+}
+
+/**
+ * Corta la parte citada de una respuesta.
+ *
+ * Cuando alguien contesta, el cliente de correo le pega abajo todo el mensaje
+ * original. Mostrarlo entero hace que la respuesta de dos líneas quede
+ * enterrada bajo la campaña completa. Se corta en las marcas típicas y se
+ * guarda igual el resto, que se puede desplegar.
+ */
+function mensaje_partir_cita(string $texto): array
+{
+    $lineas = preg_split("/\r?\n/", $texto) ?: [];
+    $corte  = null;
+
+    // Se trabaja por líneas y no con una expresión sobre el texto entero: la
+    // línea de atribución de Gmail («El dom, 2 de ago…, ITHOS <…> escribió:»)
+    // viene partida en dos, así que buscándola de una sola pieza no aparecía
+    // nunca y la respuesta de dos palabras quedaba enterrada bajo la campaña.
+    foreach ($lineas as $i => $l) {
+        $t = trim($l);
+
+        // Separadores explícitos: Outlook, Thunderbird, correos reenviados.
+        if (preg_match('/^-{2,}\s*(Mensaje original|Original Message|Forwarded message)/iu', $t)
+            || preg_match('/^_{10,}$/', $t)) {
+            $corte = $i;
+            break;
+        }
+
+        // Primera línea citada: la cita arranca acá, salvo que justo arriba
+        // esté la atribución, que también es parte de la cita.
+        if (str_starts_with($t, '>')) {
+            $corte = $i;
+            // La atribución puede ocupar varias líneas: Gmail la parte donde le
+            // queda. Se camina hacia atrás juntándolas hasta encontrar la que
+            // la empieza («El …», «On …»), o hasta toparse con una línea en
+            // blanco, que ya es el final de lo que escribió la persona.
+            $bloque = '';
+            for ($j = $i - 1; $j >= max(0, $i - 5); $j--) {
+                $prev = trim($lineas[$j]);
+                // Las líneas en blanco se saltean: Gmail deja una entre la
+                // atribución y la cita, y cortando ahí la atribución quedaba
+                // colgada arriba, como si fuera parte de lo que escribieron.
+                if ($prev === '') { continue; }
+                $bloque = $prev . ' ' . $bloque;
+                if (preg_match('/^(El|On|De|From)\b/u', $prev)) {
+                    // Sólo es atribución si termina anunciando la cita.
+                    if (preg_match('/(escribi[óo]|wrote|sent):?\s*$/iu', trim($bloque))) { $corte = $j; }
+                    break;
+                }
+            }
+            break;
+        }
+
+        // Atribución suelta, sin «>» detrás (pasa cuando el cliente cita en HTML).
+        if (preg_match('/^(El|On)\b.*(escribi[óo]|wrote):?\s*$/iu', $t)) { $corte = $i; break; }
+    }
+
+    if ($corte === null) { return ['limpio' => trim($texto), 'citado' => '']; }
+
+    $limpio = rtrim(implode("\n", array_slice($lineas, 0, $corte)));
+    $citado = trim(implode("\n", array_slice($lineas, $corte)));
+    // Si arriba del corte no quedó nada legible, es que el mensaje ES la cita:
+    // se muestra entero antes que dejar la pantalla en blanco.
+    if (trim($limpio) === '') { return ['limpio' => trim($texto), 'citado' => '']; }
+    return ['limpio' => $limpio, 'citado' => $citado];
+}
+
 /** Extrae la dirección de un encabezado tipo `Nombre <x@y.com>`. */
 function imap_direccion(string $cabecera): string
 {
@@ -529,6 +680,26 @@ function imap_revisar(int $diasPrimeraVez = 30, ?array $cfg = null, string $etiq
 
             // Respuesta de un destinatario de campaña.
             if (qv("SELECT 1 FROM envios WHERE email = ? AND estado = 'enviado' LIMIT 1", [$de])) {
+                // Se guarda el correo entero, no sólo que respondió. Antes se
+                // anotaba la marca y el mensaje se tiraba: el CRM avisaba de
+                // una respuesta que después no podía mostrar, y para leerla
+                // había que irse al correo igual.
+                $b     = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[])", 2097152);
+                $partes = $b['ok'] ? mime_partes($b['crudo']) : ['texto' => '', 'html' => ''];
+                $fecha  = imap_cabecera($cab, 'Date');
+                mensaje_entrante([
+                    'de'          => $de,
+                    'de_nombre'   => imap_nombre(imap_cabecera($cab, 'From')),
+                    'para'        => $propio,
+                    'asunto'      => $asunto,
+                    'texto'       => $partes['texto'],
+                    'html'        => $partes['html'],
+                    'message_id'  => trim(imap_cabecera($cab, 'Message-ID')),
+                    'in_reply_to' => trim(imap_cabecera($cab, 'In-Reply-To')),
+                    'referencias' => trim(imap_cabecera($cab, 'References')),
+                    'fecha'       => $fecha !== '' ? date('Y-m-d H:i:s', strtotime($fecha) ?: time()) : date('Y-m-d H:i:s'),
+                    'cuenta_correo_id' => $cfg['cuenta_id'] ?? null,
+                ]);
                 marcar_respuesta($de, $asunto);
                 $res['respuestas']++;
             }
