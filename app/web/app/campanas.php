@@ -709,10 +709,13 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
  * pantalla prometía 80–100. Una campaña de 500 destinatarios tardaba 42 horas
  * en vez de 5.
  *
- * @param int $segundos presupuesto de tiempo de esta corrida
+ * @param int      $segundos     presupuesto de tiempo de esta corrida
+ * @param int|null $soloCampana  trabajar sólo sobre esta campaña (el arranque
+ *                               manual manda el primer correo en el acto, sin
+ *                               tocar las demás campañas que estén corriendo)
  * @return array resumen de lo hecho
  */
-function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240): array
+function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $soloCampana = null): array
 {
     $res = ['enviados' => 0, 'rebotados' => 0, 'errores' => 0, 'omitidos' => 0, 'campanas' => []];
     $hasta = microtime(true) + max(0, $segundos);
@@ -735,8 +738,9 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240): array
             'detalle' => $rescatados . ' envío(s) trabados volvieron a la cola']);
     }
 
+    $filtro = $soloCampana ? ' AND id = ' . (int)$soloCampana : '';
     $campanas = q("SELECT * FROM campanas
-                   WHERE eliminado_en IS NULL AND estado IN ('enviando','programada')
+                   WHERE eliminado_en IS NULL AND estado IN ('enviando','programada') $filtro
                    ORDER BY inicio_en IS NULL, inicio_en")->fetchAll();
 
     // Una sesión SMTP abierta POR CUENTA: varias campañas que comparten la
@@ -897,6 +901,18 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240): array
             // del cron, hasta el registro del error—, así que en pantalla no
             // pasaba nada y el avance se quedaba clavado en cero.
             db_reanudar();
+
+            // Se mira la casilla en el medio del envío, no al final.
+            //
+            // Los rebotes vuelven a los pocos segundos de cada correo y las
+            // respuestas empiezan a entrar enseguida. Leyendo sólo al terminar,
+            // la campaña mostraba 6 de 6 con cero rebotes, cero respuestas y
+            // cero reuniones —todo en cero mientras las cosas estaban pasando—
+            // y recién después aparecía todo junto. Acá se aprovecha que ya
+            // estamos en una corrida larga: cada minuto se pasa a mirar.
+            if (function_exists('imap_quizas_revisar')) {
+                imap_quizas_revisar(60);
+            }
         }
 
         campana_recontar($cid);

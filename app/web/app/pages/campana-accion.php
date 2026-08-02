@@ -46,7 +46,13 @@ try {
                     . '. A esa hora arranca sola; no hace falta que dejes nada abierto.', 'success');
             } else {
                 campana_estado($id, 'enviando');
-                flash('Campaña iniciada. El envío avanza solo, con la pausa configurada.', 'success');
+                // El primero sale ahora, no cuando pase el cron. Antes había que
+                // esperar hasta cinco minutos mirando una pantalla que decía
+                // «enviando» sin que saliera nada: parecía que se había colgado.
+                $arrancarYa = true;
+                flash('Campaña iniciada. El primer correo sale ahora mismo; después uno cada '
+                    . (int)$c['pausa_min_seg'] . '–' . (int)$c['pausa_max_seg']
+                    . ' segundos. Podés cerrar el navegador: sigue sola.', 'success');
             }
             break;
 
@@ -70,6 +76,30 @@ try {
     flash('No se pudo completar: ' . $e->getMessage(), 'error');
     log_app('campana.accion_error', ['tipo' => 'error', 'entidad' => 'campana', 'entidad_id' => $id,
         'detalle' => $accion . ': ' . $e->getMessage()]);
+}
+
+/**
+ * Al arrancar a mano, el primer correo sale en el acto.
+ *
+ * La pantalla se contesta primero y el envío se hace después, con la respuesta
+ * ya en el navegador: nadie espera a que el servidor SMTP conteste. Se manda
+ * UNO solo y se corta; el resto lo sigue el cron con la pausa de siempre, que
+ * es lo que evita que el proveedor marque el ritmo como robótico.
+ *
+ * Si el cron justo está corriendo y toma el mismo correo, no se manda dos
+ * veces: cada envío se reclama con un UPDATE condicional y sólo uno gana.
+ */
+if (!empty($arrancarYa)) {
+    header('Location: ' . url('campana-ver?id=' . $id));
+    finish_request();
+    try {
+        campanas_despachar(1, 0, $id);
+    } catch (\Throwable $e) {
+        log_app('campana.arranque_error', ['tipo' => 'error', 'entidad' => 'campana', 'entidad_id' => $id,
+            'detalle' => 'El primer correo no pudo salir en el acto: ' . $e->getMessage()
+                       . '. Lo toma el cron en la próxima corrida.']);
+    }
+    exit;
 }
 
 redirect('campana-ver?id=' . $id);

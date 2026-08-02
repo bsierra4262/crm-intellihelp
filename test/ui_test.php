@@ -531,6 +531,42 @@ ok('el refresco no pisa lo que estás escribiendo',
 ok('y deja ver qué cambió en vez de que los números salten solos',
    str_contains($secc, 'vivo-cambio') && str_contains($CSS, '@keyframes vivo-destello'));
 
+echo "== Lo que pasa mientras la campaña manda se ve mientras pasa ==\n";
+// El cron leía la casilla DESPUÉS de despachar, y el despachador se lleva 240
+// segundos. Encima sólo cada 15 minutos. Resultado: la campaña terminaba
+// mostrando 6 de 6 con cero rebotes, cero respuestas y cero reuniones, y todo
+// aparecía junto mucho después, cuando ya no sirve para reaccionar.
+// En el repositorio cron.php vive al lado de `web/`; desplegado queda adentro
+// del propio webroot. Se buscan los dos, si no la comprobación pasa en vacío.
+$cron = '';
+foreach ([$WEB . '/cron.php', dirname($WEB) . '/cron.php'] as $ruta) {
+    $cron = (string) @file_get_contents($ruta);
+    if ($cron !== '') { break; }
+}
+ok('se encontró el archivo del cron para poder revisarlo', $cron !== '');
+ok('el cron lee la casilla ANTES de ponerse a despachar',
+   $cron !== '' && strpos($cron, 'imap_quizas_revisar') < strpos($cron, 'campanas_despachar'),
+   'leyendo al final, los rebotes y las respuestas aparecen cuatro minutos tarde');
+ok('y la mira seguido cuando hay una campaña en curso',
+   str_contains($cron, "\$activas > 0 ? 60 : 900"));
+ok('el despachador también mira en el medio del envío',
+   str_contains($campanas, 'imap_quizas_revisar(60)'));
+$imapSrc = (string) @file_get_contents($WEB . '/app/imap.php');
+ok('la marca de «ya miré» se pone antes de leer, para no reintentar en bucle',
+   preg_match('/setting_set\(.imap_ultima_corrida.*?imap_revisar_todas\(\)/s', $imapSrc) === 1);
+ok('y se reabre la conexión después, porque leer la casilla tarda',
+   preg_match('/imap_revisar_todas\(\);.*?db_reanudar\(\)/s', $imapSrc) === 1);
+
+// Apretabas «Iniciar» y no salía nada hasta que pasara el cron: hasta cinco
+// minutos mirando una pantalla que decía «enviando». Parecía colgada.
+$accion = (string) @file_get_contents($WEB . '/app/pages/campana-accion.php');
+ok('al arrancar a mano, el primer correo sale en el acto',
+   str_contains($accion, 'campanas_despachar(1, 0, $id)'));
+ok('y la pantalla se contesta antes de mandarlo, así nadie espera al servidor',
+   preg_match('/finish_request\(\);.*?campanas_despachar\(1, 0/s', $accion) === 1);
+ok('el arranque manual no toca las otras campañas que estén corriendo',
+   str_contains($campanas, '?int $soloCampana = null') && str_contains($campanas, '$filtro = $soloCampana'));
+
 echo "== Las respuestas tienen que poder detectarse ==\n";
 // El sistema detecta una respuesta leyendo UNA casilla concreta. Si el
 // «Responder a» apunta a otra dirección, la respuesta le llega a esa persona y

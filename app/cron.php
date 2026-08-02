@@ -73,7 +73,42 @@ $lineas = [];
 // cuando más trabajando estaba.
 setting_set('cron_en_curso_desde', date('Y-m-d H:i:s'));
 
-// ---- 1. Campañas ----
+// ---- 1. Casilla: rebotes y respuestas ----
+//
+// Va ANTES de las campañas, y no después. El despachador se lleva 240 segundos
+// de la corrida, así que leyendo al final los rebotes y las respuestas
+// aparecían casi cuatro minutos tarde, todos juntos, cuando la campaña ya había
+// terminado: la pantalla mostraba 6 de 6 con todo en cero mientras las cosas
+// estaban pasando de verdad.
+//
+// Cada cuánto se mira depende de si hay algo en curso: con una campaña
+// mandando, los rebotes vuelven a los segundos y las respuestas empiezan a
+// entrar enseguida, así que se mira seguido. Sin nada en curso se espacía,
+// porque abrir IMAP es caro y no tiene sentido hacerlo para no encontrar nada.
+// El despachador además vuelve a mirar en el medio del envío, aprovechando las
+// pausas entre correo y correo.
+try {
+    $activas = (int) qv("SELECT COUNT(*) FROM campanas
+                         WHERE eliminado_en IS NULL AND estado IN ('enviando','programada')");
+    $r = imap_quizas_revisar($activas > 0 ? 60 : 900);
+    if ($r === null) {
+        $lineas[] = 'casilla: se salteó (todavía no tocaba)';
+    } else {
+        $lineas[] = $r['error']
+            ? 'casillas: ' . $r['error']
+            : sprintf('casillas: %d revisadas, %d correos, %d rebotes (%d definitivos), %d respuestas',
+                      $r['casillas'] ?? 1, $r['revisados'], $r['rebotes'], $r['duros'] ?? 0, $r['respuestas']);
+        if (($r['rebotes'] ?? 0) || ($r['respuestas'] ?? 0)) {
+            log_app('cron.casilla', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
+        }
+    }
+} catch (\Throwable $e) {
+    db_reanudar();
+    $lineas[] = 'casilla ERROR: ' . $e->getMessage();
+    log_app('cron.casilla_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
+}
+
+// ---- 2. Campañas ----
 try {
     // 240 s de presupuesto: el cron corre cada 5 minutos, así que la corrida
     // termina con margen antes de que se dispare la siguiente. Con la pausa de
@@ -97,31 +132,6 @@ try {
 // El despachador es lo único que duerme. Después de él, la conexión puede estar
 // muerta y todo lo que sigue —rebotes, recordatorios, purga— la necesita.
 db_reanudar();
-
-// ---- 2. Casilla: rebotes y respuestas ----
-// Se lee cada 15 minutos, no en cada corrida: abrir IMAP es caro y los rebotes
-// no llegan al segundo.
-try {
-    $ultima = setting_get('imap_ultima_corrida', '0');
-    if (time() - (int)$ultima >= 900) {
-        setting_set('imap_ultima_corrida', (string)time());
-        // Todas las casillas activas, no sólo una: si una campaña sale por la
-        // cuenta de RRHH, sus rebotes llegan a la casilla de RRHH.
-        $r = imap_revisar_todas();
-        $lineas[] = $r['error']
-            ? 'casillas: ' . $r['error']
-            : sprintf('casillas: %d revisadas, %d correos, %d rebotes (%d definitivos), %d respuestas',
-                      $r['casillas'] ?? 1, $r['revisados'], $r['rebotes'], $r['duros'] ?? 0, $r['respuestas']);
-        if (($r['rebotes'] ?? 0) || ($r['respuestas'] ?? 0)) {
-            log_app('cron.casilla', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
-        }
-    } else {
-        $lineas[] = 'casilla: se salteó (se revisa cada 15 min)';
-    }
-} catch (\Throwable $e) {
-    $lineas[] = 'casilla ERROR: ' . $e->getMessage();
-    log_app('cron.casilla_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
-}
 
 // ---- 3. Recordatorios de reuniones ----
 try {

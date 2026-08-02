@@ -366,6 +366,40 @@ function extraer_destinatario_rebote(string $cuerpo): array
  * estaba preparada para eso, sólo que nadie la usaba con más de un buzón), así
  * que ninguna vuelve a leer lo que ya leyó.
  */
+/**
+ * Lee la casilla si ya pasó el tiempo mínimo desde la última vez.
+ *
+ * Existe porque «cada 15 minutos y siempre al final» no sirve cuando hay una
+ * campaña andando: los rebotes llegan a los segundos de cada envío y las
+ * respuestas empiezan a entrar enseguida, pero nada de eso aparecía en pantalla
+ * hasta que la corrida terminaba. Todo junto, al final, cuando ya no sirve para
+ * reaccionar. Ahora se mira seguido mientras la campaña manda —que es cuando
+ * pasan cosas— y espaciado cuando no hay nada en curso, porque abrir IMAP es
+ * caro y no tiene sentido hacerlo cada cinco minutos para no encontrar nada.
+ *
+ * Devuelve null si todavía no tocaba mirar.
+ */
+function imap_quizas_revisar(int $cadaSegundos): ?array
+{
+    $ultima = (int) setting_get('imap_ultima_corrida', '0');
+    if (time() - $ultima < max(30, $cadaSegundos)) { return null; }
+
+    // La marca se pone ANTES de leer: si la lectura falla o tarda, no se
+    // reintenta en bucle contra un servidor que no está contestando.
+    setting_set('imap_ultima_corrida', (string)time());
+    try {
+        $r = imap_revisar_todas();
+    } catch (\Throwable $e) {
+        db_reanudar();
+        return ['error' => $e->getMessage(), 'rebotes' => 0, 'respuestas' => 0,
+                'revisados' => 0, 'casillas' => 0];
+    }
+    // Leer una casilla puede llevar varios segundos y este hosting corta la
+    // conexión a la base a los 20 de inactividad.
+    db_reanudar();
+    return $r;
+}
+
 function imap_revisar_todas(int $diasPrimeraVez = 30): array
 {
     $total = ['rebotes' => 0, 'duros' => 0, 'respuestas' => 0, 'revisados' => 0,
