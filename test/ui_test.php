@@ -429,7 +429,7 @@ echo "== Todo campo dice qué va adentro ==\n";
 // las ayudas que sí importan.
 $obvios = ['nombre', 'apellido', 'calle', 'localidad', 'provincia', 'codigo_postal', 'pais',
            'email', 'asunto', 'duracion_min', 'margen_min', 'aviso_min_horas', 'ventana_dias',
-           'cuit', 'remitente', 'smtp_from', 'smtp_from_name', 'testing_destinatarios',
+           'cuit', 'remitente', 'smtp_from', 'smtp_from_name',
            'empresa_whatsapp', 'empresa_email', 'papelera_dias', 'cron_clave', 'empresa', 'slug',
            'inicia_el', 'termina_el', 'vence_el', 'fecha_cierre', 'lugar', 'resultado', 'sentido',
            'cuerpo', 'correos', 'objetivo', 'probabilidad', 'orden', 'color', 'tipo', 'activo', 'motivo'];

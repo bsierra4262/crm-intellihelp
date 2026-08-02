@@ -389,6 +389,7 @@ function contacto_guardar(array $d, ?int $id = null): int
         }
         $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($campos)));
         q("UPDATE contactos SET $sets WHERE id = ?", [...array_values($campos), $id]);
+
         // Las listas guardan una copia del correo del día que se armaron. Si no
         // se alinea acá, cambiar un correo no cambia nada donde importa: la
         // lista sigue mostrando el viejo y la campaña le escribe a ése.

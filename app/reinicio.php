@@ -219,9 +219,14 @@ function reinicio_sembrar(): array
     // sólo lo marca y lo reintenta.
     $gente = [
         [
-            'nombre' => 'Brian', 'apellido' => 'Sierra', 'email' => 'bsierra@intellihelp.tech',
+            // Va tu correo de afuera a propósito: llegando a otro proveedor se
+            // prueba lo que no se puede probar mandándose correo a uno mismo
+            // —que salga bien, que no caiga en spam— y, sobre todo, permite
+            // contestar desde una dirección distinta a la que el sistema lee,
+            // que es la única forma de comprobar que detecta las respuestas.
+            'nombre' => 'Brian', 'apellido' => 'Sierra', 'email' => 'bsierra4262@gmail.com',
             'cargo' => 'Responsable de Sistemas', 'telefono' => '5491150274827',
-            'nota' => 'Vos. El correo llega de verdad.',
+            'nota' => 'Vos. Llega a tu Gmail: desde ahí podés responder y ver que el CRM lo detecta.',
         ],
         [
             'nombre' => 'Laura', 'apellido' => 'Gómez', 'email' => 'bsierra+laura@intellihelp.tech',
@@ -304,12 +309,9 @@ function reinicio_sembrar(): array
     }
     $out[] = 'Lista: «Prueba del circuito» con ' . count($gente) . ' destinatarios (id ' . $listaId . ')';
 
-    // ---- Destinatarios permitidos en modo prueba ----
-    // Van TODOS los de arriba: en modo prueba sólo sale correo a las
-    // direcciones de esta lista, así que sin esto los de rebote quedarían
-    // omitidos y no se podría comprobar nada.
-    setting_set('testing_destinatarios', implode(', ', array_column($gente, 'email')));
-    $out[] = 'Modo prueba: habilitadas las ' . count($gente) . ' direcciones de arriba';
+    // Ya no hay lista de direcciones autorizadas: el modo prueba manda igual
+    // que producción. Lo que lo hace seguro es que estos datos son ficticios.
+    setting_set('testing_destinatarios', '');
 
     return $out;
 }

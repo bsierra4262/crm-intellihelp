@@ -69,7 +69,7 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
                     <strong><?= e($p['titulo']) ?></strong>
                     <small><?= e($p['detalle']) ?></small>
                 </span>
-                <?php if (!$p['ok'] && $p['accion']): ?>
+                <?php if (!$p['ok'] && $p['accion'] && $p['enlace']): ?>
                     <a class="btn btn-ghost btn-sm" href="<?= e($p['enlace']) ?>"><?= e($p['accion']) ?></a>
                 <?php endif; ?>
             </li>
@@ -96,7 +96,7 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
 </div>
 
 <?php if ($testing && in_array($c['estado'], ['enviando', 'programada'], true)): ?>
-    <div class="flash flash-info"><strong>Modo prueba:</strong> sólo salen correos a los destinatarios internos de Ajustes.</div>
+    <div class="flash flash-info"><strong>Modo prueba:</strong> los correos salen de verdad, igual que en producción. Lo de prueba son los datos.</div>
 <?php endif; ?>
 
 <?php /* data-vivo enciende la actualización sola: el script pregunta cada seis

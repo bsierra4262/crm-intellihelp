@@ -21,8 +21,8 @@
     </div>
 <?php elseif ($testing): ?>
     <div class="flash flash-info">
-        <strong>Modo prueba.</strong> Los correos sólo salen a la lista de destinatarios internos
-        cargada en Ajustes. Ningún cliente real recibe nada.
+        <strong>Modo prueba.</strong> El sistema funciona exactamente igual que en producción: los
+        correos salen de verdad. Lo único distinto es que los datos cargados son de prueba.
     </div>
 <?php endif; ?>
 

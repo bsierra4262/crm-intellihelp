@@ -585,18 +585,7 @@ function campana_pasos(array $c): array
             'Crear un tipo de reunión', url('agenda-form'));
     }
 
-    // 5. Modo de trabajo
-    if (es_testing()) {
-        $permitidos = array_filter(array_map('trim', explode(',', (string)setting_get('testing_destinatarios', ''))));
-        $add('modo', count($permitidos) > 0,
-            'Modo prueba activo',
-            count($permitidos) > 0
-                ? 'Sólo van a recibir: ' . implode(', ', $permitidos) . '. El resto se omite.'
-                : 'Está en modo prueba y no hay destinatarios de prueba cargados: no se va a enviar nada.',
-            'Ir a Ajustes', url('ajustes'), count($permitidos) === 0);
-    }
-
-    // 6. Cola preparada
+    // 5. Cola preparada
     $add('cola', $enCola > 0,
         'Preparar la cola',
         $enCola > 0
@@ -812,14 +801,6 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240): array
                 continue;
             }
 
-            // Modo testing: nunca sale un correo a un destinatario real.
-            if (es_testing() && !destinatario_de_prueba((string)$envio['email'])) {
-                q("UPDATE envios SET estado = 'omitido', motivo = 'Modo testing: destinatario no autorizado' WHERE id = ?",
-                  [(int)$envio['id']]);
-                $res['omitidos']++;
-                continue;
-            }
-
             $clave = $cuenta ? 'c' . (int)$cuenta['id'] : 'ajustes';
             $cfg   = $cuenta ? cuenta_a_config($cuenta) : null;
             if (!isset($sesiones[$clave])) {
@@ -938,12 +919,6 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240): array
 }
 
 /** En modo testing sólo se le puede escribir a la lista blanca interna. */
-function destinatario_de_prueba(string $email): bool
-{
-    $lista = array_filter(array_map('trim', explode(',', (string)setting_get('testing_destinatarios', ''))));
-    return in_array(normalizar_email($email), array_map('normalizar_email', $lista), true);
-}
-
 // ------------------------------------------------------------
 //  Bajas y rebotes
 // ------------------------------------------------------------

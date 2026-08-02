@@ -34,7 +34,7 @@ if (is_post()) {
 
     } else {
         $claves = [
-            'app_nombre', 'app_entorno', 'testing_destinatarios',
+            'app_nombre', 'app_entorno',
             'empresa_nombre', 'empresa_web', 'empresa_telefono', 'empresa_email', 'empresa_whatsapp',
             'campana_pausa_min', 'campana_pausa_max', 'campana_limite_diario',
             'papelera_dias', 'cron_clave', 'avisar_email_a',

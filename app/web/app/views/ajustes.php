@@ -48,12 +48,12 @@
                     <option value="testing"    <?= $s('app_entorno', 'testing') === 'testing' ? 'selected' : '' ?>>Prueba (no se escribe a clientes)</option>
                     <option value="produccion" <?= $s('app_entorno') === 'produccion' ? 'selected' : '' ?>>Producción</option>
                 </select>
-                <i class="hint">En «Prueba» sólo sale correo a las direcciones de abajo: podés armar y probar campañas sin riesgo de escribirle a un cliente real por error.</i>
-            </label>
-            <label class="fld full"><span>Destinatarios permitidos en modo prueba</span>
-                <input name="testing_destinatarios" value="<?= e($s('testing_destinatarios')) ?>" maxlength="500"
-                       placeholder="tu@intellihelp.tech, otro@intellihelp.tech">
-                <i class="hint">En modo prueba, cualquier correo de campaña que no vaya a estas direcciones se omite.</i>
+                <i class="hint">
+                    El sistema funciona igual en los dos modos: en «Prueba» los correos salen de
+                    verdad, se agendan reuniones de verdad y se detectan las respuestas igual que en
+                    producción. La diferencia es que los datos cargados son ficticios y que sólo en
+                    «Prueba» se puede reiniciar todo para volver a empezar el circuito de cero.
+                </i>
             </label>
         </div>
     </div>
