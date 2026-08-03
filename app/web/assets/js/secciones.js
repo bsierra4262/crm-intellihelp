@@ -78,8 +78,21 @@
         doc.querySelectorAll('[data-vivo]').forEach(function (zona) {
             var nombre = zona.getAttribute('data-vivo');
             var nueva  = doc2.querySelector('[data-vivo="' + nombre + '"]');
-            if (!nueva || nueva.innerHTML === zona.innerHTML) { return; }
+            if (!nueva) { return; }
+
+            // Se compara contra lo ÚLTIMO QUE MANDÓ EL SERVIDOR, no contra lo
+            // que hay en pantalla. En pantalla el HTML ya no es el mismo: los
+            // desplegables están envueltos en su versión propia y los contadores
+            // de las campañas los reescribe el otro script. Comparando contra la
+            // pantalla nunca coincidían, así que la zona se reemplazaba en cada
+            // vuelta —cada cinco segundos— aunque no hubiera cambiado nada.
+            // La primera vez sólo se toma nota. La pantalla se acaba de dibujar
+            // con esto mismo, así que reemplazarla no aportaría nada y en cambio
+            // se vería un parpadeo en cada carga.
+            if (zona.__servidor === undefined) { zona.__servidor = nueva.innerHTML; return; }
+            if (zona.__servidor === nueva.innerHTML) { return; }
             if (!seguro(zona)) { return; }
+            zona.__servidor = nueva.innerHTML;
 
             // El scroll horizontal de las tablas anchas se conserva: si no, cada
             // refresco te devuelve al principio de la tabla.

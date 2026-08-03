@@ -97,9 +97,58 @@ select{appearance:none;-webkit-appearance:none;-moz-appearance:none;cursor:point
   background-repeat:no-repeat;background-position:right .7rem center;background-size:14px}
 select:focus{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23663399' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")}
 select::-ms-expand{display:none}
-/* La lista desplegada la dibuja el sistema y no se puede estilar, pero al
-   menos que no salga con los colores por defecto del navegador. */
-select option{background:var(--card);color:var(--ink);padding:6px}
+
+/* ---- La lista desplegada también es nuestra (selects.js) ----
+   El campo cerrado se puede estilar, pero la lista que se abre la dibuja el
+   sistema operativo: otra tipografía, otro azul de selección y otro tamaño en
+   cada máquina. En el medio de una pantalla terminada se nota. Así que el
+   `<select>` real se esconde —sigue siendo el que guarda el valor y el que se
+   envía— y arriba se dibuja un botón con su lista. */
+.sel{position:relative;display:block;min-width:0}
+.sel-real{position:absolute;opacity:0;pointer-events:none;width:100%;height:100%;
+  top:0;left:0;margin:0;border:0;padding:0}
+.sel-btn{display:flex;align-items:center;justify-content:space-between;gap:.5rem;
+  width:100%;min-height:40px;padding:.6rem 2rem .6rem .75rem;text-align:left;
+  font-family:inherit;font-size:14px;color:var(--ink);cursor:pointer;
+  border:1px solid var(--line);border-radius:var(--radius-xs);background:var(--surface);
+  transition:.15s;
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236b6577' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right .7rem center;background-size:14px}
+.sel-btn:hover{border-color:var(--line-2,#cfcbd8)}
+.sel.abierto .sel-btn,.sel-btn:focus-visible{outline:none;border-color:var(--primary);
+  box-shadow:0 0 0 3px var(--primary-050)}
+.sel-btn:disabled{background:var(--soft);color:var(--muted);cursor:not-allowed}
+.sel-txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* Sin elegir se ve más apagado, igual que el ejemplo de un campo de texto vacío. */
+.sel-vacio .sel-txt{color:var(--placeholder,#a7a3b4)}
+
+/* La lista va en una capa aparte, ubicada a mano. No es capricho: hay trece
+   pantallas con desplegables adentro de tablas que scrollean, y ahí una lista
+   común queda recortada por el borde de la tabla. */
+.sel-lista{position:fixed;z-index:70;max-height:min(320px,60vh);overflow-y:auto;
+  background:var(--card);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 14px 34px rgba(24,16,40,.18);padding:4px;min-width:160px;
+  max-width:min(420px,calc(100vw - 16px))}
+.sel-op{padding:.55rem .7rem;border-radius:7px;font-size:14px;color:var(--ink);
+  cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.35}
+.sel-op:hover,.sel-op.activa{background:var(--soft)}
+.sel-op.elegida{color:var(--primary);font-weight:700}
+/* La elegida se marca con un tilde y no sólo con color: con la fila resaltada
+   por el teclado encima, el color solo no alcanzaba para distinguirlas. */
+.sel-op.elegida::after{content:'✓';float:right;margin-left:.75rem;font-weight:800}
+.sel-op.inhabilitada{color:var(--muted);cursor:not-allowed;opacity:.6}
+.sel-op.inhabilitada:hover{background:transparent}
+/* En el celular las filas tienen que poder tocarse con el dedo. */
+@media (max-width:640px){ .sel-op{padding:.7rem .8rem} }
+@media (prefers-reduced-motion:reduce){ .sel-btn{transition:none} }
+
+/* Adentro de una tabla editable el desplegable se ve liviano, como los demás
+   campos de esa tabla: el borde aparece recién al pasar por encima. */
+.tabla-edit .sel-btn{min-height:36px;padding:.4rem 1.7rem .4rem .6rem;
+  background-color:transparent;border-color:transparent;background-position:right .45rem center}
+.tabla-edit tr:hover .sel-btn{background-color:var(--surface);border-color:var(--line)}
+/* En una fila de filtros el desplegable ocupa todo el ancho de su celda. */
+.filter-grid .sel,.fld .sel,.grid-fields .sel{width:100%}
 input[type=checkbox],input[type=radio]{accent-color:var(--primary);width:16px;height:16px;cursor:pointer;margin:0}
 .switch input[type=checkbox]{width:0;height:0}
 

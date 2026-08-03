@@ -7,15 +7,17 @@ declare(strict_types=1);
 //  Mientras el sistema está en modo prueba conviene poder dejarlo en cero
 //  después de cada tanda: el registro del cron, las campañas de ensayo, los
 //  envíos, las reuniones reservadas. Lo que NO se toca es lo que hace falta
-//  para volver a probar: las casillas de correo, los ajustes, las plantillas,
-//  los tipos de reunión, los usuarios y la cuenta de Google conectada.
+//  para volver a probar. Lo que cargó una persona usando el sistema —contactos,
+//  empresas, negocios, reuniones, plantillas— NO sobrevive: después de reiniciar
+//  sólo quedan los datos de prueba que siembra este mismo script.
 //
 //  Uso:
 //      php app/reinicio.php                 muestra qué borraría, sin borrar
 //      php app/reinicio.php --hacerlo       borra
-//      php app/reinicio.php --hacerlo --contactos   borra además la base de
+//      php app/reinicio.php --sembrar       sólo deja cargados los datos de prueba
+//      php app/reinicio.php --hacerlo --conservar-base
+//                                           borra el ruido pero NO toca la base de
 //                                           contactos, empresas y posibles
-//      php app/reinicio.php --sembrar       deja cargados los datos de prueba
 //
 //  PROTECCIÓN: si el sistema está en producción, no borra nada. El modo se
 //  cambia en Ajustes → Modo de trabajo, y ahí queda registrado quién lo hizo.
@@ -29,10 +31,13 @@ if (PHP_SAPI !== 'cli') {
 $raiz = is_file(__DIR__ . '/web/app/bootstrap.php') ? __DIR__ . '/web' : __DIR__;
 require $raiz . '/app/bootstrap.php';
 
-$args      = array_slice($argv, 1);
-$hacerlo   = in_array('--hacerlo', $args, true);
-$contactos = in_array('--contactos', $args, true);
-$sembrar   = in_array('--sembrar', $args, true);
+$args     = array_slice($argv, 1);
+$hacerlo  = in_array('--hacerlo', $args, true);
+$sembrar  = in_array('--sembrar', $args, true);
+// Al revés que antes: la base de contactos se borra por defecto. Se conserva
+// sólo si se pide, para cuando adentro hay una importación real de verdad.
+$conservarBase = in_array('--conservar-base', $args, true)
+              || in_array('--conservar-contactos', $args, true);
 
 $entorno = (string) setting_get('app_entorno', 'testing');
 if ($entorno !== 'testing') {
@@ -66,30 +71,63 @@ $tablas = [
     'actividad'          => 'registro de auditoría y del cron',
 ];
 
-// Con --contactos se borra también la base de trabajo. Va aparte porque no es
-// ruido de pruebas: son los 29.000 contactos importados, y volver a cargarlos
-// lleva su tiempo.
-$tablasContactos = [
+// La base de trabajo se borra TAMBIÉN, y por defecto.
+//
+// Antes esto era opcional (`--contactos`) y quedaba afuera, así que después de
+// reiniciar seguían apareciendo el contacto y la empresa que alguien había
+// cargado probando la agenda pública, mezclados con los de prueba. Y peor:
+// seguían las siembras VIEJAS —contactos que se habían sacado del script pero
+// que nadie borraba nunca—, así que la lista de prueba iba creciendo con gente
+// que ya no tenía por qué estar.
+//
+// Estando en modo prueba, después de reiniciar no puede quedar NADA que haya
+// cargado una persona usando el sistema: sólo los datos de prueba que siembra
+// este mismo script. Con `--conservar-base` se puede pedir lo contrario, para
+// cuando lo que hay adentro es una importación real que no se quiere rehacer.
+$tablasBase = [
     'negocio_contactos'  => 'vínculos de negocios con contactos',
     'negocio_etapas'     => 'historial de etapas de los negocios',
     'negocios'           => 'negocios',
     'etiqueta_registro'  => 'etiquetas aplicadas',
+    'etiquetas'          => 'las etiquetas creadas',
     'posibles_clientes'  => 'posibles clientes',
     'contactos'          => 'contactos',
     'cuentas'            => 'empresas',
-];
-if ($contactos) { $tablas = $tablasContactos + $tablas; }
 
+    // Configuración que también carga el usuario y que se vuelve a sembrar
+    // acá abajo: sin esto quedaban los tipos de reunión de prueba, los embudos
+    // con etapas a medio armar y las plantillas que alguien hizo probando.
+    'agenda_horarios'    => 'horarios de los tipos de reunión',
+    'agenda_tipos'       => 'tipos de reunión (se vuelve a sembrar uno)',
+    'etapas'             => 'etapas del embudo (se vuelve a sembrar)',
+    'embudos'            => 'embudos (se vuelve a sembrar)',
+    'plantillas'         => 'plantillas de campaña (se vuelven a sembrar todas)',
+    'imagenes'           => 'imágenes subidas a la biblioteca',
+    'api_tokens'         => 'claves de la API (si tenías una integración andando, hay que generar otra)',
+    'cuotas'             => 'objetivos de venta cargados',
+    // La conexión con Google también la hizo una persona. Se puede borrar sin
+    // miedo: sin la fila, el próximo ingreso vuelve a pedir el consentimiento y
+    // Google manda el token de nuevo, así que se reconecta sola al entrar.
+    'google_tokens'      => 'la conexión con Google (se rehace sola al volver a entrar)',
+];
+// El ruido va PRIMERO y la base después: los envíos, los miembros de las listas
+// y las actividades apuntan a contactos y empresas. Varias de esas referencias
+// no tienen clave foránea declarada, así que borrar al revés no da error —
+// simplemente deja filas apuntando a algo que ya no existe si el script se
+// corta en el medio.
+if (!$conservarBase) { $tablas = $tablas + $tablasBase; }
+
+// Lo único que sobrevive es lo que NO se puede volver a generar solo.
 $conserva = [
-    'usuarios'         => 'los usuarios y sus permisos',
-    'google_tokens'    => 'la cuenta de Google conectada',
-    'cuentas_correo'   => 'las casillas de correo, con su contraseña',
-    'app_settings'     => 'los ajustes y los datos de la empresa',
-    'plantillas'       => 'las plantillas de campaña',
-    'agenda_tipos'     => 'los tipos de reunión y su horario',
-    'categorias'       => 'los segmentos',
-    'embudos / etapas' => 'la configuración del embudo',
-    'imagenes'         => 'la biblioteca de imágenes',
+    'usuarios'       => 'los usuarios y sus permisos — sin esto nadie podría entrar',
+    'cuentas_correo' => 'las casillas de correo. Las contraseñas son «de aplicación» de Google '
+                      . 'y NO se pueden leer de ningún lado: borrarlas obligaría a generarlas a '
+                      . 'mano en la cuenta de Google después de cada reinicio',
+    'app_settings'   => 'los ajustes. Se vuelven a dejar con los datos de la empresa, pero la '
+                      . 'tabla no se vacía: ahí vive la clave del cron, que está escrita en el '
+                      . 'comando programado en hPanel y no se puede cambiar desde acá',
+    'categorias'     => 'los segmentos: vienen de una migración y no hay pantalla para volver a '
+                      . 'crearlos, así que borrarlos los perdería para siempre',
 ];
 
 echo $hacerlo ? "== Reinicio de la instalación de pruebas ==\n" : "== Simulacro: NO se borra nada ==\n";
@@ -134,12 +172,35 @@ foreach ($tablas as $t => $desc) {
     printf("  %-22s %7d   %s\n", $t, $n, $desc);
     if ($hacerlo && $n > 0) { q("DELETE FROM `$t`"); }
 }
-if (!$contactos) {
-    echo "\n  (la base de contactos, empresas y posibles NO se toca; para borrarla también: --contactos)\n";
+if ($conservarBase) {
+    echo "\n  (la base de contactos, empresas y posibles NO se toca: lo pediste con --conservar-base)\n";
+} else {
+    echo "\n  Se borra TODO lo que se haya cargado usando el sistema. Después de esto no queda\n"
+       . "  ningún contacto, empresa, negocio ni reunión que no haya sembrado este script.\n";
 }
 
 echo "\nSe conserva:\n";
 foreach ($conserva as $t => $desc) { printf("  %-22s %s\n", $t, $desc); }
+
+// ------------------------------------------------------------
+//  Control: que no se haya olvidado ninguna tabla
+// ------------------------------------------------------------
+// Es lo que ya pasó una vez: se agregó una tabla nueva, nadie se acordó de
+// sumarla acá, y después de reiniciar quedaba dando vueltas lo que había
+// cargado el usuario. Como esta lista se escribe a mano, el script se controla
+// solo contra la base: cualquier tabla que no esté ni en lo que se borra ni en
+// lo que se conserva es una que alguien olvidó decidir.
+$todas = q('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+$decididas = array_merge(array_keys($tablas), array_keys($tablasBase), array_keys($conserva));
+$olvidadas = array_diff($todas, $decididas);
+if ($olvidadas) {
+    echo "\n  ATENCIÓN: estas tablas no están ni en lo que se borra ni en lo que se conserva.\n"
+       . "  Alguien las agregó y no decidió qué hacer con ellas, así que lo que tengan adentro\n"
+       . "  va a sobrevivir al reinicio sin que nadie lo haya elegido:\n";
+    foreach ($olvidadas as $t) {
+        printf("      %-22s %d fila(s)\n", $t, (int) qv("SELECT COUNT(*) FROM `$t`"));
+    }
+}
 
 if ($hacerlo) {
     // La marca del cron también se limpia, para que la próxima corrida arranque
@@ -319,6 +380,67 @@ function reinicio_sembrar(): array
         ], $ya ? (int)$ya['id'] : null);
     }
     $out[] = 'Contactos: ' . count($gente) . ' cargados (2 que llegan, ' . (count($gente) - 2) . ' que rebotan por motivos distintos)';
+
+    // ---- Embudo ----
+    // Se vuelve a sembrar porque ahora se borra: si no, la pantalla del Embudo
+    // queda vacía y los negocios no tienen dónde ubicarse.
+    if (!qv('SELECT COUNT(*) FROM embudos')) {
+        q("INSERT INTO embudos (nombre, predeterminado, activo) VALUES ('Ventas', 1, 1)");
+        $embudoId = last_id();
+        foreach ([['Contacto inicial', 10, 'abierta', '#663399', 1],
+                  ['Propuesta enviada', 50, 'abierta', '#1f6f9c', 2],
+                  ['Negociación',       75, 'abierta', '#a8620a', 3],
+                  ['Ganado',           100, 'ganada',  '#5f8a12', 4],
+                  ['Perdido',            0, 'perdida', '#a12a1e', 5]] as [$n, $prob, $tipo, $color, $ord]) {
+            q('INSERT INTO etapas (embudo_id, nombre, probabilidad, tipo, color, orden, activo)
+               VALUES (?, ?, ?, ?, ?, ?, 1)', [$embudoId, $n, $prob, $tipo, $color, $ord]);
+        }
+        $out[] = 'Embudo: «Ventas» con sus 5 etapas';
+    }
+
+    // ---- Tipo de reunión ----
+    // Es lo que hace funcionar el botón «Agendar una reunión» de las plantillas
+    // y el enlace público. Sin esto, ese botón sale sin destino.
+    if (!qv('SELECT COUNT(*) FROM agenda_tipos')) {
+        $tipoId = agenda_tipo_guardar([
+            'usuario_id' => $duenio,
+            'nombre'     => 'Reunión de 30 minutos',
+            'slug'       => 'demo-30',
+            'duracion_min' => 30,
+            'margen_min'   => 15,
+            'ventana_dias' => 30,
+            'aviso_min_horas' => 2,
+            'descripcion' => 'Charlamos 30 minutos por videollamada para ver si podemos ayudarte.',
+            'con_meet'   => 1,
+            'activo'     => 1,
+            'dias'       => [1, 2, 3, 4, 5],
+            'desde'      => array_fill_keys([1, 2, 3, 4, 5], '09:00'),
+            'hasta'      => array_fill_keys([1, 2, 3, 4, 5], '18:00'),
+        ]);
+        $out[] = 'Agenda: «Reunión de 30 minutos», de lunes a viernes de 9 a 18 (id ' . $tipoId . ')';
+    }
+
+    // ---- Plantillas ----
+    // Se dejan cargadas TODAS las prearmadas: una por cada servicio de la
+    // empresa, más los tres formatos genéricos. Antes esta tabla se conservaba
+    // tal cual, así que quedaban las que alguien había creado probando y seguía
+    // apareciendo la vieja «Outsourcing (la de Pulsemail)» con el nombre viejo:
+    // el molde se había renombrado, pero la fila de la base no.
+    $nPlantillas = 0;
+    foreach (plantillas_preajustes() as $clave => $p) {
+        $ya = q1('SELECT id FROM plantillas WHERE preajuste = ? AND eliminado_en IS NULL LIMIT 1', [$clave]);
+        plantilla_guardar([
+            'nombre'    => $p['nombre'],
+            'asunto'    => $p['asunto'],
+            'tipo'      => 'visual',
+            'bloques'   => ['bloques' => $p['bloques'], 'ajustes' => $p['ajustes']],
+            'preajuste' => $clave,
+            'carpeta'   => isset($p['bloques'][1]['volanta']) ? 'Servicios' : 'Genéricas',
+            'activo'    => 1,
+        ], $ya ? (int)$ya['id'] : null);
+        $nPlantillas++;
+    }
+    $out[] = 'Plantillas: ' . $nPlantillas . ' cargadas, una por servicio más las genéricas';
 
     // ---- Lista de prueba ----
     $lista = q1("SELECT id FROM listas WHERE nombre = 'Prueba del circuito' AND eliminado_en IS NULL LIMIT 1");

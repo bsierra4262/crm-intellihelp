@@ -545,6 +545,29 @@ ok('el estilo va sobre el control, no sobre el contenedor donde toca estar',
 // sistema lo dibuja a su manera.
 ok('los desplegables tienen la flecha nuestra, no la del sistema',
    str_contains($CSS, 'select{appearance:none') && str_contains($CSS, "background-image:url(\"data:image/svg+xml"));
+// El campo cerrado se puede estilar; la lista que se abre la dibuja el sistema
+// operativo, con otra tipografía y otro azul de selección. Se reemplaza entera.
+$selJs = (string) @file_get_contents($WEB . '/assets/js/selects.js');
+ok('la lista desplegada también es nuestra', $selJs !== '' && str_contains($CSS, '.sel-lista{position:fixed'));
+ok('y se carga en todas las pantallas, también en las públicas',
+   preg_match('/selects\.js.*?<\?php if \(\$u\)/s', $layout) === 1);
+// El `<select>` de verdad se queda: es el que tiene el name y el que se envía.
+ok('el campo real sigue existiendo y sigue siendo el que se manda',
+   str_contains($selJs, "caja.appendChild(sel)") && str_contains($selJs, 'sel-real'));
+ok('al elegir se avisa como lo haría el campo nativo',
+   str_contains($selJs, "new Event('change'"), 'si no, los filtros que se recargan solos dejarían de hacerlo');
+// Trece pantallas tienen desplegables adentro de tablas que scrollean: una lista
+// posicionada dentro del campo quedaría recortada por el borde de la tabla.
+ok('la lista va en una capa aparte, para que no la recorte la tabla',
+   str_contains($selJs, 'doc.body.appendChild(capa)') && str_contains($selJs, 'function ubicar('));
+ok('se puede usar sin mouse', str_contains($selJs, "e.key === 'ArrowDown'") && str_contains($selJs, "e.key === 'Escape'"));
+ok('los campos que trae el refresco automático también se envuelven',
+   str_contains($selJs, "'vivo:actualizado'"));
+// Al envolver el campo, el HTML de la pantalla deja de ser el que mandó el
+// servidor: comparando contra la pantalla, la zona se reemplazaba cada cinco
+// segundos aunque no hubiera cambiado nada.
+ok('el refresco compara contra lo último que mandó el servidor, no contra la pantalla',
+   str_contains((string) @file_get_contents($WEB . '/assets/js/secciones.js'), 'zona.__servidor'));
 // El ancho puesto junto al estilo pisaba a `.w-sm` —un selector de atributo pesa
 // más que una clase— y las filas de una línea se partían en cinco renglones.
 ok('el ancho lo decide el contenedor, así los anchos con nombre siguen valiendo',
@@ -578,6 +601,40 @@ foreach (glob($WEB . '/app/views/*.php') ?: [] as $v) {
 }
 ok('la mayoría de los campos trae un ejemplo adentro', $conEjemplo >= 70,
    "$conEjemplo con ejemplo, $sinEjemplo sin ejemplo");
+
+echo "== El reinicio no deja nada de lo que cargó el usuario ==\n";
+// Estando en prueba, después de reiniciar no puede quedar ni un contacto, ni una
+// empresa, ni una reunión que no haya sembrado el propio script. Antes la base de
+// trabajo quedaba afuera y sobrevivían el contacto y la empresa que alguien había
+// cargado probando la agenda pública, mezclados con los de prueba.
+$rei = '';
+foreach ([dirname($WEB) . '/reinicio.php', $WEB . '/reinicio.php',
+          dirname(dirname($WEB)) . '/reinicio.php'] as $r) {
+    $rei = (string) @file_get_contents($r);
+    if ($rei !== '') { break; }
+}
+ok('se encontró el script de reinicio', $rei !== '');
+ok('la base de contactos y empresas se borra POR DEFECTO',
+   str_contains($rei, 'if (!$conservarBase)') && str_contains($rei, "'contactos'          => 'contactos'"));
+// El ruido apunta a contactos y empresas: si se borra al revés y el script se
+// corta en el medio, quedan filas apuntando a algo que ya no existe.
+ok('primero el ruido y después la base, por las referencias',
+   str_contains($rei, '$tablas = $tablas + $tablasBase'));
+// Lo que se borra pero hace falta para probar, se vuelve a sembrar.
+foreach (['plantillas' => 'plantillas_preajustes()', 'embudo' => "INSERT INTO embudos",
+          'agenda' => 'agenda_tipo_guardar('] as $qué => $marca) {
+    ok("se vuelve a sembrar: $qué", str_contains($rei, $marca));
+}
+// Tres cosas NO se pueden borrar y hay que poder justificar cada una.
+foreach (['cuentas_correo' => 'las contraseñas de aplicación de Google no se pueden leer',
+          'app_settings'   => 'ahí vive la clave del cron, que está en el comando de hPanel',
+          'categorias'     => 'no hay pantalla para volver a crearlos'] as $t => $porqué) {
+    ok("se conserva $t, y está explicado por qué", str_contains($rei, "'$t'"), $porqué);
+}
+// La lista se escribe a mano: sin este control, agregar una tabla nueva y
+// olvidarse de sumarla acá vuelve a dejar datos del usuario dados vuelta.
+ok('el script se controla solo contra la base, por si alguien agrega una tabla',
+   str_contains($rei, "q('SHOW TABLES')") && str_contains($rei, '$olvidadas'));
 
 echo "== Una plantilla por cada servicio, todas con la misma cara ==\n";
 $pre = (string) @file_get_contents($WEB . '/app/preajustes.php');
