@@ -109,6 +109,23 @@ function gcal_falla_pendiente(): ?array
     $d = json_decode($j, true);
     if (!is_array($d)) { return null; }
 
+    // Una falla por «no tiene su cuenta conectada» se resuelve reconectando,
+    // y eso NO pasa por acá: el aviso sólo se borraba cuando alguna llamada a
+    // Google salía bien, y después de reconectar no hay ninguna hasta que
+    // alguien reserve una reunión o pase el cron. Resultado: reconectabas, el
+    // token quedaba guardado, y el cartel rojo seguía ahí igual, sin forma de
+    // sacarlo. Si la cuenta se volvió a conectar DESPUÉS de la falla, la falla
+    // ya no existe.
+    $uid = (int)($d['usuario_id'] ?? 0);
+    if ($uid > 0 && str_contains(mb_strtolower((string)($d['mensaje'] ?? '')), 'no tiene su cuenta')) {
+        $reconectado = (string) qv('SELECT actualizado_en FROM google_tokens
+                                    WHERE usuario_id = ? AND refresh_token <> \'\'', [$uid]);
+        if ($reconectado !== '' && strtotime($reconectado) >= strtotime((string)($d['cuando'] ?? '1970-01-01'))) {
+            setting_set('gcal_falla', '');
+            return null;
+        }
+    }
+
     // El caso más común y el que más cuesta descubrir: la API existe pero está
     // apagada en el proyecto de Google Cloud. Se traduce a algo accionable.
     $m = (string)($d['mensaje'] ?? '');

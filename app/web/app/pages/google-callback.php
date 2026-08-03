@@ -75,5 +75,15 @@ q('UPDATE usuarios SET nombre = ?, avatar_url = ? WHERE id = ?',
 //    reuniones en Google Calendar aunque el vendedor no tenga sesión abierta.
 google_guardar_tokens((int)$usuario['id'], $tok);
 
+// 7) Se acaba de reconectar, así que un aviso de «esta cuenta perdió la
+//    conexión» ya no corresponde. Antes ese cartel sólo se borraba cuando
+//    alguna llamada a Google salía bien, y después de reconectar no hay
+//    ninguna hasta que alguien reserve una reunión o pase el cron: reconectabas
+//    y el cartel rojo seguía ahí, sin forma de sacarlo.
+$fallaPrevia = gcal_falla_pendiente();
+if ($fallaPrevia && (int)($fallaPrevia['usuario_id'] ?? 0) === (int)$usuario['id']) {
+    gcal_recordar_falla((int)$usuario['id'], 0, '');
+}
+
 auth_login_user((int)$usuario['id']);
 redirect('dashboard');

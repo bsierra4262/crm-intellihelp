@@ -587,6 +587,21 @@ ok('cuando la cuenta perdió la conexión, el aviso ofrece reconectar',
 ok('en cada ingreso se piden TODOS los permisos, no sólo la primera vez',
    preg_match('/google_auth_url\(\$_SESSION\[.oauth_state.\],\s*true\)/',
               (string) @file_get_contents($WEB . '/app/pages/google-login.php')) === 1);
+// El aviso sólo se borraba cuando alguna llamada a Google salía bien, y después
+// de reconectar no hay ninguna hasta que alguien reserve una reunión o pase el
+// cron: reconectabas, el token quedaba guardado, y el cartel rojo seguía ahí
+// sin forma de sacarlo.
+$gcalSrc = (string) @file_get_contents($WEB . '/app/gcal.php');
+ok('el aviso se borra solo si la cuenta se reconectó después de la falla',
+   str_contains($gcalSrc, 'SELECT actualizado_en FROM google_tokens')
+   && str_contains($gcalSrc, "str_contains(mb_strtolower((string)(\$d['mensaje'] ?? '')), 'no tiene su cuenta')"));
+ok('y al reconectar se borra en el acto, sin esperar a nada',
+   str_contains((string) @file_get_contents($WEB . '/app/pages/google-callback.php'),
+                'gcal_recordar_falla((int)$usuario[\'id\'], 0, \'\')'));
+// Que se limpie sola no puede convertirse en tapar un problema real: sólo
+// aplica a la falla por cuenta desconectada, no a la API apagada.
+ok('sólo se limpia ese caso, no cualquier falla',
+   preg_match("/no tiene su cuenta.*?setting_set\('gcal_falla', ''\)/s", $gcalSrc) === 1);
 
 echo "== Los campos se ven como campos en TODAS las pantallas ==\n";
 // Las reglas arrancaban en `.fld`, `.filters` o `.urow`, así que un campo puesto
