@@ -20,7 +20,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <h2 class="sec">Identificación</h2>
         <div class="grid-fields">
             <label class="fld wide"><span>Nombre de la empresa <i class="req">*</i></span>
-                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus>
+                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus placeholder="Distribuidora del Sur S.A.">
                 <?php if (isset($errores['nombre'])): ?><i class="hint bad"><?= e($errores['nombre']) ?></i><?php endif; ?>
             </label>
             <label class="fld"><span>Tipo</span>
@@ -66,25 +66,25 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <h2 class="sec">Contacto y ubicación</h2>
         <div class="grid-fields">
             <label class="fld"><span>Teléfono</span>
-                <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
+                <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios." placeholder="+54 9 11 5162-9038">
                 <i class="hint">La central. Sólo números; se aceptan + ( ) - . y espacios.</i>
             </label>
             <label class="fld"><span>Correo</span>
-                <input type="email" name="email" value="<?= $v('email') ?>" maxlength="190">
+                <input type="email" name="email" value="<?= $v('email') ?>" maxlength="190" placeholder="info@distribuidoradelsur.com">
                 <i class="hint">La casilla general de la empresa (info@, ventas@). El correo de cada persona va en su ficha.</i>
             </label>
             <label class="fld wide"><span>Sitio web</span>
-                <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255">
+                <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="distribuidoradelsur.com">
                 <i class="hint">El sitio de la empresa.</i>
             </label>
             <label class="fld wide"><span>Domicilio</span>
-                <input name="calle" value="<?= $v('calle') ?>" maxlength="250">
+                <input name="calle" value="<?= $v('calle') ?>" maxlength="250" placeholder="Av. Mitre 2450">
             </label>
             <label class="fld"><span>Localidad</span>
-                <input name="localidad" value="<?= $v('localidad') ?>" maxlength="120">
+                <input name="localidad" value="<?= $v('localidad') ?>" maxlength="120" placeholder="Avellaneda">
             </label>
             <label class="fld"><span>Código postal</span>
-                <input name="codigo_postal" value="<?= $v('codigo_postal') ?>" maxlength="30">
+                <input name="codigo_postal" value="<?= $v('codigo_postal') ?>" maxlength="30" placeholder="B1870">
             </label>
             <label class="fld"><span>Provincia</span>
                 <select name="provincia">
@@ -102,7 +102,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <i class="hint">La página de la empresa en LinkedIn.</i>
             </label>
             <label class="fld full"><span>Notas</span>
-                <textarea name="descripcion" rows="4"><?= $v('descripcion') ?></textarea>
+                <textarea name="descripcion" rows="4" placeholder="Cliente desde 2023. Renueva equipamiento cada dos anos."><?= $v('descripcion') ?></textarea>
                 <i class="hint">Contexto que convenga tener a mano. Es interno.</i>
             </label>
         </div>

@@ -188,9 +188,32 @@ no_contiene('sin JavaScript',                $htmlP, '<script');
 no_contiene('sin formularios',               $htmlP, '<form');
 ok('pesa bastante menos que el límite de Gmail', strlen($htmlP) < 102000,
    '(' . round(strlen($htmlP) / 1024, 1) . ' KB)');
-ok('los cuatro preajustes están completos',
-   count(plantillas_preajustes()) === 4
-   && !array_filter(plantillas_preajustes(), fn($p) => empty($p['bloques']) || empty($p['asunto'])));
+// Hay una plantilla por cada servicio que ofrece la empresa, más tres formatos
+// genéricos. Ninguna puede quedar a medias: una sin asunto o sin bloques se
+// elige igual desde el desplegable y da un correo vacío.
+$preajustes = plantillas_preajustes();
+ok('los preajustes están completos',
+   count($preajustes) >= 10
+   && !array_filter($preajustes, fn($p) => empty($p['bloques']) || empty($p['asunto']) || empty($p['nombre'])),
+   count($preajustes) . ' plantillas');
+
+// Y las de servicio tienen que ser IGUALES entre sí: mismos colores y mismos
+// bloques en el mismo orden. Es lo que hace que las campañas se reconozcan como
+// de la misma empresa en vez de parecer ocho correos de ocho lugares distintos.
+// Escritas a mano, una termina con el botón de otro color y de eso se entera el
+// cliente antes que nosotros.
+$servicios = ['pulsemail', 'soporte_empresas', 'seguridad', 'redes', 'ftth', 'iot', 'energia', 'soporte_hogar'];
+$firma = null; $iguales = true;
+foreach ($servicios as $k) {
+    $p = $preajustes[$k] ?? null;
+    if (!$p) { $iguales = false; break; }
+    $a = $p['ajustes']; unset($a['preencabezado']);   // el pre-encabezado sí cambia
+    $f = json_encode([$a, array_column($p['bloques'], 'tipo')]);
+    if ($firma === null) { $firma = $f; } elseif ($f !== $firma) { $iguales = false; break; }
+}
+ok('todas las plantillas de servicio comparten colores y estructura', $iguales);
+ok('y cada una dice de qué servicio habla',
+   count(array_unique(array_map(fn($k) => $preajustes[$k]['nombre'] ?? '', $servicios))) === count($servicios));
 
 echo "== Botón de WhatsApp (formato oficial) ==\n";
 $wa = bloques_render([['tipo' => 'whatsapp', 'telefono' => '54 9 11 5027-4827',

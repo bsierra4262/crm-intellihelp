@@ -23,10 +23,10 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <h2 class="sec">Quién es</h2>
         <div class="grid-fields">
             <label class="fld"><span>Nombre</span>
-                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="120" autofocus>
+                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="120" autofocus placeholder="Juan">
             </label>
             <label class="fld"><span>Apellido <i class="req">*</i></span>
-                <input name="apellido" value="<?= $v('apellido') ?>" maxlength="120" required>
+                <input name="apellido" value="<?= $v('apellido') ?>" maxlength="120" required placeholder="Perez">
                 <?php if (isset($errores['apellido'])): ?><i class="hint bad"><?= e($errores['apellido']) ?></i><?php endif; ?>
             </label>
             <label class="fld"><span>Cargo</span>
@@ -34,7 +34,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <i class="hint">El puesto. Se usa en la variable {{cargo}} de las campañas.</i>
             </label>
             <label class="fld"><span>Departamento</span>
-                <input name="departamento" value="<?= $v('departamento') ?>" maxlength="120">
+                <input name="departamento" value="<?= $v('departamento') ?>" maxlength="120" placeholder="Compras">
                 <i class="hint">El área dentro de la empresa: Sistemas, Compras, RRHH.</i>
             </label>
 
@@ -77,23 +77,23 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <h2 class="sec">Cómo se lo contacta</h2>
         <div class="grid-fields">
             <label class="fld wide"><span>Correo principal</span>
-                <input type="email" name="email" value="<?= $v('email') ?>" maxlength="190">
+                <input type="email" name="email" value="<?= $v('email') ?>" maxlength="190" placeholder="juan.perez@empresa.com">
                 <?php if (isset($errores['email'])): ?><i class="hint bad"><?= e($errores['email']) ?></i><?php endif; ?>
             </label>
             <label class="fld"><span>Correo secundario</span>
-                <input type="email" name="email2" value="<?= $v('email2') ?>" maxlength="190">
+                <input type="email" name="email2" value="<?= $v('email2') ?>" maxlength="190" placeholder="jperez@gmail.com">
                 <i class="hint">Una segunda dirección. Las campañas usan la principal; esta queda como respaldo.</i>
             </label>
             <label class="fld"><span>Correo terciario</span>
-                <input type="email" name="email3" value="<?= $v('email3') ?>" maxlength="190">
+                <input type="email" name="email3" value="<?= $v('email3') ?>" maxlength="190" placeholder="compras@empresa.com">
                 <i class="hint">Una tercera, si la tenés.</i>
             </label>
             <label class="fld"><span>Teléfono directo</span>
-                <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
+                <input type="tel" name="telefono" value="<?= $v('telefono') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios." placeholder="+54 9 11 5162-9038">
                 <i class="hint">El directo. Sólo números; se aceptan + ( ) - . y espacios.</i>
             </label>
             <label class="fld"><span>Móvil</span>
-                <input type="tel" name="movil" value="<?= $v('movil') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
+                <input type="tel" name="movil" value="<?= $v('movil') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios." placeholder="+54 9 11 5027-4827">
                 <i class="hint">El celular. Es el que se usa para escribirle por WhatsApp.</i>
             </label>
             <label class="fld"><span>Conmutador</span>
@@ -105,7 +105,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <i class="hint">El perfil de la persona. Ayuda a preparar la llamada antes de levantar el teléfono.</i>
             </label>
             <label class="fld wide"><span>Sitio web</span>
-                <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255">
+                <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="empresa.com">
                 <i class="hint">El sitio personal, si tiene. El de la empresa va en la ficha de la empresa.</i>
             </label>
             <div class="fld wide abajo">
@@ -122,13 +122,13 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <h2 class="sec">Dónde está</h2>
         <div class="grid-fields">
             <label class="fld wide"><span>Domicilio</span>
-                <input name="calle" value="<?= $v('calle') ?>" maxlength="250">
+                <input name="calle" value="<?= $v('calle') ?>" maxlength="250" placeholder="Av. Corrientes 1234, piso 5">
             </label>
             <label class="fld"><span>Localidad</span>
-                <input name="localidad" value="<?= $v('localidad') ?>" maxlength="120">
+                <input name="localidad" value="<?= $v('localidad') ?>" maxlength="120" placeholder="Vicente Lopez">
             </label>
             <label class="fld"><span>Código postal</span>
-                <input name="codigo_postal" value="<?= $v('codigo_postal') ?>" maxlength="30">
+                <input name="codigo_postal" value="<?= $v('codigo_postal') ?>" maxlength="30" placeholder="B1638">
             </label>
             <label class="fld"><span>Provincia</span>
                 <select name="provincia">
@@ -142,7 +142,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <input name="pais" value="<?= $v('pais', 'Argentina') ?>" maxlength="60">
             </label>
             <label class="fld full"><span>Notas</span>
-                <textarea name="descripcion" rows="4"><?= $v('descripcion') ?></textarea>
+                <textarea name="descripcion" rows="4" placeholder="Nos conocimos en la feria de septiembre. Decide junto con sistemas."><?= $v('descripcion') ?></textarea>
                 <i class="hint">Todo lo que convenga recordar: cómo llegaste, qué le interesa, qué no. Es interno.</i>
             </label>
         </div>

@@ -110,11 +110,10 @@ try {
 
 // ---- 2. Campañas ----
 try {
-    // 240 s de presupuesto: el cron corre cada 5 minutos, así que la corrida
-    // termina con margen antes de que se dispare la siguiente. Con la pausa de
-    // 25-45 s eso da unos 6 a 9 correos por corrida y campaña: entre 80 y 100
-    // por hora, que es el ritmo que anuncia la pantalla.
-    $r = campanas_despachar(3, 240);
+    // El presupuesto sale de la constante, no de un número escrito acá: de él
+    // depende el ritmo que la pantalla le promete al usuario, y los dos tienen
+    // que ser el mismo número o la estimación miente.
+    $r = campanas_despachar(3, CRON_PRESUPUESTO_SEG);
     $lineas[] = sprintf('campañas: %d enviados, %d rebotados, %d omitidos, %d errores',
         $r['enviados'], $r['rebotados'], $r['omitidos'], $r['errores']);
     if ($r['enviados'] || $r['rebotados'] || $r['errores']) {

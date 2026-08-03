@@ -230,34 +230,61 @@ function reinicio_sembrar(): array
             'nota' => 'Vos. Llega a tu Gmail: desde ahí podés responder y ver que el CRM lo detecta.',
         ],
         [
-            'nombre' => 'Laura', 'apellido' => 'Gómez', 'email' => 'bsierra+laura@intellihelp.tech',
-            'cargo' => 'Gerenta de Recursos Humanos', 'telefono' => '5491145678901',
-            'nota' => 'Contacto ficticio. Llega a tu misma bandeja (alias con «+»).',
+            'nombre' => 'Brian', 'apellido' => 'Sierra (interno)', 'email' => 'bsierra@intellihelp.tech',
+            'cargo' => 'Responsable de Sistemas', 'telefono' => '5491177006868',
+            'nota' => 'LLEGA. Tu casilla interna. Sirve para ver el correo tal cual sale.',
         ],
+
+        // ---- A partir de acá, TODOS rebotan, y cada uno por un motivo ----
+        // distinto. No alcanza con probar «que rebote»: cada motivo llega con
+        // un código y un texto propios, y el sistema tiene que reconocerlos
+        // todos. Si uno solo se le escapa, ese contacto sigue recibiendo
+        // correo a una dirección muerta y eso es lo que arruina la reputación
+        // del remitente.
         [
-            'nombre' => 'Martín', 'apellido' => 'Ferreyra', 'email' => 'bsierra+martin@intellihelp.tech',
-            'cargo' => 'Jefe de Compras', 'telefono' => '5491139876543',
-            'nota' => 'Contacto ficticio. Llega a tu misma bandeja (alias con «+»).',
-        ],
-        [
-            'nombre' => 'Casilla', 'apellido' => 'Inexistente',
+            'nombre' => 'Casilla', 'apellido' => 'Inexistente (dominio propio)',
             'email' => 'no-existe-esta-casilla-crm@intellihelp.tech',
             'cargo' => 'Prueba de rebote', 'telefono' => '',
-            'nota' => 'REBOTE DEFINITIVO: la casilla no existe en un dominio que sí existe. '
-                    . 'Google responde «user unknown». El contacto se archiva solo y se da de baja.',
+            'nota' => 'REBOTE DEFINITIVO · el dominio existe pero la casilla no. '
+                    . 'Google contesta «user unknown» (550 5.1.1). Es el rebote más común de todos: '
+                    . 'la persona se fue de la empresa y le dieron de baja el correo.',
+        ],
+        [
+            'nombre' => 'Casilla', 'apellido' => 'Inexistente (Gmail)',
+            'email' => 'no-existe-esta-casilla-crm-ith-2026@gmail.com',
+            'cargo' => 'Prueba de rebote', 'telefono' => '',
+            'nota' => 'REBOTE DEFINITIVO · casilla inexistente en un proveedor grande. '
+                    . 'Mismo motivo que el anterior pero rechazado por OTRO servidor, con otro '
+                    . 'texto: sirve para comprobar que no se está reconociendo sólo el formato de Google Workspace.',
         ],
         [
             'nombre' => 'Dominio', 'apellido' => 'Inexistente',
             'email' => 'contacto@dominio-que-no-existe-crm-ith.com',
             'cargo' => 'Prueba de rebote', 'telefono' => '',
-            'nota' => 'REBOTE DEFINITIVO: el dominio no existe. El sistema lo detecta por el '
-                    . 'código 5xx y archiva el contacto.',
+            'nota' => 'REBOTE DEFINITIVO · el dominio no existe: falla la resolución de DNS. '
+                    . 'Es el típico error de tipeo en la dirección al cargar el contacto.',
         ],
         [
-            'nombre' => 'Dominio', 'apellido' => 'Sin correo',
+            'nombre' => 'Dominio', 'apellido' => 'Sin servidor de correo',
             'email' => 'alguien@example.com',
             'cargo' => 'Prueba de rebote', 'telefono' => '',
-            'nota' => 'REBOTE DEFINITIVO: example.com existe pero está reservado y no recibe correo.',
+            'nota' => 'REBOTE DEFINITIVO · el dominio existe y resuelve, pero no acepta correo '
+                    . '(no tiene servidor de entrada). Es un caso distinto del anterior y llega '
+                    . 'con otro código.',
+        ],
+        [
+            'nombre' => 'Dominio', 'apellido' => 'Reservado (.invalid)',
+            'email' => 'prueba@no-existe-crm-ith.invalid',
+            'cargo' => 'Prueba de rebote', 'telefono' => '',
+            'nota' => 'REBOTE DEFINITIVO · «.invalid» es una terminación reservada por norma que '
+                    . 'nunca puede existir. Garantiza el rebote, pase lo que pase con el DNS.',
+        ],
+        [
+            'nombre' => 'Dominio', 'apellido' => 'Reservado (.test)',
+            'email' => 'prueba@ejemplo-crm-ith.test',
+            'cargo' => 'Prueba de rebote', 'telefono' => '',
+            'nota' => 'REBOTE DEFINITIVO · «.test» también es una terminación reservada. Se incluye '
+                    . 'para tener dos rebotes de DNS con textos distintos.',
         ],
     ];
 
@@ -291,7 +318,7 @@ function reinicio_sembrar(): array
             'descripcion'    => $g['nota'],
         ], $ya ? (int)$ya['id'] : null);
     }
-    $out[] = 'Contactos: ' . count($gente) . ' cargados (2 que llegan, 3 que rebotan, más vos)';
+    $out[] = 'Contactos: ' . count($gente) . ' cargados (2 que llegan, ' . (count($gente) - 2) . ' que rebotan por motivos distintos)';
 
     // ---- Lista de prueba ----
     $lista = q1("SELECT id FROM listas WHERE nombre = 'Prueba del circuito' AND eliminado_en IS NULL LIMIT 1");

@@ -94,23 +94,23 @@ $meses       = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep
                         <input type="hidden" name="campana_id" value="<?= $campana ?: '' ?>">
                         <div class="flash flash-info" id="avisoHorario"></div>
                         <label class="fld"><span>Nombre y apellido <i class="req">*</i></span>
-                            <input name="nombre" maxlength="160" required>
+                            <input name="nombre" maxlength="160" required placeholder="Juan Perez">
                             <i class="hint">Como querés que te llamemos en la reunión.</i>
                         </label>
                         <label class="fld mt-3"><span>Correo <i class="req">*</i></span>
-                            <input type="email" name="email" maxlength="190" required>
+                            <input type="email" name="email" maxlength="190" required placeholder="juan.perez@empresa.com">
                             <i class="hint">Ahí te llega la confirmación y el enlace de la videollamada.</i>
                         </label>
                         <label class="fld mt-3"><span>Empresa</span>
-                            <input name="empresa" maxlength="200">
+                            <input name="empresa" maxlength="200" placeholder="Distribuidora del Sur S.A.">
                             <i class="hint">Nos ayuda a llegar preparados a la reunión.</i>
                         </label>
                         <label class="fld mt-3"><span>Teléfono</span>
-                            <input type="tel" name="telefono" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
+                            <input type="tel" name="telefono" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios." placeholder="+54 9 11 5162-9038">
                             <i class="hint">Por si necesitamos avisarte algo a último momento. Sólo números.</i>
                         </label>
                         <label class="fld mt-3"><span>¿De qué querés que hablemos?</span>
-                            <textarea name="comentario" rows="3"></textarea>
+                            <textarea name="comentario" rows="3" placeholder="Necesitamos renovar los equipos de la oficina."></textarea>
                             <i class="hint">Contanos qué necesitás y no arrancamos de cero.</i>
                         </label>
                         <button class="btn btn-primary btn-block mt-4">Confirmar la reunión</button>

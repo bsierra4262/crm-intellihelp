@@ -30,7 +30,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <h2 class="sec">Qué se manda y a quién</h2>
         <div class="grid-fields">
             <label class="fld wide"><span>Nombre de la campaña <i class="req">*</i></span>
-                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus>
+                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus placeholder="Outsourcing - agosto">
                 <i class="hint">Es para vos: identifica la campaña adentro del CRM. El destinatario nunca lo ve.</i>
             </label>
             <label class="fld"><span>Lista de destinatarios <i class="req">*</i></span>
@@ -93,11 +93,11 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <?php endif; ?>
             </label>
             <label class="fld"><span>Nombre del remitente</span>
-                <input name="remitente_nombre" value="<?= $v('remitente_nombre') ?>" maxlength="160">
+                <input name="remitente_nombre" value="<?= $v('remitente_nombre') ?>" maxlength="160" placeholder="INTELLIHELP">
                 <i class="hint">El nombre que se ve en negrita en la bandeja, antes del asunto. Por ejemplo «INTELLIHELP» o «Brian de INTELLIHELP».</i>
             </label>
             <label class="fld"><span>Correo del remitente</span>
-                <input type="email" name="remitente_email" value="<?= $v('remitente_email') ?>" maxlength="190">
+                <input type="email" name="remitente_email" value="<?= $v('remitente_email') ?>" maxlength="190" placeholder="ventas@intellihelp.tech">
                 <i class="hint">Tiene que ser una cuenta autorizada en el servidor de salida.</i>
             </label>
             <label class="fld"><span>Responder a</span>

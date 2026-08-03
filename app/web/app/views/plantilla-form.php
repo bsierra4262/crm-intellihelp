@@ -27,7 +27,7 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
     <div class="card form-card">
         <div class="grid-fields">
             <label class="fld wide"><span>Nombre de la plantilla <i class="req">*</i></span>
-                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="160" required>
+                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="160" required placeholder="Presentacion de servicios">
                 <i class="hint">Para reconocerla al armar una campaña. El destinatario nunca lo ve.</i>
             </label>
             <label class="fld"><span>Carpeta</span>
@@ -41,7 +41,7 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
                 </label>
             </div>
             <label class="fld full"><span>Asunto del correo <i class="req">*</i></span>
-                <input name="asunto" id="campoAsunto" value="<?= $v('asunto') ?>" maxlength="255" required>
+                <input name="asunto" id="campoAsunto" value="<?= $v('asunto') ?>" maxlength="255" required placeholder="Tecnologia y personal para tu empresa">
                 <i class="hint">Se puede personalizar con variables. Lo importante, al principio: en el celular se corta cerca de los 45 caracteres.</i>
             </label>
         </div>

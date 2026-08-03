@@ -5,7 +5,7 @@
         <p class="muted">Cuánto se espera cerrar cada mes, por persona</p>
     </div>
     <form class="head-actions" method="get" action="<?= e(url('cuotas')) ?>">
-        <input type="month" name="periodo" value="<?= e($periodo) ?>" data-auto>
+        <input type="month" name="periodo" value="<?= e($periodo) ?>" data-auto placeholder="2026-08">
         <button class="btn btn-primary btn-sm">Ver</button>
     </form>
 </div>

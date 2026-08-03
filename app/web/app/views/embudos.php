@@ -50,58 +50,70 @@
             <?php endif; ?>
         </div>
 
+        <?php /* El formulario de cada fila va FUERA de la tabla y los campos lo
+                 referencian con `form="..."`. Un <form> adentro de un <tr> es HTML
+                 invalido: el navegador lo saca de la tabla al interpretarlo, y
+                 por eso esta pantalla se desarmaba y parecia sin estilos. */ ?>
+        <?php foreach ($etapas[$id] ?? [] as $et): $eid = (int)$et['id']; ?>
+            <form method="post" id="et<?= $eid ?>" hidden>
+                <?= csrf_field() ?>
+                <input type="hidden" name="accion" value="etapa_guardar">
+                <input type="hidden" name="id" value="<?= $eid ?>">
+            </form>
+            <form method="post" id="etdel<?= $eid ?>" hidden>
+                <?= csrf_field() ?>
+                <input type="hidden" name="accion" value="etapa_borrar">
+                <input type="hidden" name="id" value="<?= $eid ?>">
+            </form>
+        <?php endforeach; ?>
+
         <div class="table-scroll">
-            <table class="grid">
+            <table class="grid tabla-edit">
                 <thead><tr><th>Etapa</th><th>Probabilidad</th><th>Tipo</th><th>Color</th>
-                           <th>Orden</th><th>Negocios</th><th class="acts">Acciones</th></tr></thead>
+                           <th>Orden</th><th class="prio-2">Negocios</th><th class="acts">Acciones</th></tr></thead>
                 <tbody>
                 <?php foreach ($etapas[$id] ?? [] as $et): $eid = (int)$et['id']; ?>
                     <tr>
-                        <form method="post">
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="accion" value="etapa_guardar">
-                            <input type="hidden" name="id" value="<?= $eid ?>">
-                            <td data-label="Etapa">
-                                <input name="nombre" value="<?= e($et['nombre']) ?>" maxlength="80" required class="w-md">
-                            </td>
-                            <td data-label="Probabilidad">
-                                <input type="number" name="probabilidad" value="<?= (int)$et['probabilidad'] ?>"
-                                       min="0" max="100" inputmode="numeric" class="w-sm">
-                            </td>
-                            <td data-label="Tipo">
-                                <select name="tipo" class="w-sm">
-                                    <?php foreach (['abierta' => 'En curso', 'ganada' => 'Ganada', 'perdida' => 'Perdida'] as $k => $et2): ?>
-                                        <option value="<?= e($k) ?>" <?= $et['tipo'] === $k ? 'selected' : '' ?>><?= e($et2) ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </td>
-                            <td data-label="Color">
-                                <input type="color" name="color" value="<?= e($et['color'] ?: '#663399') ?>">
-                            </td>
-                            <td data-label="Orden">
-                                <input type="number" name="orden" value="<?= (int)$et['orden'] ?>" min="0" class="w-sm">
-                            </td>
-                            <td data-label="Negocios"><?= (int)($uso[$eid] ?? 0) ?></td>
-                            <td class="acts" data-label="Acciones">
-                                <label class="switch" title="Activa">
-                                    <input type="checkbox" name="activo" value="1" <?= $et['activo'] ? 'checked' : '' ?>>
-                                    <span class="track"></span>
-                                </label>
-                                <button class="act" title="Guardar"><?= icon('ok', 16) ?></button>
-                            </td>
-                        </form>
-                        <td class="acts">
-                            <form class="inline-form" method="post">
-                                <?= csrf_field() ?>
-                                <input type="hidden" name="accion" value="etapa_borrar">
-                                <input type="hidden" name="id" value="<?= $eid ?>">
-                                <button class="act danger" title="Borrar la etapa" data-peligro
-                                        data-confirmar-titulo="Borrar la etapa"
-                                        data-confirmar="<?= ($uso[$eid] ?? 0) > 0
-                                            ? 'Hay ' . (int)$uso[$eid] . ' negocio(s) en esta etapa: no se va a poder borrar hasta que los muevas.'
-                                            : 'La etapa se borra definitivamente.' ?>"
-                                        data-confirmar-ok="Borrar"><?= icon('papelera', 16) ?></button>
-                            </form>
+                        <td data-label="Etapa">
+                            <input form="et<?= $eid ?>" name="nombre" value="<?= e($et['nombre']) ?>"
+                                   maxlength="80" required class="w-md" placeholder="Propuesta enviada">
+                        </td>
+                        <td data-label="Probabilidad">
+                            <div class="con-sufijo">
+                                <input form="et<?= $eid ?>" type="number" name="probabilidad"
+                                       value="<?= (int)$et['probabilidad'] ?>" min="0" max="100"
+                                       inputmode="numeric" data-solo="digitos" class="w-xs">
+                                <span>%</span>
+                            </div>
+                        </td>
+                        <td data-label="Tipo">
+                            <select form="et<?= $eid ?>" name="tipo" class="w-sm">
+                                <?php foreach (['abierta' => 'En curso', 'ganada' => 'Ganada', 'perdida' => 'Perdida'] as $k => $et2): ?>
+                                    <option value="<?= e($k) ?>" <?= $et['tipo'] === $k ? 'selected' : '' ?>><?= e($et2) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                        <td data-label="Color">
+                            <input form="et<?= $eid ?>" type="color" name="color" value="<?= e($et['color'] ?: '#663399') ?>"
+                                   title="El color con el que se ve esta etapa en el embudo">
+                        </td>
+                        <td data-label="Orden">
+                            <input form="et<?= $eid ?>" type="number" name="orden" value="<?= (int)$et['orden'] ?>"
+                                   min="0" data-solo="digitos" class="w-xs">
+                        </td>
+                        <td data-label="Negocios" class="prio-2"><?= (int)($uso[$eid] ?? 0) ?></td>
+                        <td class="acts" data-label="Acciones">
+                            <label class="switch" title="Etapa activa: si la apagas deja de ofrecerse en los negocios nuevos">
+                                <input form="et<?= $eid ?>" type="checkbox" name="activo" value="1" <?= $et['activo'] ? 'checked' : '' ?>>
+                                <span class="track"></span>
+                            </label>
+                            <button form="et<?= $eid ?>" class="act" title="Guardar los cambios de esta etapa"><?= icon('ok', 16) ?></button>
+                            <button form="etdel<?= $eid ?>" class="act danger" title="Borrar la etapa" data-peligro
+                                    data-confirmar-titulo="Borrar la etapa"
+                                    data-confirmar="<?= ($uso[$eid] ?? 0) > 0
+                                        ? 'Hay ' . (int)$uso[$eid] . ' negocio(s) en esta etapa: no se va a poder borrar hasta que los muevas.'
+                                        : 'La etapa se borra definitivamente.' ?>"
+                                    data-confirmar-ok="Borrar"><?= icon('papelera', 16) ?></button>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -109,21 +121,34 @@
             </table>
         </div>
 
-        <form method="post" class="urow mt-4">
-            <?= csrf_field() ?>
-            <input type="hidden" name="accion" value="etapa_guardar">
-            <input type="hidden" name="embudo_id" value="<?= $id ?>">
-            <input type="hidden" name="activo" value="1">
-            <input name="nombre" placeholder="Nombre de la etapa nueva" maxlength="80" required class="w-lg">
-            <input type="number" name="probabilidad" placeholder="%" min="0" max="100" class="w-sm" inputmode="numeric">
-            <select name="tipo" class="w-sm">
-                <option value="abierta">En curso</option>
-                <option value="ganada">Ganada</option>
-                <option value="perdida">Perdida</option>
-            </select>
-            <input type="color" name="color" value="#663399">
-            <input type="number" name="orden" placeholder="Orden" min="0" class="w-sm">
-            <button class="btn btn-primary btn-sm"><?= icon('mas', 15) ?>Agregar etapa</button>
-        </form>
+        <div class="alta-inline mt-4">
+            <h3 class="sub">Agregar una etapa</h3>
+            <form method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="accion" value="etapa_guardar">
+                <input type="hidden" name="embudo_id" value="<?= $id ?>">
+                <input type="hidden" name="activo" value="1">
+                <div class="filter-grid">
+                    <label><span>Nombre</span>
+                        <input name="nombre" placeholder="Propuesta enviada" maxlength="80" required></label>
+                    <label><span>Probabilidad</span>
+                        <input type="number" name="probabilidad" placeholder="40" min="0" max="100"
+                               inputmode="numeric" data-solo="digitos"></label>
+                    <label><span>Tipo</span>
+                        <select name="tipo">
+                            <option value="abierta">En curso</option>
+                            <option value="ganada">Ganada</option>
+                            <option value="perdida">Perdida</option>
+                        </select></label>
+                    <label><span>Color</span>
+                        <input type="color" name="color" value="#663399"></label>
+                    <label><span>Orden</span>
+                        <input type="number" name="orden" placeholder="3" min="0" data-solo="digitos"></label>
+                </div>
+                <div class="filter-actions">
+                    <button class="btn btn-primary btn-sm"><?= icon('mas', 15) ?>Agregar etapa</button>
+                </div>
+            </form>
+        </div>
     </div>
 <?php endforeach; ?>

@@ -275,8 +275,11 @@ ok('una campaña con envíos a medias no se da por completada',
 // Mandaba uno por corrida y el cron corre cada 5 minutos: 12 por hora, no 80.
 ok('la corrida manda varios y respeta la pausa',
    str_contains($campanas, 'sleep($pausa)') && str_contains($campanas, '$hasta'));
+// El presupuesto sale de una constante y no de un número suelto: de él depende
+// el ritmo que la pantalla le promete al usuario, y los dos tienen que ser el
+// mismo valor o la estimación miente.
 ok('el cron le da presupuesto de tiempo a la corrida',
-   preg_match('/campanas_despachar\(\d+,\s*\d+\)/', $cronPhp) === 1);
+   preg_match('/campanas_despachar\(\d+,\s*(\d+|CRON_PRESUPUESTO_SEG)\)/', $cronPhp) === 1);
 ok('la fecha de arranque programa de verdad', str_contains($accion, "'programada'"));
 
 echo "== Nada se pisa ni se pierde ==\n";
@@ -531,6 +534,75 @@ ok('el refresco no pisa lo que estás escribiendo',
 ok('y deja ver qué cambió en vez de que los números salten solos',
    str_contains($secc, 'vivo-cambio') && str_contains($CSS, '@keyframes vivo-destello'));
 
+echo "== Los campos se ven como campos en TODAS las pantallas ==\n";
+// Las reglas arrancaban en `.fld`, `.filters` o `.urow`, así que un campo puesto
+// en cualquier otro lado —la carga de contactos de una lista, la tabla de etapas
+// del embudo— salía con el aspecto crudo del navegador en el medio de una
+// pantalla por lo demás terminada.
+ok('el estilo va sobre el control, no sobre el contenedor donde toca estar',
+   preg_match('/input\[type=text\][\s\S]{0,400}?select,textarea\{/', $CSS) === 1);
+// El desplegable nativo no se parece en nada al resto: cada navegador y cada
+// sistema lo dibuja a su manera.
+ok('los desplegables tienen la flecha nuestra, no la del sistema',
+   str_contains($CSS, 'select{appearance:none') && str_contains($CSS, "background-image:url(\"data:image/svg+xml"));
+// El ancho puesto junto al estilo pisaba a `.w-sm` —un selector de atributo pesa
+// más que una clase— y las filas de una línea se partían en cinco renglones.
+ok('el ancho lo decide el contenedor, así los anchos con nombre siguen valiendo',
+   preg_match('/El ANCHO lo decide el contenedor/', $CSS) === 1
+   && str_contains($CSS, '.fld input,.fld select,.fld textarea,'));
+ok('la rejilla de campos vale en cualquier formulario, no sólo en los filtros',
+   str_contains($CSS, '.filter-grid>label,.filters .fld,.filters>label{'));
+// Un <form> adentro de un <tr> es HTML inválido: el navegador lo saca de la
+// tabla al interpretarlo y la pantalla se desarma.
+$emb = (string) @file_get_contents($WEB . '/app/views/embudos.php');
+ok('en Embudos el formulario está fuera de la tabla',
+   preg_match('#<tr>\s*<form#', $emb) !== 1 && str_contains($emb, 'form="et<?= $eid ?>"'));
+
+echo "== Cada campo vacío muestra un ejemplo de lo que va ==\n";
+// La ayuda debajo explica QUÉ va; el ejemplo adentro muestra CÓMO se escribe.
+// Sin él, quien borra lo que había no sabe si el teléfono lleva código de área.
+$sinEjemplo = 0; $conEjemplo = 0;
+foreach (glob($WEB . '/app/views/*.php') ?: [] as $v) {
+    // Se sacan los bloques PHP antes de buscar etiquetas: adentro de un atributo
+    // hay código, y el signo que lo cierra corta la etiqueta a la mitad.
+    // Contando así daban 27 de 157 cuando en realidad estaban puestos.
+    $c = (string) preg_replace('/<\?.*?\?>/s', '', (string) @file_get_contents($v));
+    foreach (['input', 'textarea'] as $et) {
+        if (!preg_match_all('/<' . $et . '\b[^>]*>/i', $c, $mm)) { continue; }
+        foreach ($mm[0] as $tag) {
+            if (preg_match('/type=["\'](hidden|checkbox|radio|color|submit|file)["\']/i', $tag)) { continue; }
+            if (!preg_match('/name=["\'][^"\']/', $tag)) { continue; }
+            if (str_contains($tag, 'placeholder')) { $conEjemplo++; } else { $sinEjemplo++; }
+        }
+    }
+}
+ok('la mayoría de los campos trae un ejemplo adentro', $conEjemplo >= 70,
+   "$conEjemplo con ejemplo, $sinEjemplo sin ejemplo");
+
+echo "== Una plantilla por cada servicio, todas con la misma cara ==\n";
+$pre = (string) @file_get_contents($WEB . '/app/preajustes.php');
+ok('hay una plantilla por servicio de la empresa',
+   substr_count($pre, 'preajuste_servicio([') >= 7, 'los servicios publicados en el sitio');
+// Escritas a mano, una termina con el botón de otro color o sin el bloque de
+// contacto, y de eso se entera el cliente antes que nosotros.
+ok('todas salen de la misma estructura, para que no se desalineen',
+   str_contains($pre, 'function preajuste_servicio('));
+ok('la de Outsourcing ya no dice «(la de Pulsemail)» en el nombre',
+   !str_contains($pre, 'Outsourcing (la de Pulsemail)'));
+
+echo "== El tiempo que va a tardar se dice ANTES de arrancar ==\n";
+// Sin ese número cada uno hace la cuenta por su cuenta: es fácil creer que el
+// cron manda un correo por corrida —porque se despierta cada cinco minutos— y
+// concluir que 500 correos son casi dos días.
+ok('el ritmo se calcula a partir de las mismas constantes que usa el cron',
+   str_contains($campanas, 'function campana_ritmo(') && str_contains($campanas, 'CRON_PRESUPUESTO_SEG'));
+ok('y el cron usa esa constante, no un número escrito aparte',
+   str_contains($cronPhp, 'campanas_despachar(3, CRON_PRESUPUESTO_SEG)'));
+ok('se muestra en los pasos, junto a la cola preparada',
+   str_contains($campanas, "van a tardar ' . \$ritmo['texto']"));
+ok('y se dice qué es lo que lo limita, para saber qué tocar',
+   str_contains($campanas, "\$ritmo['freno']"));
+
 echo "== Una respuesta se puede leer y contestar sin salir del CRM ==\n";
 // Lo único que se podía hacer con una respuesta era marcarla como leída. El
 // sistema avisaba de algo que después no podía mostrar: para leer qué había
@@ -602,17 +674,12 @@ echo "== Lo que pasa mientras la campaña manda se ve mientras pasa ==\n";
 // aparecía junto mucho después, cuando ya no sirve para reaccionar.
 // En el repositorio cron.php vive al lado de `web/`; desplegado queda adentro
 // del propio webroot. Se buscan los dos, si no la comprobación pasa en vacío.
-$cron = '';
-foreach ([$WEB . '/cron.php', dirname($WEB) . '/cron.php'] as $ruta) {
-    $cron = (string) @file_get_contents($ruta);
-    if ($cron !== '') { break; }
-}
-ok('se encontró el archivo del cron para poder revisarlo', $cron !== '');
+ok('se encontró el archivo del cron para poder revisarlo', $cronPhp !== '');
 ok('el cron lee la casilla ANTES de ponerse a despachar',
-   $cron !== '' && strpos($cron, 'imap_quizas_revisar') < strpos($cron, 'campanas_despachar'),
+   $cronPhp !== '' && strpos($cronPhp, 'imap_quizas_revisar') < strpos($cronPhp, 'campanas_despachar'),
    'leyendo al final, los rebotes y las respuestas aparecen cuatro minutos tarde');
 ok('y la mira seguido cuando hay una campaña en curso',
-   str_contains($cron, "\$activas > 0 ? 60 : 900"));
+   str_contains($cronPhp, "\$activas > 0 ? 60 : 900"));
 ok('el despachador también mira en el medio del envío',
    str_contains($campanas, 'imap_quizas_revisar(60)'));
 $imapSrc = (string) @file_get_contents($WEB . '/app/imap.php');

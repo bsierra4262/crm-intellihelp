@@ -12,6 +12,15 @@ require_once __DIR__ . '/envio.php';
 //  servidor, la campaña sigue por donde quedó, sin repetir un solo correo.
 // ============================================================
 
+// Cada cuánto se despierta el cron en el hosting, y cuánto trabaja cada vez.
+// Están acá y no sueltos en el código porque de estos dos números sale el
+// ritmo real de envío, y ese ritmo es lo que hay que poder mostrar en pantalla:
+// el cron se despierta cada 5 minutos, pero NO manda un correo por corrida,
+// manda todos los que entren en su presupuesto. Confundir las dos cosas lleva
+// a creer que 500 correos son dos días, cuando son unas horas.
+const CRON_PERIODO_SEG     = 300;   // el cron de hPanel, cada 5 minutos
+const CRON_PRESUPUESTO_SEG = 280;   // cuánto dura la corrida, con margen para cerrar
+
 // ------------------------------------------------------------
 //  Plantillas
 // ------------------------------------------------------------
@@ -586,10 +595,19 @@ function campana_pasos(array $c): array
     }
 
     // 5. Cola preparada
+    //
+    // Va con el tiempo estimado. Sin ese número cada uno hace la cuenta por su
+    // cuenta y le da cualquier cosa: es fácil creer que el cron manda un correo
+    // por corrida —porque se despierta cada cinco minutos— y concluir que 500
+    // correos son casi dos días. No: en cada corrida manda todos los que
+    // entran en su presupuesto de tiempo.
+    $ritmo = campana_ritmo($c, $enCola);
     $add('cola', $enCola > 0,
         'Preparar la cola',
         $enCola > 0
-            ? number_format($enCola, 0, ',', '.') . ' correos en cola.'
+            ? number_format($enCola, 0, ',', '.') . ' correos en cola. A razón de unos '
+              . $ritmo['por_hora'] . ' por hora, van a tardar ' . $ritmo['texto'] . ' en salir todos'
+              . ($ritmo['freno'] ? '; lo que lo limita es ' . $ritmo['freno'] : '') . '.'
             : 'Todavía no se armó la cola de envío. Al prepararla se descartan los repetidos, los dados de baja y los que ya rebotaron.',
         null, null);
 
@@ -606,6 +624,72 @@ function campana_lista_para_enviar(array $c): bool
 }
 
 /** ¿Estamos dentro de la ventana horaria permitida de la campaña? */
+/**
+ * Cuánto va a tardar una campaña en salir entera.
+ *
+ * Hay que decirlo ANTES de arrancar. Sin este número cada uno hace la cuenta
+ * por su cuenta y le da cualquier cosa: es fácil creer que el cron manda un
+ * correo cada cinco minutos —porque cada cinco minutos se despierta— y concluir
+ * que 500 correos son 41 horas. No: en cada corrida manda todos los que entran
+ * en su presupuesto de tiempo, uno cada 25 a 45 segundos.
+ *
+ * Se tienen en cuenta las tres cosas que de verdad limitan: el ritmo, el tope
+ * diario de la casilla y la franja horaria en la que se permite enviar.
+ *
+ * @return array{por_hora:int, horas:float, texto:string, freno:?string}
+ */
+function campana_ritmo(array $c, ?int $pendientes = null): array
+{
+    $min   = max(1, (int)($c['pausa_min_seg'] ?? 25));
+    $max   = max($min, (int)($c['pausa_max_seg'] ?? 45));
+    $media = ($min + $max) / 2;
+
+    // Lo que entra en una corrida del cron: el primero sale sin esperar, y
+    // después uno por pausa mientras quede presupuesto.
+    $porCorrida = (int) floor(CRON_PRESUPUESTO_SEG / $media) + 1;
+    $porHora    = (int) round($porCorrida * (3600 / CRON_PERIODO_SEG));
+
+    // La franja horaria: fuera de ella la campaña se frena hasta el otro día.
+    $horasDia = 24.0;
+    if (!empty($c['enviar_desde']) && !empty($c['enviar_hasta'])) {
+        $d = (int)substr((string)$c['enviar_desde'], 0, 2) * 60 + (int)substr((string)$c['enviar_desde'], 3, 2);
+        $h = (int)substr((string)$c['enviar_hasta'], 0, 2) * 60 + (int)substr((string)$c['enviar_hasta'], 3, 2);
+        $horasDia = (($h > $d ? $h - $d : 1440 - $d + $h)) / 60;
+    }
+
+    $tope    = max(1, (int)($c['limite_diario'] ?? 300));
+    $porDia  = min((int) round($porHora * $horasDia), $tope);
+    $total   = $pendientes ?? (int)($c['total'] ?? 0);
+
+    if ($total <= 0) {
+        return ['por_hora' => $porHora, 'horas' => 0.0, 'texto' => '', 'freno' => null];
+    }
+
+    $dias  = $total / max(1, $porDia);
+    $horas = $dias <= 1 ? $total / max(1, $porHora) : $dias * 24;
+
+    // Qué es lo que manda: el ritmo, el tope diario o la franja. Saberlo es lo
+    // que permite decidir qué tocar si el número no gusta.
+    $freno = null;
+    if ($total > $porDia) {
+        $freno = $tope <= (int) round($porHora * $horasDia)
+            ? 'el tope de ' . $tope . ' correos por día de la casilla'
+            : 'la franja horaria de envío (' . round($horasDia) . ' h por día)';
+    }
+
+    if ($dias > 1) {
+        $texto = 'unos ' . ceil($dias) . ' días (' . number_format($porDia, 0, ',', '.') . ' por día)';
+    } elseif ($horas >= 1) {
+        $h = (int) floor($horas);
+        $m = (int) round(($horas - $h) * 60);
+        $texto = $h . ' h' . ($m > 0 ? ' ' . $m . ' min' : '');
+    } else {
+        $texto = max(1, (int) round($horas * 60)) . ' min';
+    }
+
+    return ['por_hora' => $porHora, 'horas' => $horas, 'texto' => $texto, 'freno' => $freno];
+}
+
 function campana_en_horario(array $c): bool
 {
     if (empty($c['enviar_desde']) || empty($c['enviar_hasta'])) {

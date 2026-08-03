@@ -56,7 +56,7 @@ $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
         </label>
         <div class="grid-fields">
             <label class="fld wide"><span>Nombre del negocio</span>
-                <input name="negocio_nombre" value="<?= e($p['empresa']) ?>" maxlength="200">
+                <input name="negocio_nombre" value="<?= e($p['empresa']) ?>" maxlength="200" placeholder="Renovacion de equipamiento">
                 <i class="hint">Cómo se va a llamar la oportunidad en el embudo. Por ejemplo «Outsourcing 20 puestos».</i>
             </label>
             <label class="fld"><span>Importe estimado</span>

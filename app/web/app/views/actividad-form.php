@@ -34,7 +34,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                 <i class="hint">Una tarea tiene vencimiento; una llamada y una reunión tienen día y hora.</i>
             </label>
             <label class="fld wide"><span>Asunto <i class="req">*</i></span>
-                <input name="asunto" value="<?= $v('asunto') ?>" maxlength="200" required autofocus>
+                <input name="asunto" value="<?= $v('asunto') ?>" maxlength="200" required autofocus placeholder="Llamar para confirmar la propuesta">
                 <?php if (isset($errores['asunto'])): ?><i class="hint bad"><?= e($errores['asunto']) ?></i><?php endif; ?>
             </label>
             <label class="fld"><span>Responsable</span>
@@ -133,7 +133,7 @@ $tipo = $a['tipo'] ?? 'tarea';
             </label>
             <input type="hidden" name="posible_cliente_id" value="<?= $v('posible_cliente_id') ?>">
             <label class="fld full"><span>Detalle</span>
-                <textarea name="descripcion" rows="4"><?= $v('descripcion') ?></textarea>
+                <textarea name="descripcion" rows="4" placeholder="Repasar el alcance y los tiempos de entrega."><?= $v('descripcion') ?></textarea>
                 <i class="hint">De qué se trata, o qué salió. Es interno.</i>
             </label>
         </div>

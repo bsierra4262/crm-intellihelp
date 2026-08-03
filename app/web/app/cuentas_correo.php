@@ -47,6 +47,9 @@ function cuenta_correo_guardar(array $d, ?int $id = null): int
         'nombre'           => trim((string)($d['nombre'] ?? '')),
         'remitente'        => normalizar_email($d['remitente'] ?? ''),
         'remitente_nombre' => trim((string)($d['remitente_nombre'] ?? '')) ?: null,
+        // Se guarda tal cual la escriben, con saltos de línea. Se convierte a
+        // HTML recién al mandar: acá se conserva lo que la persona ve al editar.
+        'firma_html'       => trim((string)($d['firma_html'] ?? '')) ?: null,
         'responder_a'      => normalizar_email($d['responder_a'] ?? '') ?: null,
         'smtp_host'        => trim((string)($d['smtp_host'] ?? 'smtp.gmail.com')),
         'smtp_port'        => max(1, (int)($d['smtp_port'] ?? 587)),
@@ -102,6 +105,9 @@ function cuenta_a_config(array $c): array
         'from'        => $c['remitente'],
         'from_name'   => ($c['remitente_nombre'] ?? null) ?: ($c['nombre'] ?? ''),
         'responder_a' => $c['responder_a'] ?? null,
+        // Viaja con la configuración para que quien manda no tenga que ir a
+        // buscarla: la firma es de la casilla, sale con todo lo que salga de ahí.
+        'firma'       => $c['firma_html'] ?? null,
     ];
 }
 

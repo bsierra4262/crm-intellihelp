@@ -19,15 +19,37 @@
 
 <div class="card mb-4" data-vivo="hilo">
     <div class="hilo">
-        <?php foreach ($mensajes as $m):
-            $suyo  = $m['direccion'] === 'entrante';
-            $texto = (string)($m['cuerpo_texto'] ?? '');
-            // Si sólo vino en HTML, se saca el texto para poder leerlo sin
-            // meter el HTML de otro adentro de nuestra pantalla.
-            if (trim($texto) === '' && trim((string)$m['cuerpo_html']) !== '') {
-                $texto = trim(html_entity_decode(strip_tags((string)$m['cuerpo_html']), ENT_QUOTES, 'UTF-8'));
-            }
-            $partes = mensaje_partir_cita($texto);
+        <?php
+        // El correo se muestra como lo mandaron: con su diseño, sus colores y
+        // su firma, igual que en el cliente de correo. Antes se le sacaban las
+        // etiquetas y quedaba una pared de texto con la cita en crudo, línea
+        // por línea con «>» adelante, que es justo lo que ningún cliente de
+        // correo muestra así.
+        //
+        // Va dentro de un marco aislado. Es como lo hacen Gmail y Outlook, y
+        // por el mismo motivo: el HTML lo escribió alguien de afuera y no puede
+        // pisar los estilos de la pantalla ni ejecutar nada. El marco va sin
+        // permiso de scripts, así que aunque quedara alguno, no corre.
+        $marco = function (string $html, string $id): void {
+            $doc = '<!doctype html><meta charset="utf-8">'
+                 . '<base target="_blank" rel="noopener">'
+                 . '<style>html,body{margin:0;padding:0}'
+                 . 'body{font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;color:#2a2733;'
+                 . 'word-break:break-word;overflow-wrap:anywhere}'
+                 . 'img{max-width:100%;height:auto}table{max-width:100%}'
+                 . 'a{color:#663399}</style>'
+                 . mensaje_html_seguro($html);
+            echo '<iframe class="msg-marco" data-marco="' . e($id) . '" title="Contenido del mensaje" loading="lazy"'
+               . ' sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"'
+               . ' srcdoc="' . e($doc) . '"></iframe>';
+        };
+        ?>
+        <?php foreach ($mensajes as $i => $m):
+            $suyo = $m['direccion'] === 'entrante';
+            $html = trim((string)($m['cuerpo_html'] ?? ''));
+            $partes = $html !== ''
+                ? mensaje_partir_cita_html($html)
+                : mensaje_partir_cita((string)($m['cuerpo_texto'] ?? ''));
         ?>
             <article class="msg <?= $suyo ? 'msg-in' : 'msg-out' ?>">
                 <header class="msg-cab">
@@ -38,14 +60,24 @@
                 <?php if ($m['asunto']): ?>
                     <p class="msg-asunto"><?= e($m['asunto']) ?></p>
                 <?php endif; ?>
-                <div class="msg-cuerpo"><?= nl2br(e($partes['limpio'])) ?></div>
-                <?php if ($partes['citado'] !== ''): ?>
+
+                <?php if ($html !== ''): ?>
+                    <?php $marco($partes['limpio'], 'm' . (int)$m['id']); ?>
+                <?php else: ?>
+                    <div class="msg-cuerpo"><?= nl2br(e($partes['limpio'])) ?></div>
+                <?php endif; ?>
+
+                <?php if (trim((string)$partes['citado']) !== ''): ?>
                     <?php /* La cita del mensaje original va plegada: si no, una
                              respuesta de dos líneas queda enterrada bajo la
                              campaña entera. */ ?>
                     <details class="msg-cita">
                         <summary>Mostrar el mensaje anterior</summary>
-                        <div><?= nl2br(e($partes['citado'])) ?></div>
+                        <?php if ($html !== ''): ?>
+                            <?php $marco($partes['citado'], 'c' . (int)$m['id']); ?>
+                        <?php else: ?>
+                            <div><?= nl2br(e($partes['citado'])) ?></div>
+                        <?php endif; ?>
                     </details>
                 <?php endif; ?>
             </article>

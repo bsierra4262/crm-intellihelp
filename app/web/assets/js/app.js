@@ -158,5 +158,39 @@
         if (s && s.form) { s.form.submit(); }
     });
 
+    // --------------------------------------------------------
+    //  Los correos de una conversación se muestran adentro de un marco
+    //  aislado, para que su HTML no toque el de la pantalla. El marco no sabe
+    //  cuánto mide su contenido: si no se le dice, queda con una altura fija y
+    //  el mensaje aparece cortado con una barra de scroll adentro, que es
+    //  exactamente lo que uno no quiere al leer un correo.
+    // --------------------------------------------------------
+    function ajustarMarco(f) {
+        try {
+            var d = f.contentDocument;
+            if (!d || !d.body) { return; }
+            // +2 px: sin ese margen algunos navegadores dejan una barra de
+            // scroll de un píxel que se ve como un borde raro.
+            f.style.height = Math.max(40, d.documentElement.scrollHeight) + 2 + 'px';
+        } catch (e) { /* si el navegador no deja medirlo, queda la altura por defecto */ }
+    }
+
+    function ajustarMarcos() {
+        document.querySelectorAll('iframe[data-marco]').forEach(ajustarMarco);
+    }
+
+    document.addEventListener('load', function (e) {
+        if (e.target.matches && e.target.matches('iframe[data-marco]')) { ajustarMarco(e.target); }
+    }, true);
+
+    // Al desplegar la cita, el marco de adentro recién ahí tiene tamaño.
+    document.addEventListener('toggle', function (e) {
+        if (e.target.matches && e.target.matches('details')) { setTimeout(ajustarMarcos, 30); }
+    }, true);
+
+    window.addEventListener('resize', function () { setTimeout(ajustarMarcos, 80); });
+    setTimeout(ajustarMarcos, 60);
+    setTimeout(ajustarMarcos, 400);   // las imágenes del correo llegan después
+
     window.crmConfirmar = confirmar;
 })();

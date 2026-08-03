@@ -67,6 +67,53 @@ function conversacion_de(string $email, int $limite = 100): array
               LIMIT ' . max(1, $limite), [$email, $email])->fetchAll();
 }
 
+/**
+ * Deja el HTML de un correo en condiciones de mostrarse.
+ *
+ * El correo lo escribió alguien de afuera y puede traer cualquier cosa. Se le
+ * saca todo lo que ejecuta o carga: scripts, hojas de estilo que pisarían las
+ * nuestras, marcos, formularios y los atributos `on*`. Después se muestra
+ * dentro de un marco aislado, que es como lo hacen los clientes de correo:
+ * así el mensaje se ve tal cual lo mandaron —con su firma, sus colores y su
+ * diseño— sin poder tocar nada de la pantalla que lo rodea.
+ */
+function mensaje_html_seguro(string $html): string
+{
+    if (trim($html) === '') { return ''; }
+
+    // Fuera lo que ejecuta o trae contenido de otro lado.
+    $html = preg_replace('#<(script|style|iframe|object|embed|form|link|meta|base)\b[^>]*>.*?</\1\s*>#is', '', $html) ?? $html;
+    $html = preg_replace('#<(script|style|iframe|object|embed|form|link|meta|base)\b[^>]*/?>#i', '', $html) ?? $html;
+    // Fuera los manejadores de eventos y los enlaces que ejecutan código.
+    $html = preg_replace('#\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)#i', '', $html) ?? $html;
+    $html = preg_replace('#(href|src)\s*=\s*("|\')\s*(javascript|vbscript|data:text/html)[^"\']*\2#i', '$1="#"', $html) ?? $html;
+
+    return $html;
+}
+
+/**
+ * Separa la respuesta de la cita, en la versión HTML.
+ *
+ * Los clientes de correo marcan la cita de forma reconocible: Gmail la envuelve
+ * en `gmail_quote`, casi todos usan `blockquote`. Sin cortar ahí, una respuesta
+ * de dos palabras aparece precedida de la campaña entera y hay que buscar con
+ * la vista dónde empieza lo que la persona escribió.
+ */
+function mensaje_partir_cita_html(string $html): array
+{
+    foreach (['/<div[^>]*class="[^"]*gmail_quote/i',
+              '/<div[^>]*id="[^"]*(divRplyFwdMsg|appendonsend)/i',   // Outlook
+              '/<blockquote/i'] as $re) {
+        if (preg_match($re, $html, $m, PREG_OFFSET_CAPTURE)) {
+            $limpio = trim(substr($html, 0, $m[0][1]));
+            if (strip_tags($limpio) !== '' || $limpio !== '') {
+                return ['limpio' => $limpio, 'citado' => trim(substr($html, $m[0][1]))];
+            }
+        }
+    }
+    return ['limpio' => $html, 'citado' => ''];
+}
+
 /** Cuántos mensajes entrantes hay sin leer (para el aviso en pantalla). */
 function mensajes_sin_leer(): int
 {
@@ -122,8 +169,24 @@ function mensaje_responder(int $mensajeId, string $texto, ?int $usuarioId = null
     $refs = trim((string)($orig['referencias'] ?? '') . ' ' . (string)$orig['message_id']);
 
     $messageId = nuevo_message_id();
+
+    // La firma de la casilla, si tiene. Es lo que hace que la respuesta salga
+    // igual que desde Gmail: con el nombre, el cargo y el teléfono, siempre los
+    // mismos. Un correo comercial sin firma se nota, y se nota justo cuando
+    // del otro lado están decidiendo si trabajar con nosotros.
+    $firma = trim((string)($cfg['firma'] ?? ''));
+    $textoFinal = $firma !== '' ? $texto . "
+
+--
+" . $firma : $texto;
+
     $html = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;color:#222">'
-          . nl2br(e($texto)) . '</div>';
+          . nl2br(e($texto));
+    if ($firma !== '') {
+        $html .= '<div style="margin-top:18px;padding-top:12px;border-top:1px solid #e6e3ee;'
+               . 'font-size:13px;line-height:1.5;color:#5a5566">' . nl2br(e($firma)) . '</div>';
+    }
+    $html .= '</div>';
 
     $err = null;
     $fp  = smtp_abrir($err, $cfg);
@@ -133,7 +196,7 @@ function mensaje_responder(int $mensajeId, string $texto, ?int $usuarioId = null
             'para'        => $para,
             'para_nombre' => (string)($orig['de_nombre'] ?? ''),
             'asunto'      => $asunto,
-            'texto'       => $texto,
+            'texto'       => $textoFinal,
             'html'        => $html,
             'message_id'  => $messageId,
             'in_reply_to' => (string)$orig['message_id'],
@@ -151,7 +214,7 @@ function mensaje_responder(int $mensajeId, string $texto, ?int $usuarioId = null
                              message_id, in_reply_to, referencias, fecha, usuario_id, leido_en)
        VALUES (?, ?, ?, ?, \'saliente\', ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, NOW())',
       [$orig['contacto_id'], $orig['envio_id'], $orig['campana_id'], $cuenta['id'] ?? null,
-       $cfg['from'] ?? '', $cfg['from_name'] ?? '', $para, $asunto, $texto, $html,
+       $cfg['from'] ?? '', $cfg['from_name'] ?? '', $para, $asunto, $textoFinal, $html,
        $messageId, (string)$orig['message_id'], $refs, $usuarioId ?: current_user_id()]);
 
     // El id se toma ACÁ. Más abajo hay otra escritura —la auditoría— y

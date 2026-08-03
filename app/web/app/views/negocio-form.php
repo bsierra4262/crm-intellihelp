@@ -21,7 +21,7 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
         <h2 class="sec">La oportunidad</h2>
         <div class="grid-fields">
             <label class="fld wide"><span>Nombre del negocio <i class="req">*</i></span>
-                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus>
+                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus placeholder="Renovacion de equipamiento - Distribuidora del Sur">
                 <?php if (isset($errores['nombre'])): ?><i class="hint bad"><?= e($errores['nombre']) ?></i><?php endif; ?>
             </label>
             <label class="fld"><span>Etapa</span>
@@ -122,7 +122,7 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
                 <i class="hint">Por qué se perdió. Se completa al cerrarlo como perdido, y con el tiempo muestra dónde se cae siempre.</i>
             </label>
             <label class="fld full"><span>Notas</span>
-                <textarea name="descripcion" rows="4"><?= $v('descripcion') ?></textarea>
+                <textarea name="descripcion" rows="4" placeholder="15 puestos de trabajo mas el servidor. Deciden en comite."><?= $v('descripcion') ?></textarea>
                 <i class="hint">Contexto del negocio. Es interno.</i>
             </label>
         </div>

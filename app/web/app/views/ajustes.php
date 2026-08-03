@@ -40,7 +40,7 @@
         <h2 class="sec">General</h2>
         <div class="grid-fields">
             <label class="fld wide"><span>Nombre del sistema</span>
-                <input name="app_nombre" value="<?= e($s('app_nombre', 'CRM INTELLIHELP')) ?>" maxlength="80">
+                <input name="app_nombre" value="<?= e($s('app_nombre', 'CRM INTELLIHELP')) ?>" maxlength="80" placeholder="CRM INTELLIHELP">
                 <i class="hint">Lo que se lee en la pestaña del navegador y en el pie de las pantallas.</i>
             </label>
             <label class="fld"><span>Modo de trabajo</span>
@@ -67,7 +67,7 @@
         </p>
         <div class="grid-fields">
             <label class="fld"><span>Nombre de la empresa</span>
-                <input name="empresa_nombre" value="<?= e($s('empresa_nombre', 'INTELLIHELP')) ?>" maxlength="120">
+                <input name="empresa_nombre" value="<?= e($s('empresa_nombre', 'INTELLIHELP')) ?>" maxlength="120" placeholder="INTELLIHELP">
                 <i class="hint">Sale en los correos, en la firma y en la variable {{remitente_empresa}}.</i>
             </label>
             <label class="fld"><span>Sitio web</span>
@@ -75,7 +75,7 @@
                 <i class="hint">Va en el encabezado del correo y en la variable {{empresa_web}}. Sin http:// adelante.</i>
             </label>
             <label class="fld"><span>Teléfono</span>
-                <input type="tel" inputmode="tel" name="empresa_telefono" value="<?= e($s('empresa_telefono')) ?>" maxlength="60" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
+                <input type="tel" inputmode="tel" name="empresa_telefono" value="<?= e($s('empresa_telefono')) ?>" maxlength="60" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios." placeholder="11 7700-6868">
                 <i class="hint">El fijo, para el bloque de datos de contacto del correo. El de WhatsApp va en el campo de al lado.</i>
             </label>
             <label class="fld"><span>WhatsApp</span>
@@ -171,7 +171,7 @@
                 <i class="hint">Cuánto se conserva lo archivado antes de borrarlo definitivamente.</i>
             </label>
             <label class="fld"><span>Clave del cron por URL</span>
-                <input name="cron_clave" value="<?= e($s('cron_clave')) ?>" maxlength="60">
+                <input name="cron_clave" value="<?= e($s('cron_clave')) ?>" maxlength="60" placeholder="una clave larga y dificil de adivinar">
                 <i class="hint">Sólo hace falta si el hosting no permite ejecutar el cron por línea de comandos.</i>
             </label>
         </div>

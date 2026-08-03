@@ -124,16 +124,26 @@ foreach ($rows as $rc) {
                 <i class="hint">Para reconocerla en la lista al elegir desde dónde sale una campaña. Por ejemplo «Comercial» o «RRHH».</i>
             </label>
             <label class="fld"><span>Dirección del remitente <i class="req">*</i></span>
-                <input type="email" name="remitente" value="<?= $e2('remitente') ?>" maxlength="190" required>
+                <input type="email" name="remitente" value="<?= $e2('remitente') ?>" maxlength="190" required placeholder="ventas@intellihelp.tech">
                 <i class="hint">La dirección que ve el destinatario como remitente.</i>
             </label>
             <label class="fld"><span>Nombre que ve el destinatario</span>
-                <input name="remitente_nombre" value="<?= $e2('remitente_nombre') ?>" maxlength="160">
+                <input name="remitente_nombre" value="<?= $e2('remitente_nombre') ?>" maxlength="160" placeholder="INTELLIHELP">
                 <i class="hint">El nombre que se lee en negrita en la bandeja, antes del asunto.</i>
             </label>
             <label class="fld"><span>Responder a</span>
-                <input type="email" name="responder_a" value="<?= $e2('responder_a') ?>" maxlength="190">
+                <input type="email" name="responder_a" value="<?= $e2('responder_a') ?>" maxlength="190"
+                       placeholder="ventas@intellihelp.tech">
                 <i class="hint">Adónde va la respuesta cuando aprietan Responder. Si lo dejás vacío, se responde a la dirección del remitente.</i>
+            </label>
+            <label class="fld full"><span>Firma de esta casilla</span>
+                <textarea name="firma_html" rows="4" maxlength="2000"
+                          placeholder="Brian Sierra&#10;Responsable de Sistemas · INTELLIHELP S.A.&#10;+54 9 11 5027-4827 · intellihelp.tech"><?= $e2('firma_html') ?></textarea>
+                <i class="hint">
+                    Se agrega al final de cada respuesta que mandes desde el CRM, igual que la firma
+                    que tenés puesta en Gmail. Es por casilla y no por persona: lo que sale de la
+                    cuenta de ventas firma como ventas. Dejala vacía si no querés ninguna.
+                </i>
             </label>
 
             <label class="fld"><span>Servidor de salida</span>
@@ -152,7 +162,7 @@ foreach ($rows as $rc) {
                 <i class="hint">Cómo se cifra la conexión. Con Gmail, STARTTLS en el 587.</i>
             </label>
             <label class="fld"><span>Usuario</span>
-                <input name="smtp_user" value="<?= $e2('smtp_user') ?>" autocomplete="off" maxlength="190">
+                <input name="smtp_user" value="<?= $e2('smtp_user') ?>" autocomplete="off" maxlength="190" placeholder="ventas@intellihelp.tech">
                 <i class="hint">La casilla con la que el sistema se conecta a Google. Va la dirección completa.</i>
             </label>
             <label class="fld"><span>Contraseña de aplicación</span>
@@ -185,7 +195,7 @@ foreach ($rows as $rc) {
             <label class="fld"><span>Puerto</span><input type="number" name="imap_port" value="<?= $e2('imap_port', '993') ?>">
                 <i class="hint">993, que es el puerto seguro de IMAP.</i>
             </label>
-            <label class="fld"><span>Usuario</span><input name="imap_user" value="<?= $e2('imap_user') ?>" autocomplete="off" maxlength="190">
+            <label class="fld"><span>Usuario</span><input name="imap_user" value="<?= $e2('imap_user') ?>" autocomplete="off" maxlength="190" placeholder="ventas@intellihelp.tech">
                 <i class="hint">Si la dejás vacía se usa la misma cuenta de salida, que es lo habitual.</i>
             </label>
             <label class="fld"><span>Contraseña</span>

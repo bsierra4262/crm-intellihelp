@@ -13,7 +13,7 @@
     <div class="card form-card">
         <div class="grid-fields">
             <label class="fld wide"><span>Nombre <i class="req">*</i></span>
-                <input name="nombre" value="<?= e($l['nombre'] ?? '') ?>" maxlength="160" required autofocus>
+                <input name="nombre" value="<?= e($l['nombre'] ?? '') ?>" maxlength="160" required autofocus placeholder="Clientes activos - Buenos Aires">
                 <i class="hint">Para reconocerla al armar una campaña. Por ejemplo «Petroleras Neuquén» o «Contactos de la feria».</i>
             </label>
             <label class="fld"><span>Segmento</span>
@@ -26,7 +26,7 @@
                 <i class="hint">Agrupa las listas por rubro: RRHH, petroleras, bancos…</i>
             </label>
             <label class="fld full"><span>Descripción</span>
-                <textarea name="descripcion" rows="3"><?= e($l['descripcion'] ?? '') ?></textarea>
+                <textarea name="descripcion" rows="3" placeholder="Los que compraron en los ultimos 12 meses."><?= e($l['descripcion'] ?? '') ?></textarea>
                 <i class="hint">De dónde salieron estos contactos y para qué sirve la lista. Es interno.</i>
             </label>
         </div>

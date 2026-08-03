@@ -15,7 +15,7 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
         <p class="muted">Embudo, pronóstico y rendimiento de las campañas</p>
     </div>
     <form class="head-actions" method="get" action="<?= e(url('reportes')) ?>">
-        <input type="month" name="periodo" value="<?= e($periodo) ?>" data-auto>
+        <input type="month" name="periodo" value="<?= e($periodo) ?>" data-auto placeholder="2026-08">
         <button class="btn btn-primary btn-sm">Ver</button>
     </form>
 </div>
