@@ -534,6 +534,60 @@ ok('el refresco no pisa lo que estás escribiendo',
 ok('y deja ver qué cambió en vez de que los números salten solos',
    str_contains($secc, 'vivo-cambio') && str_contains($CSS, '@keyframes vivo-destello'));
 
+echo "== Ninguna regla usa un color que no existe ==\n";
+// Una variable mal escrita no rompe nada, no da error y no se ve en el código:
+// simplemente la propiedad no se aplica. Con `background:var(--card)` —que
+// nunca existió— la lista de los desplegables, el aviso emergente y los mensajes
+// de una conversación quedaron con fondo TRANSPARENTE, dejando ver la pantalla
+// de atrás. Sólo se descubre mirando.
+preg_match_all('/var\(\s*(--[a-z0-9-]+)\s*(\)|,)/i', $CSS, $usadas);
+$definidas = [];
+if (preg_match_all('/(--[a-z0-9-]+)\s*:/i', $CSS, $def)) { $definidas = array_unique($def[1]); }
+$huerfanas = [];
+foreach (array_unique($usadas[1]) as $i => $v) {
+    // Con respaldo —var(--x, #fff)— no hay problema: si no existe, usa el de al lado.
+    if (!in_array($v, $definidas, true) && !preg_match('/var\(\s*' . preg_quote($v, '/') . '\s*,/', $CSS)) {
+        $huerfanas[] = $v;
+    }
+}
+ok('todas las variables de color usadas están definidas', !$huerfanas,
+   $huerfanas ? 'sin definir: ' . implode(', ', $huerfanas) . ' — esas reglas no se aplican' : '');
+ok('la lista de los desplegables tiene fondo opaco',
+   preg_match('/\.sel-lista\{[^}]*background:var\(--surface\)/', $CSS) === 1,
+   'con fondo transparente se lee la pantalla de atrás a través de las opciones');
+
+echo "== Un trozo incluido no puede pisarle las variables a la vista ==\n";
+// Los archivos que empiezan con «_» se incluyen DENTRO de otra vista y comparten
+// su ámbito. Una variable llamada `$m` en el aviso de Google le pisó `$m` a la
+// del panel —que tiene los números— y la pantalla entera dejó de dibujarse. No
+// falla al escribirlo ni al desplegar: falla al abrir la pantalla.
+$comunes = ['m','c','f','d','r','x','p','n','i','a','b','e','t','v','l','s','u','k',
+            'rows','data','lista','datos','total','id','fila','item','res'];
+$choques = [];
+foreach (glob($WEB . '/app/views/_*.php') ?: [] as $parcial) {
+    $codigo = (string) @file_get_contents($parcial);
+    if (!preg_match_all('/^\s*\$([a-zA-Z_][a-zA-Z0-9_]*)\s*=(?!=)/m', $codigo, $mm)) { continue; }
+    foreach (array_unique($mm[1]) as $var) {
+        if (in_array($var, $comunes, true)) { $choques[] = basename($parcial) . ': $' . $var; }
+    }
+}
+ok('ningún trozo incluido usa un nombre de variable corriente', !$choques,
+   $choques ? implode(' · ', $choques) . ' — le puede pisar la variable a la vista que lo incluye' : '');
+
+echo "== Google Calendar: el aviso dice cómo salir ==\n";
+// Un aviso rojo que informa el problema pero no ofrece la salida obliga a
+// preguntar. La causa más común no es que Google esté caído: es que esta cuenta
+// perdió la conexión, y eso se arregla en un clic.
+$avisoG = (string) @file_get_contents($WEB . '/app/views/_aviso_gcal.php');
+ok('cuando la cuenta perdió la conexión, el aviso ofrece reconectar',
+   str_contains($avisoG, '$gcalDesconectado') && str_contains($avisoG, "url('google-login?conectar=1')"));
+// Google manda el refresh_token sólo si se le piden los permisos de forma
+// explícita. Se pedía únicamente «si ya había sesión iniciada», y al entrar de
+// cero no hay ninguna: Google no lo mandaba y el calendario quedaba sin andar.
+ok('en cada ingreso se piden TODOS los permisos, no sólo la primera vez',
+   preg_match('/google_auth_url\(\$_SESSION\[.oauth_state.\],\s*true\)/',
+              (string) @file_get_contents($WEB . '/app/pages/google-login.php')) === 1);
+
 echo "== Los campos se ven como campos en TODAS las pantallas ==\n";
 // Las reglas arrancaban en `.fld`, `.filters` o `.urow`, así que un campo puesto
 // en cualquier otro lado —la carga de contactos de una lista, la tabla de etapas

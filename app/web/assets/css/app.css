@@ -126,7 +126,7 @@ select::-ms-expand{display:none}
    pantallas con desplegables adentro de tablas que scrollean, y ahí una lista
    común queda recortada por el borde de la tabla. */
 .sel-lista{position:fixed;z-index:70;max-height:min(320px,60vh);overflow-y:auto;
-  background:var(--card);border:1px solid var(--line);border-radius:10px;
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;
   box-shadow:0 14px 34px rgba(24,16,40,.18);padding:4px;min-width:160px;
   max-width:min(420px,calc(100vw - 16px))}
 .sel-op{padding:.55rem .7rem;border-radius:7px;font-size:14px;color:var(--ink);
@@ -702,6 +702,10 @@ td.wrap{white-space:normal}
   padding:.35rem .45rem;border:1px solid var(--line);border-radius:6px;background:var(--soft);color:var(--muted)}
 
 /* ---------- Miscelánea ---------- */
+.ml-2{margin-left:.5rem}
+/* Un botón adentro de un aviso: que no quede pegado al texto ni desalineado
+   cuando el aviso ocupa varios renglones. */
+.flash .btn{vertical-align:middle;margin-top:.35rem}
 .inline-form{display:inline}
 .urow{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
 .urow select{width:auto;min-width:110px}
@@ -801,7 +805,7 @@ h3.sub{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.0
 .avisos{position:fixed;right:18px;bottom:18px;z-index:60;display:flex;flex-direction:column;
   gap:10px;align-items:flex-end;pointer-events:none;max-width:min(380px,calc(100vw - 36px))}
 .aviso{pointer-events:auto;position:relative;display:block;width:100%;
-  background:var(--card);border:1px solid var(--line);border-left:4px solid var(--primary);
+  background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--primary);
   border-radius:12px;padding:12px 34px 12px 14px;box-shadow:0 12px 30px rgba(24,16,40,.18);
   text-decoration:none;color:inherit;
   opacity:0;transform:translateY(10px);transition:opacity .25s ease,transform .25s ease}
@@ -822,7 +826,7 @@ h3.sub{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.0
 
 /* ---- Conversación: leer y contestar sin salir del CRM ---- */
 .hilo{display:flex;flex-direction:column;gap:14px}
-.msg{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--card)}
+.msg{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface)}
 /* Lo que escribió la otra persona se ve distinto de lo que escribimos
    nosotros: de un vistazo se sigue quién dijo qué. */
 .msg-in{border-left:3px solid var(--primary)}
