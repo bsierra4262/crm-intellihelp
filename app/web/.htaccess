@@ -6,9 +6,21 @@
 # Desactivar el WAF de Wordfence (auto_prepend_file del raíz) para esta app
 php_value auto_prepend_file none
 
-# Config y almacenamiento seguros (fuera del web root)
-SetEnv CRM_CONFIG /home/u566451014/crm_config/config.php
-SetEnv CRM_STORAGE /home/u566451014/crm_storage
+# La configuración NO se fija acá.
+#
+# Este archivo es el mismo en las dos instalaciones —producción y pruebas—, así
+# que fijar acá la ruta del config apuntaba las DOS a la de producción. Y como
+# el arranque mira la variable de entorno antes que nada, la copia de pruebas
+# terminaba conectada a la base real: se probaba contra los datos de los
+# clientes creyendo que se probaba en el aire.
+#
+# No se notaba por consola, donde SetEnv no existe: sólo pasaba por el navegador,
+# que es justamente por donde entra la gente.
+#
+# Ahora la busca el propio arranque, por el nombre de la carpeta:
+#   crm/          → crm_config/config.php
+#   crm-pruebas/  → crm_config/crm-pruebas.php
+# y el almacenamiento sale de ese mismo archivo.
 
 DirectoryIndex index.php
 Options -Indexes
@@ -20,7 +32,11 @@ Options -Indexes
     # El subdominio existe porque el hosting lo necesita para servir la carpeta,
     # pero la dirección oficial es intellihelp.tech/crm. Todo lo que entre por
     # crm.intellihelp.tech se manda ahí, incluido el callback de Google.
+    # Sólo para la instalación de producción: la de pruebas vive en otra
+    # carpeta y mandarla a /crm la sacaría de su propia instalación —y de su
+    # base— en el medio del ingreso con Google.
     RewriteCond %{HTTP_HOST} ^crm\.intellihelp\.tech$ [NC]
+    RewriteCond %{REQUEST_URI} !^/crm-pruebas
     RewriteRule ^(.*)$ https://intellihelp.tech/crm/$1 [R=301,L,QSA]
 
     # Servir archivos y carpetas reales tal cual (assets, uploads, etc.)

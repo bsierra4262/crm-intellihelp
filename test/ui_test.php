@@ -568,6 +568,25 @@ ok('el sector se elige de una lista que depende del tipo',
 ok('y lo que ya estaba guardado sigue elegido al abrir la ficha',
    str_contains((string) @file_get_contents($WEB . '/assets/js/campos.js'), "getAttribute('data-elegido')"));
 
+echo "== Las dos instalaciones no se pueden mezclar ==\n";
+// El mismo código está desplegado dos veces: producción en `crm/` y pruebas en
+// `crm-pruebas/`. El `.htaccess` es EL MISMO archivo en las dos, así que fijar
+// ahí la ruta del config apuntaba las dos a la de producción, y la copia de
+// pruebas terminaba conectada a la base real. No se notaba por consola —donde
+// SetEnv no existe—: sólo pasaba por el navegador, que es por donde entra
+// la gente. Se descubrió con una sesión de verdad, no con un test.
+$hta = (string) @file_get_contents($WEB . '/.htaccess');
+ok('el .htaccess no fija la configuración de una instalación',
+   !preg_match('/^\s*SetEnv\s+CRM_CONFIG/mi', $hta),
+   'el mismo archivo va en las dos: fijarla ahí conecta pruebas a la base real');
+ok('ni el almacenamiento', !preg_match('/^\s*SetEnv\s+CRM_STORAGE/mi', $hta));
+ok('la busca el arranque, por el nombre de la carpeta',
+   str_contains($bootAssets, "'/home/u566451014/crm_config/' . \$carpeta . '.php'"));
+// Mandar todo a /crm sacaría a pruebas de su propia instalación en el medio
+// del ingreso con Google, que es como se descubrió.
+ok('la redirección a la dirección oficial no arrastra a la de pruebas',
+   preg_match('/RewriteCond %\{REQUEST_URI\} !\^\/crm-pruebas/', $hta) === 1);
+
 echo "== Pasar a producción sin arrastrar los datos de prueba ==\n";
 $dp = (string) @file_get_contents($WEB . '/app/datos_prueba.php');
 // Adivinar cuáles eran los datos de prueba, sobre la base de alguien, es la
