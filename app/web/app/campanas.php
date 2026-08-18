@@ -18,8 +18,54 @@ require_once __DIR__ . '/envio.php';
 // el cron se despierta cada 5 minutos, pero NO manda un correo por corrida,
 // manda todos los que entren en su presupuesto. Confundir las dos cosas lleva
 // a creer que 500 correos son dos días, cuando son unas horas.
-const CRON_PERIODO_SEG     = 300;   // el cron de hPanel, cada 5 minutos
-const CRON_PRESUPUESTO_SEG = 280;   // cuánto dura la corrida, con margen para cerrar
+// El cron marca el pulso; el ritmo lo pone el script. hPanel no siempre deja
+// programar cada minuto —hay planes donde el mínimo es cada cinco—, así que en
+// vez de depender de eso, cada corrida trabaja en VUELTAS de un minuto hasta
+// gastar su presupuesto. Con el cron cada minuto da una vuelta; con el cron
+// cada cinco da cinco. En los dos casos la casilla se mira una vez por minuto.
+const CRON_CICLO_SEG       = 55;   // cuánto dura cada vuelta
+const CRON_CORRIDA_SEG     = 280;  // el total, con margen antes de los 5 minutos
+const CRON_PERIODO_SEG     = 60;   // cada cuánto sale un correo, a efectos del ritmo
+const CRON_PRESUPUESTO_SEG = 45;   // lo que se despacha DENTRO de cada vuelta
+
+/**
+ * Toma el turno para correr el cron, o dice que no.
+ *
+ * Con el cron cada cinco minutos esto no hacía falta: la corrida duraba 280
+ * segundos y nunca llegaba a encontrarse con la siguiente. Corriendo cada
+ * minuto sí se pisan, y dos corridas a la vez leen la misma casilla dos veces y
+ * cuentan de más.
+ *
+ * Se toma con un UPDATE condicional y no leyendo-y-después-escribiendo: entre
+ * esas dos operaciones entran las dos corridas y las dos creen que ganaron.
+ * Acá la base decide, y sólo una fila cambia.
+ *
+ * El turno vence solo. Si el proceso se muere a la mitad —tope de tiempo del
+ * hosting, reinicio— nadie va a poder liberarlo, y sin vencimiento el cron
+ * quedaría trabado para siempre esperando a un proceso que ya no existe.
+ */
+function cron_tomar_turno(int $venceSeg = 600): bool
+{
+    $ahora   = time();
+    $vencido = $ahora - max(60, $venceSeg);
+
+    // La fila tiene que existir para poder actualizarla condicionalmente.
+    q("INSERT IGNORE INTO app_settings (clave, valor) VALUES ('cron_turno', '0')");
+    $tomado = q("UPDATE app_settings SET valor = ?
+                 WHERE clave = 'cron_turno'
+                   AND (valor = '' OR valor = '0' OR CAST(valor AS UNSIGNED) < ?)",
+                [(string)$ahora, $vencido])->rowCount();
+
+    setting_refrescar();
+    return $tomado === 1;
+}
+
+/** Suelta el turno al terminar. */
+function cron_soltar_turno(): void
+{
+    q("UPDATE app_settings SET valor = '0' WHERE clave = 'cron_turno'");
+    setting_refrescar();
+}
 
 // ------------------------------------------------------------
 //  Plantillas

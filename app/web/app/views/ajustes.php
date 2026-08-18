@@ -61,6 +61,39 @@
         </div>
     </div>
 
+    <div class="card form-card">
+        <h2 class="sec">Qué está en marcha</h2>
+        <p class="muted small card-intro">
+            El sistema se usa de verdad mucho antes de estar terminado, y está bien: la carga de
+            contactos y empresas ya sirve aunque las campañas todavía se estén puliendo. Lo que no
+            sirve es entrar a una pantalla a medio hacer creyendo que está lista, cargar algo ahí y
+            que después no aparezca donde esperabas. Encendé cada parte cuando esté lista.
+            <br><br>
+            <strong>Contactos, Empresas y el registro de actividad están siempre.</strong> Son el
+            núcleo: sin ellos no queda sistema.
+            <?php if ($s('app_entorno', 'testing') === 'testing'): ?>
+                <br><br>En <strong>modo prueba está todo encendido igual</strong>, sin importar lo
+                que marques acá: es el lugar donde se termina lo que falta. Esto empieza a valer
+                cuando pases a Producción.
+            <?php endif; ?>
+        </p>
+        <div class="modulos">
+            <?php foreach (modulos() as $clave => $m): ?>
+                <label class="modulo">
+                    <span class="switch">
+                        <input type="checkbox" name="modulo_<?= e($clave) ?>" value="1"
+                               <?= $s('modulo_' . $clave, '0') === '1' ? 'checked' : '' ?>>
+                        <span class="track"></span>
+                    </span>
+                    <span class="modulo-txt">
+                        <strong><?= e($m['nombre']) ?></strong>
+                        <small><?= e($m['ayuda']) ?></small>
+                    </span>
+                </label>
+            <?php endforeach; ?>
+        </div>
+    </div>
+
     <?php
     // Qué queda de la prueba. La instalación es UNA sola: los contactos
     // ficticios que se sembraron para probar el circuito no pueden quedar

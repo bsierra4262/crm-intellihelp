@@ -123,6 +123,20 @@ $def = $rutas[$rutaBase];
 if (empty($def['public']) && !auth_user()) {
     redirect('login');
 }
+
+// Una sección apagada no se esconde solamente del menú: se bloquea de verdad.
+// Esconder un enlace no impide entrar escribiendo la dirección, y quien lo
+// hiciera llegaría a una pantalla que el sistema da por no disponible, cargaría
+// algo ahí y después no aparecería donde espera.
+if (!ruta_habilitada($rutaBase)) {
+    http_response_code(404);
+    render('error', [
+        'codigo'  => 404,
+        'titulo'  => 'Esta parte todavía no está en marcha',
+        'mensaje' => 'Se habilita desde Ajustes → Qué está en marcha, cuando esté lista para usarse.',
+    ], 'No disponible');
+    exit;
+}
 if (!empty($def['admin']) && !auth_is_admin()) {
     // Antes esto era un `exit('Acceso denegado.')`: una pantalla en blanco con
     // una línea de texto, sin diseño y sin forma de volver. Se usa la pantalla

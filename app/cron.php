@@ -71,66 +71,113 @@ $lineas = [];
 // que manda correos dura varios minutos, y mientras tanto la pantalla mostraba
 // la hora de la corrida anterior: parecía que el cron estaba parado justo
 // cuando más trabajando estaba.
+// Una sola corrida a la vez. Corriendo cada minuto, la anterior puede seguir
+// trabajando cuando arranca la siguiente: dos a la vez leen la misma casilla
+// dos veces y cuentan de más. El que no toma el turno se va sin hacer ruido.
+if (!cron_tomar_turno()) {
+    $msg = date('c') . ' · otra corrida sigue en curso, este turno se saltea' . PHP_EOL;
+    if ($porWeb) { echo $msg; } else { fwrite(STDOUT, $msg); }
+    exit(0);
+}
+// Pase lo que pase de acá en adelante, el turno se suelta: si un error corta la
+// corrida sin soltarlo, el cron queda trabado hasta que venza el plazo.
+register_shutdown_function(static function (): void {
+    try { db_reanudar(); cron_soltar_turno(); } catch (\Throwable $e) {}
+});
+
 setting_set('cron_en_curso_desde', date('Y-m-d H:i:s'));
 
+// ============================================================
+//  Las vueltas de trabajo
+//
+//  El cron marca el pulso, pero el ritmo lo ponemos acá. hPanel no siempre
+//  deja programar cada minuto —hay planes donde el mínimo es cada cinco—, y
+//  atar el sistema a lo que ofrezca un desplegable ajeno es frágil.
+//
+//  Así que el script trabaja en vueltas de ~55 segundos hasta gastar su
+//  presupuesto. Con el cron cada minuto da una vuelta y sale; con el cron cada
+//  cinco da cinco vueltas seguidas. En los dos casos la casilla se mira
+//  aproximadamente cada minuto, que es lo que hace que una respuesta aparezca
+//  al toque en vez de cinco minutos después.
+// ============================================================
+$finDeCorrida = microtime(true) + CRON_CORRIDA_SEG;
+$vueltas = 0;
+
+do {
+    $vueltas++;
+    $arrancoVuelta = microtime(true);
+
 // ---- 1. Casilla: rebotes y respuestas ----
-//
-// Va ANTES de las campañas, y no después. El despachador se lleva 240 segundos
-// de la corrida, así que leyendo al final los rebotes y las respuestas
-// aparecían casi cuatro minutos tarde, todos juntos, cuando la campaña ya había
-// terminado: la pantalla mostraba 6 de 6 con todo en cero mientras las cosas
-// estaban pasando de verdad.
-//
-// Cada cuánto se mira depende de si hay algo en curso: con una campaña
-// mandando, los rebotes vuelven a los segundos y las respuestas empiezan a
-// entrar enseguida, así que se mira seguido. Sin nada en curso se espacía,
-// porque abrir IMAP es caro y no tiene sentido hacerlo para no encontrar nada.
-// El despachador además vuelve a mirar en el medio del envío, aprovechando las
-// pausas entre correo y correo.
-try {
-    $activas = (int) qv("SELECT COUNT(*) FROM campanas
-                         WHERE eliminado_en IS NULL AND estado IN ('enviando','programada')");
-    $r = imap_quizas_revisar($activas > 0 ? 60 : 900);
-    if ($r === null) {
-        $lineas[] = 'casilla: se salteó (todavía no tocaba)';
-    } else {
-        $lineas[] = $r['error']
-            ? 'casillas: ' . $r['error']
-            : sprintf('casillas: %d revisadas, %d correos, %d rebotes (%d definitivos), %d respuestas',
-                      $r['casillas'] ?? 1, $r['revisados'], $r['rebotes'], $r['duros'] ?? 0, $r['respuestas']);
-        if (($r['rebotes'] ?? 0) || ($r['respuestas'] ?? 0)) {
-            log_app('cron.casilla', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
+    //
+    // Va ANTES de las campañas, y no después. El despachador se lleva 240 segundos
+    // de la corrida, así que leyendo al final los rebotes y las respuestas
+    // aparecían casi cuatro minutos tarde, todos juntos, cuando la campaña ya había
+    // terminado: la pantalla mostraba 6 de 6 con todo en cero mientras las cosas
+    // estaban pasando de verdad.
+    //
+    // Cada cuánto se mira depende de si hay algo en curso: con una campaña
+    // mandando, los rebotes vuelven a los segundos y las respuestas empiezan a
+    // entrar enseguida, así que se mira seguido. Sin nada en curso se espacía,
+    // porque abrir IMAP es caro y no tiene sentido hacerlo para no encontrar nada.
+    // El despachador además vuelve a mirar en el medio del envío, aprovechando las
+    // pausas entre correo y correo.
+    try {
+        $activas = (int) qv("SELECT COUNT(*) FROM campanas
+                             WHERE eliminado_en IS NULL AND estado IN ('enviando','programada')");
+        $r = imap_quizas_revisar($activas > 0 ? 60 : 900);
+        if ($r === null) {
+            $lineas[] = 'casilla: se salteó (todavía no tocaba)';
+        } else {
+            $lineas[] = $r['error']
+                ? 'casillas: ' . $r['error']
+                : sprintf('casillas: %d revisadas, %d correos, %d rebotes (%d definitivos), %d respuestas',
+                          $r['casillas'] ?? 1, $r['revisados'], $r['rebotes'], $r['duros'] ?? 0, $r['respuestas']);
+            if (($r['rebotes'] ?? 0) || ($r['respuestas'] ?? 0)) {
+                log_app('cron.casilla', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
+            }
         }
+    } catch (\Throwable $e) {
+        db_reanudar();
+        $lineas[] = 'casilla ERROR: ' . $e->getMessage();
+        log_app('cron.casilla_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
     }
-} catch (\Throwable $e) {
-    db_reanudar();
-    $lineas[] = 'casilla ERROR: ' . $e->getMessage();
-    log_app('cron.casilla_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
-}
-
-// ---- 2. Campañas ----
-try {
-    // El presupuesto sale de la constante, no de un número escrito acá: de él
-    // depende el ritmo que la pantalla le promete al usuario, y los dos tienen
-    // que ser el mismo número o la estimación miente.
-    $r = campanas_despachar(3, CRON_PRESUPUESTO_SEG);
-    $lineas[] = sprintf('campañas: %d enviados, %d rebotados, %d omitidos, %d errores',
-        $r['enviados'], $r['rebotados'], $r['omitidos'], $r['errores']);
-    if ($r['enviados'] || $r['rebotados'] || $r['errores']) {
-        log_app('cron.campanas', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
+    
+    // ---- 2. Campañas ----
+    try {
+        // El presupuesto sale de la constante, no de un número escrito acá: de él
+        // depende el ritmo que la pantalla le promete al usuario, y los dos tienen
+        // que ser el mismo número o la estimación miente.
+        $r = campanas_despachar(3, CRON_PRESUPUESTO_SEG);
+        $lineas[] = sprintf('campañas: %d enviados, %d rebotados, %d omitidos, %d errores',
+            $r['enviados'], $r['rebotados'], $r['omitidos'], $r['errores']);
+        if ($r['enviados'] || $r['rebotados'] || $r['errores']) {
+            log_app('cron.campanas', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
+        }
+    } catch (\Throwable $e) {
+        // La conexión pudo haberse caído durante una pausa: se reabre antes de
+        // intentar registrar nada, o el registro del error falla también y la
+        // corrida termina sin dejar ningún rastro de lo que pasó.
+        db_reanudar();
+        $lineas[] = 'campañas ERROR: ' . $e->getMessage();
+        log_app('cron.campanas_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
     }
-} catch (\Throwable $e) {
-    // La conexión pudo haberse caído durante una pausa: se reabre antes de
-    // intentar registrar nada, o el registro del error falla también y la
-    // corrida termina sin dejar ningún rastro de lo que pasó.
+    
+    // El despachador es lo único que duerme. Después de él, la conexión puede estar
+    // muerta y todo lo que sigue —rebotes, recordatorios, purga— la necesita.
     db_reanudar();
-    $lineas[] = 'campañas ERROR: ' . $e->getMessage();
-    log_app('cron.campanas_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
-}
 
-// El despachador es lo único que duerme. Después de él, la conexión puede estar
-// muerta y todo lo que sigue —rebotes, recordatorios, purga— la necesita.
-db_reanudar();
+    // Si queda presupuesto, se espera a completar el minuto y se da otra
+    // vuelta. Dormir lo que sobra —en vez de encadenar vueltas sin pausa— es
+    // lo que mantiene el ritmo parejo y no castiga al servidor.
+    $sobra = CRON_CICLO_SEG - (microtime(true) - $arrancoVuelta);
+    if (microtime(true) + max(0, $sobra) >= $finDeCorrida) { break; }
+    if ($sobra > 0) { sleep((int) ceil($sobra)); }
+    // Después de dormir, la conexión a la base puede estar muerta: este hosting
+    // la cierra a los 20 segundos de inactividad.
+    db_reanudar();
+} while (microtime(true) < $finDeCorrida);
+
+if ($vueltas > 1) { $lineas[] = $vueltas . ' vueltas'; }
 
 // ---- 3. Recordatorios de reuniones ----
 try {

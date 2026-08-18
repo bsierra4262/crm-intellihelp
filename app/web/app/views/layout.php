@@ -10,6 +10,9 @@ $appName = (string) (setting_get('app_nombre', '') ?: ($GLOBALS['CONFIG']['app']
 // La barra lleva SÓLO el trabajo diario. Todo lo administrativo va al menú
 // «Más»: con catorce solapas sueltas la barra no entraba ni en una pantalla de
 // 1920 px y la última quedaba cortada al medio.
+// Sólo se muestran las secciones que están en marcha. En producción se eligen
+// una por una desde Ajustes; en prueba está todo, que es donde se termina lo
+// que falta.
 $nav = [
     'dashboard'   => ['Panel',       'panel'],
     'posibles'    => ['Posibles',    'posibles'],
@@ -21,6 +24,7 @@ $nav = [
     'agenda'      => ['Agenda',      'agenda'],
     'reportes'    => ['Reportes',    'reportes'],
 ];
+$nav = array_filter($nav, fn($k) => ruta_habilitada($k), ARRAY_FILTER_USE_KEY);
 
 // Las rutas hijas marcan activa a su sección madre: estando en «Nuevo contacto»
 // la solapa Contactos tiene que seguir encendida.

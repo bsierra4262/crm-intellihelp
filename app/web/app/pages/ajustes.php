@@ -56,6 +56,11 @@ if (is_post()) {
         foreach (notif_tipos() as $t) {
             setting_set($t['ajuste'], empty($_POST[$t['ajuste']]) ? '0' : '1');
         }
+        // Lo mismo con las partes del sistema: un interruptor apagado no llega
+        // en el formulario, así que apagarlo no lo apagaría nunca.
+        foreach (array_keys(modulos()) as $mod) {
+            setting_set('modulo_' . $mod, empty($_POST['modulo_' . $mod]) ? '0' : '1');
+        }
         foreach ($claves as $k) {
             if (array_key_exists($k, $_POST)) {
                 setting_set($k, trim((string)$_POST[$k]));

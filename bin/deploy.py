@@ -3,6 +3,8 @@
 Despliegue del CRM a Hostinger por SFTP/SSH.
 
     python bin/deploy.py app          sube app/web/ al webroot y app/cron.php
+    ... cualquier comando --pruebas     lo hace sobre la instalacion de pruebas
+                                        (public_html/crm-pruebas, base propia)
     python bin/deploy.py config       sube app/server-config/config.php fuera del webroot
     python bin/deploy.py schema       importa app/db/schema.sql en la base
     python bin/deploy.py run "<cmd>"  ejecuta un comando por SSH
@@ -37,10 +39,34 @@ for _flujo in (sys.stdout, sys.stderr):
     except AttributeError:  # pragma: no cover
         pass
 
-# Rutas en el servidor
-WEBROOT = "/home/u566451014/domains/intellihelp.tech/public_html/crm"
-CONFDIR = "/home/u566451014/crm_config"
-STORAGE = "/home/u566451014/crm_storage"
+# Rutas en el servidor.
+#
+# Hay DOS instalaciones del mismo codigo: produccion y pruebas. Se elige con
+# `--pruebas` al final del comando. El destino se decide aca y no a mano,
+# porque copiar a la carpeta equivocada es exactamente el error que uno comete
+# una vez y no vuelve a cometer nunca, despues de romper produccion.
+BASE_HTML = "/home/u566451014/domains/intellihelp.tech/public_html"
+CONFDIR   = "/home/u566451014/crm_config"
+
+DESTINOS = {
+    "produccion": {
+        "webroot": BASE_HTML + "/crm",
+        "storage": "/home/u566451014/crm_storage",
+        "db":      "u566451014_crm",
+        "url":     "https://intellihelp.tech/crm",
+    },
+    "pruebas": {
+        "webroot": BASE_HTML + "/crm-pruebas",
+        "storage": "/home/u566451014/crm_pruebas_storage",
+        "db":      "u566451014_crm_pruebas",
+        "url":     "https://intellihelp.tech/crm-pruebas",
+    },
+}
+
+# Se resuelve una sola vez, al arrancar, mirando los argumentos.
+DESTINO = "pruebas" if "--pruebas" in sys.argv else "produccion"
+WEBROOT = DESTINOS[DESTINO]["webroot"]
+STORAGE = DESTINOS[DESTINO]["storage"]
 
 # Nunca se suben al servidor: son del repositorio, no de la aplicacion.
 EXCLUIR = {".git", "__pycache__", ".DS_Store", "Thumbs.db", "config.php"}
@@ -173,6 +199,9 @@ def main() -> None:
         print(__doc__)
         sys.exit(1)
     accion = sys.argv[1]
+    # Que se vea SIEMPRE adonde va. Un despliegue silencioso a produccion
+    # creyendo que iba a pruebas es la clase de error que no perdona.
+    print(f"Destino: {DESTINO.upper()}  ({DESTINOS[DESTINO]['url']})")
     cli = conectar()
     try:
         if accion == "app":

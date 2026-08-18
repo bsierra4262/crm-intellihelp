@@ -7,11 +7,21 @@ declare(strict_types=1);
 // ============================================================
 
 // ---- Localizar la configuración ----
-// 1) archivo indicado por CRM_CONFIG (fuera del web root, producción)
-// 2) rutas conocidas (Hostinger, repositorio, local)
+//
+// PRIMERO se busca una configuración PROPIA de esta instalación, por el nombre
+// de su carpeta. Esto no es un detalle: el mismo código está desplegado dos
+// veces —producción en `crm/` y pruebas en `crm-pruebas/`— y sin esto la copia
+// de pruebas encontraría la configuración de producción y se conectaría a la
+// base real. Se probarían cambios contra los datos de los clientes creyendo
+// que se prueba en el aire, que es la peor forma posible de descubrirlo.
+//
+// Producción sigue funcionando igual: no existe `crm.php` en esa carpeta, así
+// que cae en `config.php`, la de siempre.
 $configFile = $_SERVER['CRM_CONFIG'] ?? (getenv('CRM_CONFIG') ?: '');
 if (!$configFile || !is_file($configFile)) {
+    $carpeta = basename(dirname(__DIR__));                  // crm, crm-pruebas, …
     foreach ([
+        '/home/u566451014/crm_config/' . $carpeta . '.php', // config propia de ESTA instalación
         '/home/u566451014/crm_config/config.php',           // Hostinger (producción)
         dirname(__DIR__, 2) . '/server-config/config.php',  // repo: app/server-config/config.php
         dirname(__DIR__) . '/config.local.php',             // local
@@ -99,6 +109,7 @@ require APP . '/cuentas_correo.php';
 require APP . '/imap.php';
 require APP . '/mensajes.php';
 require APP . '/datos_prueba.php';
+require APP . '/modulos.php';
 require APP . '/agenda.php';
 require APP . '/notificaciones.php';
 

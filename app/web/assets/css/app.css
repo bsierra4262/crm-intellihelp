@@ -879,3 +879,13 @@ table.grid tr.sin-leer{background:var(--primary-050)}
 table.grid tr.sin-leer:hover{background:var(--primary-100)}
 table.grid tr.sin-leer td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
 @media (max-width:860px){ .alertas-btn{width:34px;height:34px} }
+
+/* ---- Qué está en marcha: encender cada parte cuando esté lista ---- */
+.modulos{display:grid;gap:.4rem}
+.modulo{display:flex;align-items:flex-start;gap:.8rem;padding:.7rem .8rem;border-radius:10px;
+  cursor:pointer;transition:background .15s}
+.modulo:hover{background:var(--soft)}
+.modulo .switch{flex:none;margin-top:2px}
+.modulo-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.modulo-txt strong{font-size:14px;color:var(--ink)}
+.modulo-txt small{font-size:12.5px;color:var(--muted);line-height:1.45}
