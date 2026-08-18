@@ -61,12 +61,26 @@
                 <i class="hint">Tamaño máximo del servidor: <?= e($maxSubida) ?>.</i>
             </div>
             <label class="fld"><span>Qué importar</span>
+            <?php /* Importar a una lista sólo tiene sentido con las campañas en
+                     marcha: ofrecerlo apagado sería prometer un destino al que
+                     el archivo no puede llegar. */
+            $conCampanas = ruta_habilitada('campanas'); ?>
+            <label class="fld"><span>Qué importar</span>
                 <select name="destino">
                     <option value="contactos">Contactos y empresas</option>
-                    <option value="lista">Correos para una lista de campaña</option>
+                    <?php if ($conCampanas): ?>
+                        <option value="lista">Correos para una lista de campaña</option>
+                    <?php endif; ?>
                 </select>
-                <i class="hint">«Contactos y empresas» carga la ficha completa. «Correos a una lista» sólo suma direcciones a una lista de campaña.</i>
+                <i class="hint">
+                    <?php if ($conCampanas): ?>
+                        «Contactos y empresas» carga la ficha completa. «Correos a una lista» sólo suma direcciones a una lista de campaña.
+                    <?php else: ?>
+                        Carga la ficha completa: nombre, apellido, correo, teléfono, empresa y dirección.
+                    <?php endif; ?>
+                </i>
             </label>
+            <?php if ($conCampanas): ?>
             <label class="fld"><span>Lista destino (si corresponde)</span>
                 <select name="lista_id">
                     <option value="">— Ninguna —</option>
@@ -76,6 +90,7 @@
                 </select>
                 <i class="hint">A qué lista van los correos. Sólo hace falta si elegiste ese destino.</i>
             </label>
+            <?php endif; ?>
             <label class="fld"><span>Propietario por defecto</span>
                 <select name="propietario_id">
                     <option value="">— El que diga el archivo —</option>

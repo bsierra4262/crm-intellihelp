@@ -27,6 +27,11 @@ declare(strict_types=1);
  */
 function modulos(): array
 {
+    // Importar NO está en esta lista a propósito. Cargar contactos y empresas
+    // desde un archivo es el trabajo de todos los días —es LO PRIMERO que hace
+    // falta al empezar a usar el sistema—, así que va con el núcleo y está
+    // siempre. Lo que sí depende de las campañas es poder importar correos
+    // sueltos a una lista, y eso se decide adentro de la pantalla.
     return [
         'posibles' => [
             'nombre' => 'Posibles clientes',
@@ -62,11 +67,6 @@ function modulos(): array
             'nombre' => 'Reportes',
             'ayuda'  => 'Los números del mes: qué entró, qué se cerró y por dónde se cae.',
             'rutas'  => ['reportes'],
-        ],
-        'importar' => [
-            'nombre' => 'Importar desde archivo',
-            'ayuda'  => 'La carga masiva de contactos y empresas desde un CSV.',
-            'rutas'  => ['importar'],
         ],
     ];
 }
