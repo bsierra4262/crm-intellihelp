@@ -60,6 +60,20 @@ if ($u && ($u['rol'] ?? '') === 'admin') {
         'cron'     => ['CRON',           'cron'],
     ];
 }
+// El menú «Más» se filtra igual que la barra: si no, ahí seguirían apareciendo
+// Importar, Cuentas de correo o Embudos con su módulo apagado, y hacer clic
+// llevaría a la pantalla de «esto todavía no está en marcha».
+$admin = array_filter($admin, fn($k) => $k === '-' || $k === '--' || ruta_habilitada($k), ARRAY_FILTER_USE_KEY);
+// Y si al sacar entradas un separador quedó primero, último o pegado a otro,
+// sobra: una línea suelta arriba de todo se ve como un error.
+$claves = array_keys($admin);
+foreach ($claves as $i => $k) {
+    if ($admin[$k] !== null) { continue; }
+    $antes    = $i > 0 ? $admin[$claves[$i - 1]] ?? null : null;
+    $despues  = $i < count($claves) - 1 ? $admin[$claves[$i + 1]] ?? null : null;
+    if ($antes === null || $despues === null) { unset($admin[$k]); }
+}
+
 $adminActivo = isset($admin[$seccion]);
 
 $asset     = fn($p) => e(url($p));
