@@ -36,16 +36,25 @@
 
 <div class="card mb-4">
     <div class="card-head"><h2>Nueva clave</h2></div>
-    <form method="post" class="urow">
+    <form method="post">
         <?= csrf_field() ?>
         <input type="hidden" name="accion" value="crear">
-        <input name="nombre" placeholder="Para qué sistema es" maxlength="120" required class="w-xl">
         <?php /* Por ahora la API es sólo de lectura y el endpoint no distingue
                  permisos: ofrecer «Acceso total» prometía algo que no cambiaba
                  nada. Cuando haya escritura, vuelve el selector. */ ?>
         <input type="hidden" name="scope" value="lectura">
-        <span class="chip">Sólo lectura</span>
-        <button class="btn btn-primary btn-sm"><?= icon('clave', 15) ?>Generar</button>
+        <div class="filter-grid">
+            <label><span>Para qué sistema es</span>
+                <input name="nombre" placeholder="ITHOS · panel de indicadores" maxlength="120" required>
+            </label>
+            <label><span>Permisos</span>
+                <div class="campo-fijo">Sólo lectura</div>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button class="btn btn-primary btn-sm"><?= icon('clave', 15) ?>Generar la clave</button>
+            <span class="hint">Se muestra una sola vez: copiala en ese momento.</span>
+        </div>
     </form>
 </div>
 

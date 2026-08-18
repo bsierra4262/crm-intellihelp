@@ -534,6 +534,60 @@ ok('el refresco no pisa lo que estás escribiendo',
 ok('y deja ver qué cambió en vez de que los números salten solos',
    str_contains($secc, 'vivo-cambio') && str_contains($CSS, '@keyframes vivo-destello'));
 
+echo "== Normalizar la base: qué ficha está completa y cuál falta terminar ==\n";
+$crmSrc = (string) @file_get_contents($WEB . '/app/crm.php');
+// La regla vive en UN solo lugar. Repartida entre el formulario, el importador
+// y la consulta, alcanza con tocar uno para que las tres digan cosas distintas.
+ok('la regla de «ficha completa» está en un solo lugar',
+   str_contains($crmSrc, 'function contacto_falta(') && str_contains($crmSrc, 'function cuenta_falta('));
+ok('y se marca al guardar, tanto a mano como importando',
+   substr_count($crmSrc, "\$campos['pendiente_norm']") >= 3);
+// Una empresa creada desde un nombre suelto —importación, ficha de contacto,
+// agenda pública— nunca trae CUIT ni tipo: nace pendiente por definición.
+ok('la empresa creada al vuelo nace pendiente de completar',
+   preg_match('/INSERT INTO cuentas[\s\S]{0,400}pendiente_norm[\s\S]{0,200}VALUES[\s\S]{0,120}, 1\)/', $crmSrc) === 1);
+ok('se puede filtrar por pendientes en contactos y en empresas',
+   substr_count($crmSrc, "\$f['pendiente'] ?? ''") >= 4);
+ok('el filtro está en las dos pantallas',
+   str_contains((string) @file_get_contents($WEB . '/app/views/contactos.php'), 'name="pendiente"')
+   && str_contains((string) @file_get_contents($WEB . '/app/views/cuentas.php'), 'name="pendiente"'));
+// Decir «falta algo» obliga a abrir la ficha para averiguar qué.
+ok('el listado dice QUÉ falta, no sólo que falta algo',
+   str_contains((string) @file_get_contents($WEB . '/app/views/contactos.php'), 'contacto_falta($c)')
+   && str_contains($CSS, '.pend{'));
+// El `required` del formulario no lo aplica nadie fuera de un navegador.
+ok('lo obligatorio también se comprueba en el servidor',
+   str_contains((string) @file_get_contents($WEB . '/app/pages/contacto-form.php'), 'contacto_falta($d)')
+   && str_contains((string) @file_get_contents($WEB . '/app/pages/cuenta-form.php'), 'cuenta_falta($d)'));
+// Escrito a mano, el mismo rubro entra de cinco formas distintas y el filtro
+// deja de servir.
+ok('el sector se elige de una lista que depende del tipo',
+   str_contains($crmSrc, 'function sectores_por_tipo(')
+   && str_contains((string) @file_get_contents($WEB . '/app/views/cuenta-form.php'), 'data-sector-empresa')
+   && str_contains((string) @file_get_contents($WEB . '/assets/js/campos.js'), 'function llenarSectores('));
+ok('y lo que ya estaba guardado sigue elegido al abrir la ficha',
+   str_contains((string) @file_get_contents($WEB . '/assets/js/campos.js'), "getAttribute('data-elegido')"));
+
+echo "== Pasar a producción sin arrastrar los datos de prueba ==\n";
+$dp = (string) @file_get_contents($WEB . '/app/datos_prueba.php');
+// Adivinar cuáles eran los datos de prueba, sobre la base de alguien, es la
+// peor idea posible: se anotan al sembrarlos y se borran esos y ninguno más.
+ok('se anota exactamente qué sembró el script',
+   str_contains($dp, 'function datos_prueba_anotar(')
+   && str_contains((string) @file_get_contents($WEB . '/reinicio.php'), 'datos_prueba_anotar(['));
+ok('y se pueden sacar desde Ajustes, sin tocar nada más',
+   str_contains($dp, 'function datos_prueba_limpiar(')
+   && str_contains((string) @file_get_contents($WEB . '/app/pages/ajustes.php'), "\$accion === 'limpiar_prueba'"));
+// Si alguien usó la empresa de prueba para algo suyo, manda lo suyo.
+ok('la empresa de prueba no se borra si quedó algo real colgado',
+   str_contains($dp, 'SELECT COUNT(*) FROM contactos WHERE cuenta_id = ? AND eliminado_en IS NULL'));
+ok('las plantillas NO se borran: son el punto de partida de las campañas reales',
+   !preg_match('/DELETE FROM plantillas/', $dp));
+// Este texto prometía que en prueba no salía correo. Es falso desde que se sacó
+// esa red, y creerlo lleva a mandarle una campaña a un cliente sin querer.
+ok('el modo de trabajo ya no promete que no sale correo',
+   !str_contains((string) @file_get_contents($WEB . '/app/views/ajustes.php'), 'no se escribe a clientes'));
+
 echo "== Ninguna regla usa un color que no existe ==\n";
 // Una variable mal escrita no rompe nada, no da error y no se ve en el código:
 // simplemente la propiedad no se aplica. Con `background:var(--card)` —que

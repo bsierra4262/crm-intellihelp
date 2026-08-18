@@ -7,6 +7,8 @@ $f = [
     'propietario_id' => $_GET['propietario_id'] ?? '',
     'provincia'      => $_GET['provincia'] ?? '',
     'tipo'           => $_GET['tipo'] ?? '',
+    'sector'         => $_GET['sector'] ?? '',
+    'pendiente'      => $_GET['pendiente'] ?? '',
     'page'           => $_GET['page'] ?? 1,
 ];
 

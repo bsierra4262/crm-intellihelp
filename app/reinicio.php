@@ -262,7 +262,27 @@ function reinicio_sembrar(): array
         'provincia' => 'Buenos Aires',
         'pais'      => 'Argentina',
     ], $duenio);
-    $out[] = 'Empresa: INTELLIHELP S.A. (id ' . (int)$cuentaId . ')';
+    // Se completa con todo lo que ahora pedimos siempre. `cuenta_asegurar()`
+    // sólo sabe crear a partir de un nombre, así que dejaba la empresa marcada
+    // como pendiente de normalizar: los datos de prueba tienen que ser el
+    // ejemplo de una ficha bien cargada, no el primer caso a corregir.
+    cuenta_guardar([
+        'nombre'        => 'INTELLIHELP S.A.',
+        'tipo'          => 'Cliente',
+        'sector'        => 'Tecnología',
+        'cuit'          => '30-71234567-4',
+        'condicion_iva' => 'Responsable Inscripto',
+        'sitio_web'     => 'intellihelp.tech',
+        'email'         => (string) setting_get('empresa_email', 'info@intellihelp.tech'),
+        'telefono'      => (string) setting_get('empresa_telefono', ''),
+        'calle'         => 'Dorrego 1789, piso 6 of. 604',
+        'localidad'     => 'Ciudad de Buenos Aires',
+        'provincia'     => 'Ciudad de Buenos Aires',
+        'pais'          => 'Argentina',
+        'propietario_id'=> $duenio,
+        'empleados'     => '',
+    ], (int)$cuentaId);
+    $out[] = 'Empresa: INTELLIHELP S.A. (id ' . (int)$cuentaId . ', ficha completa)';
 
     // ---- Contactos de prueba ----
     //
@@ -427,6 +447,7 @@ function reinicio_sembrar(): array
     // apareciendo la vieja «Outsourcing (la de Pulsemail)» con el nombre viejo:
     // el molde se había renombrado, pero la fila de la base no.
     $nPlantillas = 0;
+    $plantillaIds = [];
     foreach (plantillas_preajustes() as $clave => $p) {
         $ya = q1('SELECT id FROM plantillas WHERE preajuste = ? AND eliminado_en IS NULL LIMIT 1', [$clave]);
         plantilla_guardar([
@@ -438,6 +459,7 @@ function reinicio_sembrar(): array
             'carpeta'   => isset($p['bloques'][1]['volanta']) ? 'Servicios' : 'Genéricas',
             'activo'    => 1,
         ], $ya ? (int)$ya['id'] : null);
+        $plantillaIds[] = $ya ? (int)$ya['id'] : (int) qv('SELECT id FROM plantillas WHERE preajuste = ? ORDER BY id DESC LIMIT 1', [$clave]);
         $nPlantillas++;
     }
     $out[] = 'Plantillas: ' . $nPlantillas . ' cargadas, una por servicio más las genéricas';
@@ -462,6 +484,16 @@ function reinicio_sembrar(): array
     // Ya no hay lista de direcciones autorizadas: el modo prueba manda igual
     // que producción. Lo que lo hace seguro es que estos datos son ficticios.
     setting_set('testing_destinatarios', '');
+
+    // Queda anotado EXACTAMENTE qué se sembró. El día que se pase a producción
+    // hay que poder sacar esto y nada más: adivinar cuáles eran, sobre la base
+    // de alguien, es la peor idea posible.
+    datos_prueba_anotar([
+        'contactos'  => array_values(array_map('intval', $ids)),
+        'cuentas'    => array_values(array_filter([(int)$cuentaId])),
+        'listas'     => [(int)$listaId],
+        'plantillas' => array_map('intval', $plantillaIds),
+    ]);
 
     return $out;
 }

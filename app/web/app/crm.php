@@ -41,7 +41,73 @@ function calificaciones(): array
 
 function tipos_cuenta(): array
 {
-    return ['Cliente', 'Prospecto', 'Socio', 'Competidor', 'Distribuidor', 'Proveedor', 'Otro'];
+    return array_keys(sectores_por_tipo());
+}
+
+/**
+ * Los sectores que tienen sentido para cada tipo de empresa.
+ *
+ * El sector se elegía escribiéndolo a mano, y así una misma industria terminaba
+ * cargada de cinco formas distintas —«Logistica», «logística», «Transporte y
+ * logística»—, que es exactamente lo que hace inservible un filtro. Ahora se
+ * elige de una lista, y la lista depende del tipo: a un proveedor no le sirven
+ * las mismas categorías que a un cliente.
+ */
+function sectores_por_tipo(): array
+{
+    // Rubros de cliente: los que la empresa atiende de verdad.
+    $rubros = [
+        'Industria y manufactura', 'Logística y transporte', 'Comercio y retail',
+        'Construcción', 'Salud', 'Educación', 'Banca y finanzas', 'Seguros',
+        'Agro', 'Energía y servicios públicos', 'Hotelería y gastronomía',
+        'Gobierno y sector público', 'Consorcios y countries',
+        'Estudios y servicios profesionales', 'Tecnología', 'Otro',
+    ];
+    return [
+        'Cliente'      => $rubros,
+        'Prospecto'    => $rubros,
+        'Socio'        => ['Integrador', 'Consultora', 'Estudio contable o jurídico',
+                           'Cámara o asociación', 'Referidor', 'Otro'],
+        'Distribuidor' => ['Mayorista de tecnología', 'Retail especializado',
+                           'Representante de marca', 'Otro'],
+        'Proveedor'    => ['Hardware y equipamiento', 'Software y licencias',
+                           'Conectividad e internet', 'Obra e instalaciones',
+                           'Logística y fletes', 'Servicios profesionales', 'Otro'],
+        'Competidor'   => ['Soporte y servicios IT', 'Seguridad electrónica',
+                           'Redes e infraestructura', 'Energías renovables', 'Otro'],
+        'Otro'         => ['Otro'],
+    ];
+}
+
+/**
+ * ¿Qué le falta a esta ficha para estar completa?
+ *
+ * Son los datos sin los cuales la ficha no se puede usar para lo que existe:
+ * sin apellido no se puede tratar a alguien por su nombre en una campaña, sin
+ * empresa no se puede agrupar ni asignar, sin correo no se le puede escribir.
+ * La ficha entra igual —perder al que llegó es peor—, pero queda señalada.
+ *
+ * @return string[] lo que falta, vacío si está completa
+ */
+function contacto_falta(array $d): array
+{
+    $falta = [];
+    if (trim((string)($d['nombre'] ?? ''))   === '') { $falta[] = 'nombre'; }
+    if (trim((string)($d['apellido'] ?? '')) === '') { $falta[] = 'apellido'; }
+    if (trim((string)($d['email'] ?? ''))    === '') { $falta[] = 'correo principal'; }
+    if (empty($d['cuenta_id']))                      { $falta[] = 'empresa'; }
+    return $falta;
+}
+
+/** Lo mismo para una empresa: sin CUIT no se puede facturar. */
+function cuenta_falta(array $d): array
+{
+    $falta = [];
+    if (trim((string)($d['nombre'] ?? '')) === '') { $falta[] = 'nombre'; }
+    if (trim((string)($d['cuit'] ?? ''))   === '') { $falta[] = 'CUIT'; }
+    if (trim((string)($d['tipo'] ?? ''))   === '') { $falta[] = 'tipo'; }
+    if (trim((string)($d['sector'] ?? '')) === '') { $falta[] = 'sector'; }
+    return $falta;
 }
 
 function estados_actividad(): array
@@ -204,9 +270,14 @@ function cuenta_asegurar(string $nombre, array $extra = [], ?int $usuarioId = nu
         }
         return (int)$c['id'];
     }
+    // Esta empresa nace de un nombre suelto: la crea la importación, la ficha de
+    // un contacto o alguien que reservó una reunión y escribió dónde trabaja.
+    // Nunca trae CUIT ni tipo, así que nace pendiente de completar. Es
+    // exactamente para eso que existe el filtro: para poder encontrarlas.
     q('INSERT INTO cuentas (nombre, propietario_id, sitio_web, telefono, calle, localidad,
-                            provincia, codigo_postal, pais, sector, zoho_id, creado_por)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+                            provincia, codigo_postal, pais, sector, zoho_id, creado_por,
+                            pendiente_norm)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)', [
         $nombre,
         $extra['propietario_id'] ?? null,
         $extra['sitio_web'] ?? null,
@@ -236,6 +307,9 @@ function cuentas_where(array $f): array
     if (!empty($f['propietario_id'])) { $w[] = 'c.propietario_id = ?'; $p[] = (int)$f['propietario_id']; }
     if (!empty($f['provincia']))      { $w[] = 'c.provincia = ?';      $p[] = $f['provincia']; }
     if (!empty($f['tipo']))           { $w[] = 'c.tipo = ?';           $p[] = $f['tipo']; }
+    if (!empty($f['sector']))         { $w[] = 'c.sector = ?';         $p[] = $f['sector']; }
+    if (($f['pendiente'] ?? '') === '1') { $w[] = 'c.pendiente_norm = 1'; }
+    if (($f['pendiente'] ?? '') === '0') { $w[] = 'c.pendiente_norm = 0'; }
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
@@ -273,6 +347,11 @@ function cuenta_guardar(array $d, ?int $id = null): int
         'linkedin'       => ($d['linkedin'] ?? null) ?: null,
         'descripcion'    => ($d['descripcion'] ?? null) ?: null,
     ];
+    // Igual que en los contactos: la empresa entra aunque le falte algo, pero
+    // queda señalada para poder completarla después. Sin CUIT no se factura y
+    // sin sector no se puede segmentar una campaña.
+    $campos['pendiente_norm'] = cuenta_falta($campos) ? 1 : 0;
+
     if ($id) {
         $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($campos)));
         q("UPDATE cuentas SET $sets WHERE id = ?", [...array_values($campos), $id]);
@@ -318,6 +397,11 @@ function contactos_where(array $f): array
     if (($f['con_email'] ?? '') === '1') { $w[] = "ct.email IS NOT NULL AND ct.email <> ''"; }
     if (($f['no_email']  ?? '') === '1') { $w[] = 'ct.no_email = 1'; }
     if (($f['rebotado']  ?? '') === '1') { $w[] = 'ct.email_rebotado = 1'; }
+    // Fichas a las que les falta algo de lo que pedimos siempre. Es el filtro
+    // que permite ir completando la base de a poco en vez de descubrir el
+    // agujero el día que hace falta el dato.
+    if (($f['pendiente'] ?? '') === '1') { $w[] = 'ct.pendiente_norm = 1'; }
+    if (($f['pendiente'] ?? '') === '0') { $w[] = 'ct.pendiente_norm = 0'; }
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
@@ -374,6 +458,11 @@ function contacto_guardar(array $d, ?int $id = null): int
         $campos['no_email'] = !empty($d['no_email']) ? 1 : 0;
     }
 
+    // Queda señalado si le falta algo de lo que pedimos siempre. Se calcula
+    // sobre los campos que se van a guardar, no sobre lo que llegó: con
+    // `_solo_completar` puede completarse más abajo con lo que ya había.
+    $campos['pendiente_norm'] = contacto_falta($campos) ? 1 : 0;
+
     if ($id) {
         // Con `_solo_completar` no se pisa lo que ya está cargado con un valor
         // vacío. Importar un archivo con menos columnas que la ficha borraba en
@@ -387,6 +476,7 @@ function contacto_guardar(array $d, ?int $id = null): int
                 }
             }
         }
+        $campos['pendiente_norm'] = contacto_falta($campos) ? 1 : 0;
         $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($campos)));
         q("UPDATE contactos SET $sets WHERE id = ?", [...array_values($campos), $id]);
 

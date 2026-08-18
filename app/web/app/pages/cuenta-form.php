@@ -40,6 +40,14 @@ if (is_post()) {
         }
     }
 
+    foreach (cuenta_falta($d) as $queFalta) {
+        $campo = ['nombre' => 'nombre', 'CUIT' => 'cuit',
+                  'tipo' => 'tipo', 'sector' => 'sector'][$queFalta] ?? null;
+        if ($campo && !isset($errores[$campo])) {
+            $errores[$campo] = 'Hace falta para poder usar la ficha: ' . $queFalta . '.';
+        }
+    }
+
     if (!$errores) {
         $nuevoId = cuenta_guardar($d, $id ?: null);
         flash($id ? 'Empresa actualizada.' : 'Empresa creada.', 'success');

@@ -11,6 +11,7 @@ $f = [
     'con_email'      => $_GET['con_email'] ?? '',
     'no_email'       => $_GET['no_email'] ?? '',
     'rebotado'       => $_GET['rebotado'] ?? '',
+    'pendiente'      => $_GET['pendiente'] ?? '',
     'orden'          => $_GET['orden'] ?? '',
     'page'           => $_GET['page'] ?? 1,
 ];

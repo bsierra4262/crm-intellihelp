@@ -23,21 +23,30 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus placeholder="Distribuidora del Sur S.A.">
                 <?php if (isset($errores['nombre'])): ?><i class="hint bad"><?= e($errores['nombre']) ?></i><?php endif; ?>
             </label>
-            <label class="fld"><span>Tipo</span>
-                <select name="tipo">
-                    <option value="">— Sin definir —</option>
+            <label class="fld"><span>Tipo <i class="req">*</i></span>
+                <select name="tipo" required data-tipo-empresa>
+                    <option value="">— Elegí el tipo —</option>
                     <?php foreach (tipos_cuenta() as $t): ?>
                         <option value="<?= e($t) ?>" <?= ($c['tipo'] ?? '') === $t ? 'selected' : '' ?>><?= e($t) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Qué es para nosotros: un cliente, un prospecto, un proveedor.</i>
             </label>
-            <label class="fld"><span>Sector</span>
-                <input name="sector" value="<?= $v('sector') ?>" maxlength="80" placeholder="Industria, Salud, Retail…">
-                <i class="hint">El rubro: petroleras, bancos, laboratorios. Sirve para segmentar las campañas.</i>
+            <?php /* El sector depende del tipo: a un proveedor no le sirven las
+                     mismas categorías que a un cliente. Se escribía a mano, y así
+                     la misma industria terminaba cargada de cinco formas
+                     distintas —«Logistica», «logística», «Transporte y
+                     logística»—, que es lo que hace inservible un filtro. */ ?>
+            <label class="fld"><span>Sector <i class="req">*</i></span>
+                <select name="sector" required data-sector-empresa
+                        data-mapa="<?= e(json_encode(sectores_por_tipo(), JSON_UNESCAPED_UNICODE)) ?>"
+                        data-elegido="<?= $v('sector') ?>">
+                    <option value="">— Elegí primero el tipo —</option>
+                </select>
+                <i class="hint">El rubro. La lista cambia según el tipo que elijas arriba.</i>
             </label>
-            <label class="fld"><span>CUIT</span>
-                <input name="cuit" value="<?= e(formatear_cuit($c['cuit'] ?? '')) ?>" maxlength="13" placeholder="30-12345678-1"
+            <label class="fld"><span>CUIT <i class="req">*</i></span>
+                <input name="cuit" value="<?= e(formatear_cuit($c['cuit'] ?? '')) ?>" maxlength="13" required placeholder="30-12345678-1"
                        data-solo="cuit" inputmode="numeric" pattern="[0-9]{2}-?[0-9]{8}-?[0-9]" title="Once números: 30-12345678-1">
                 <?php if (isset($errores['cuit'])): ?><i class="hint bad"><?= e($errores['cuit']) ?></i>
                 <?php else: ?><i class="hint">Se valida con el dígito verificador (módulo 11).</i><?php endif; ?>

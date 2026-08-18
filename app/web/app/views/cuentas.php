@@ -43,6 +43,14 @@
     <div class="filter-actions">
         <button class="btn btn-primary btn-sm"><?= icon('filtro', 15) ?>Filtrar</button>
         <button type="button" class="btn btn-ghost btn-sm" data-limpiar>Limpiar</button>
+        <?php /* Las empresas a las que les falta CUIT, tipo o sector. Muchas
+                 nacen de un nombre suelto —una importación, la ficha de un
+                 contacto, alguien que reservó una reunión— y hay que poder
+                 encontrarlas para completarlas. */ ?>
+        <label class="switch push">
+            <input type="checkbox" name="pendiente" value="1" <?= ($f['pendiente'] ?? '') === '1' ? 'checked' : '' ?>>
+            <span class="track"></span><span class="small">Pendientes de aprobar</span>
+        </label>
     </div>
 </form>
 
@@ -70,6 +78,9 @@
                         <div class="cell-main">
                             <a href="<?= e(url('cuenta-ver?id=' . (int)$c['id'])) ?>"><strong><?= e($c['nombre']) ?></strong></a>
                             <?php if ($c['cuit']): ?><small><?= e(formatear_cuit($c['cuit'])) ?></small><?php endif; ?>
+                            <?php if (!empty($c['pendiente_norm'])): ?>
+                                <small class="pend">Falta <?= e(implode(', ', cuenta_falta($c))) ?></small>
+                            <?php endif; ?>
                         </div>
                     </td>
                     <td data-label="Contactos" class="num"><?= (int)$c['n_contactos'] ?></td>

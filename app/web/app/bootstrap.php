@@ -98,6 +98,7 @@ require APP . '/campanas.php';
 require APP . '/cuentas_correo.php';
 require APP . '/imap.php';
 require APP . '/mensajes.php';
+require APP . '/datos_prueba.php';
 require APP . '/agenda.php';
 require APP . '/notificaciones.php';
 

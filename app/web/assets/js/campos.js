@@ -51,6 +51,51 @@
         if (regla) { limpiar(ev.target, regla); }
     }, true);
 
+    // ------------------------------------------------------------------
+    //  El sector depende del tipo de empresa.
+    //
+    //  A un proveedor no le sirven las mismas categorías que a un cliente.
+    //  Antes el sector se escribía a mano y la misma industria terminaba
+    //  cargada de cinco formas distintas —«Logistica», «logística»,
+    //  «Transporte y logística»—, que es exactamente lo que vuelve inservible
+    //  un filtro y una segmentación.
+    // ------------------------------------------------------------------
+    function llenarSectores() {
+        var tipo = document.querySelector('[data-tipo-empresa]');
+        var sec  = document.querySelector('[data-sector-empresa]');
+        if (!tipo || !sec) { return; }
+
+        var mapa = {};
+        try { mapa = JSON.parse(sec.getAttribute('data-mapa') || '{}'); } catch (e) { return; }
+        // Lo que ya estaba guardado tiene que seguir elegido al abrir la ficha.
+        var elegido = sec.value || sec.getAttribute('data-elegido') || '';
+        var opciones = mapa[tipo.value] || [];
+
+        sec.innerHTML = '';
+        var vacia = document.createElement('option');
+        vacia.value = '';
+        vacia.textContent = opciones.length ? '— Elegí el sector —' : '— Elegí primero el tipo —';
+        sec.appendChild(vacia);
+
+        opciones.forEach(function (o) {
+            var op = document.createElement('option');
+            op.value = o; op.textContent = o;
+            if (o === elegido) { op.selected = true; }
+            sec.appendChild(op);
+        });
+        // El desplegable propio tiene que redibujarse: su lista es una copia.
+        sec.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    document.addEventListener('change', function (ev) {
+        if (ev.target.matches && ev.target.matches('[data-tipo-empresa]')) { llenarSectores(); }
+    });
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', llenarSectores);
+    } else {
+        llenarSectores();
+    }
+
     // Pegar es por donde entra el texto sucio de verdad: un teléfono copiado de
     // un correo se trae el nombre, los dos puntos y todo lo demás.
     document.addEventListener('paste', function (ev) {

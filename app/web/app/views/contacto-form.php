@@ -22,8 +22,9 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
     <div class="card form-card">
         <h2 class="sec">Quién es</h2>
         <div class="grid-fields">
-            <label class="fld"><span>Nombre</span>
-                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="120" autofocus placeholder="Juan">
+            <label class="fld"><span>Nombre <i class="req">*</i></span>
+                <input name="nombre" value="<?= $v('nombre') ?>" maxlength="120" required autofocus placeholder="Juan">
+                <?php if (isset($errores['nombre'])): ?><i class="hint bad"><?= e($errores['nombre']) ?></i><?php endif; ?>
             </label>
             <label class="fld"><span>Apellido <i class="req">*</i></span>
                 <input name="apellido" value="<?= $v('apellido') ?>" maxlength="120" required placeholder="Perez">
@@ -38,9 +39,9 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <i class="hint">El área dentro de la empresa: Sistemas, Compras, RRHH.</i>
             </label>
 
-            <label class="fld wide"><span>Empresa</span>
-                <select name="cuenta_id">
-                    <option value="">— Sin empresa —</option>
+            <label class="fld wide"><span>Empresa <i class="req">*</i></span>
+                <select name="cuenta_id" required>
+                    <option value="">— Elegí una empresa —</option>
                     <?php foreach ($cuentas as $cu): ?>
                         <option value="<?= (int)$cu['id'] ?>" <?= (string)($c['cuenta_id'] ?? '') === (string)$cu['id'] ? 'selected' : '' ?>><?= e($cu['nombre']) ?></option>
                     <?php endforeach; ?>
@@ -77,7 +78,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
         <h2 class="sec">Cómo se lo contacta</h2>
         <div class="grid-fields">
             <label class="fld wide"><span>Correo principal</span>
-                <input type="email" name="email" value="<?= $v('email') ?>" maxlength="190" placeholder="juan.perez@empresa.com">
+                <input type="email" name="email" value="<?= $v('email') ?>" maxlength="190" required placeholder="juan.perez@empresa.com">
                 <?php if (isset($errores['email'])): ?><i class="hint bad"><?= e($errores['email']) ?></i><?php endif; ?>
             </label>
             <label class="fld"><span>Correo secundario</span>

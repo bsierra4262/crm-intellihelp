@@ -703,6 +703,17 @@ td.wrap{white-space:normal}
 
 /* ---------- Miscelánea ---------- */
 .ml-2{margin-left:.5rem}
+/* Un dato que no se edita, con la misma altura que un campo: así una fila de
+   formulario no se desalinea cuando uno de sus valores es fijo. */
+.campo-fijo{display:flex;align-items:center;min-height:40px;padding:.6rem .75rem;
+  border:1px dashed var(--line);border-radius:var(--radius-xs);background:var(--soft);
+  color:var(--muted);font-size:14px}
+.lista-datos{margin:0;padding-left:1.1rem;color:var(--ink);font-size:14px;line-height:1.9}
+.lista-datos strong{color:var(--primary)}
+/* «Falta el CUIT», debajo del nombre en el listado. Dice QUÉ falta y no sólo
+   que falta algo: así se completa sin tener que abrir la ficha para averiguarlo. */
+.pend{color:var(--warn);font-weight:600}
+.pend::before{content:'●';margin-right:.35rem;font-size:9px;vertical-align:middle}
 /* Un botón adentro de un aviso: que no quede pegado al texto ni desalineado
    cuando el aviso ocupa varios renglones. */
 .flash .btn{vertical-align:middle;margin-top:.35rem}

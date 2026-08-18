@@ -22,6 +22,17 @@ if (is_post()) {
             : ['error', 'No se pudo abrir la casilla: ' . $err];
         log_app('ajustes.probar_imap', ['detalle' => $aviso[1]]);
 
+    } elseif ($accion === 'limpiar_prueba') {
+        // Saca los datos que sembró el sistema para probar el circuito, y NADA
+        // más: los identificadores quedaron anotados al crearlos, así que no
+        // hace falta adivinar cuáles eran. Lo que cargó una persona no se toca.
+        $hizo = datos_prueba_limpiar();
+        $aviso = $hizo
+            ? ['success', 'Listo, se borraron: '
+                . implode(' · ', array_map(fn($k, $v) => "$v $k", array_keys($hizo), $hizo))
+                . '. Lo que cargaste vos quedó intacto.']
+            : ['info', 'No quedaba ningún dato de prueba por borrar.'];
+
     } elseif ($accion === 'revisar_casilla') {
         // Todas las casillas activas, igual que el cron: si sólo se revisara la
         // predeterminada, los rebotes de las campañas que salen por las otras

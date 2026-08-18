@@ -23,7 +23,9 @@
     <div class="card stat">
         <span class="stat-label">Modo</span>
         <span class="stat-value sm"><?= $s('app_entorno', 'testing') === 'testing' ? 'Prueba' : 'Producción' ?></span>
-        <span class="stat-foot"><?= $s('app_entorno', 'testing') === 'testing' ? 'Sólo se escribe a la lista interna' : 'Los correos salen a clientes reales' ?></span>
+        <span class="stat-foot"><?= $s('app_entorno', 'testing') === 'testing'
+            ? 'Los correos salen igual; lo de prueba son los datos'
+            : 'En marcha, con datos reales' ?></span>
     </div>
     <div class="card stat">
         <span class="stat-label">Última corrida del cron</span>
@@ -45,18 +47,55 @@
             </label>
             <label class="fld"><span>Modo de trabajo</span>
                 <select name="app_entorno">
-                    <option value="testing"    <?= $s('app_entorno', 'testing') === 'testing' ? 'selected' : '' ?>>Prueba (no se escribe a clientes)</option>
+                    <option value="testing"    <?= $s('app_entorno', 'testing') === 'testing' ? 'selected' : '' ?>>Prueba (se puede reiniciar todo)</option>
                     <option value="produccion" <?= $s('app_entorno') === 'produccion' ? 'selected' : '' ?>>Producción</option>
                 </select>
                 <i class="hint">
                     El sistema funciona igual en los dos modos: en «Prueba» los correos salen de
                     verdad, se agendan reuniones de verdad y se detectan las respuestas igual que en
-                    producción. La diferencia es que los datos cargados son ficticios y que sólo en
-                    «Prueba» se puede reiniciar todo para volver a empezar el circuito de cero.
+                    producción. La diferencia es que sólo en «Prueba» se puede reiniciar todo para
+                    volver a empezar el circuito de cero. En «Producción» esa opción se bloquea, así
+                    que no hay forma de borrar la base por accidente.
                 </i>
             </label>
         </div>
     </div>
+
+    <?php
+    // Qué queda de la prueba. La instalación es UNA sola: los contactos
+    // ficticios que se sembraron para probar el circuito no pueden quedar
+    // mezclados con los clientes de verdad, pero tampoco se pueden borrar a
+    // ojo. Se sabe cuáles son porque quedaron anotados al sembrarlos.
+    $prueba = datos_prueba_resumen();
+    ?>
+    <?php if ($prueba['total'] > 0): ?>
+        <div class="card form-card">
+            <h2 class="sec">Datos de prueba</h2>
+            <p class="muted small card-intro">
+                Esto lo cargó el sistema para poder probar el circuito, y se sabe exactamente
+                cuáles son: se anotaron al crearlos. <strong>Lo que cargaste vos no se toca</strong>,
+                ni por accidente.
+            </p>
+            <ul class="lista-datos">
+                <?php foreach ($prueba['detalle'] as $qué => $n): ?>
+                    <li><strong><?= (int)$n ?></strong> <?= e($qué) ?></li>
+                <?php endforeach; ?>
+            </ul>
+            <p class="muted small mt-3">
+                Antes de empezar a usarlo con clientes reales, conviene sacarlos: si no, «Dominio
+                Inexistente» y compañía van a aparecer entre tus contactos. Las plantillas
+                <strong>no</strong> se borran: son el punto de partida de las campañas de verdad.
+            </p>
+            <div class="mt-3">
+                <button class="btn btn-ghost" name="accion" value="limpiar_prueba" formnovalidate
+                        data-peligro data-confirmar-titulo="Borrar los datos de prueba"
+                        data-confirmar="Se borran los <?= (int)$prueba['total'] ?> registros que sembró el sistema para probar, y las campañas que los usaron. Lo que cargaste vos queda intacto. No se puede deshacer."
+                        data-confirmar-ok="Borrarlos">
+                    <?= icon('papelera', 16) ?>Borrar los datos de prueba
+                </button>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <div class="card form-card">
         <h2 class="sec">Datos de la empresa</h2>

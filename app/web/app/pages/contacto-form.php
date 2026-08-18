@@ -42,6 +42,15 @@ if (is_post()) {
             ['propietario_id' => $d['propietario_id'] ?: null]);
     }
 
+    // Lo que pedimos siempre. El `required` del formulario es una comodidad
+    // para quien lo llena, no una garantía: no lo aplica nadie fuera de un
+    // navegador. La regla es una sola y vive en `contacto_falta()`.
+    foreach (contacto_falta($d) as $queFalta) {
+        $campo = ['nombre' => 'nombre', 'apellido' => 'apellido',
+                  'correo principal' => 'email', 'empresa' => 'cuenta_id'][$queFalta] ?? null;
+        if ($campo) { $errores[$campo] = 'Hace falta para poder usar la ficha: ' . $queFalta . '.'; }
+    }
+
     if (!$errores) {
         $nuevoId = contacto_guardar($d, $id ?: null);
         flash($id ? 'Contacto actualizado.' : 'Contacto creado.', 'success');

@@ -64,6 +64,13 @@
             <input type="checkbox" name="rebotado" value="1" <?= $f['rebotado'] === '1' ? 'checked' : '' ?>>
             <span class="track"></span><span class="small">Sólo rebotados</span>
         </label>
+        <?php /* Las fichas a las que les falta algo de lo que pedimos siempre.
+                 Es el filtro que permite ir completando la base de a poco, en
+                 vez de descubrir el agujero el día que hace falta el dato. */ ?>
+        <label class="switch">
+            <input type="checkbox" name="pendiente" value="1" <?= ($f['pendiente'] ?? '') === '1' ? 'checked' : '' ?>>
+            <span class="track"></span><span class="small">Pendientes de aprobar</span>
+        </label>
     </div>
 </form>
 
@@ -94,6 +101,12 @@
                                 <a href="<?= e(url('contacto-ver?id=' . (int)$c['id'])) ?>"><strong><?= e($c['nombre_completo']) ?></strong></a>
                                 <?php if ($c['no_email']): ?><small>Dado de baja de las campañas</small>
                                 <?php elseif ($c['email_rebotado']): ?><small>El correo rebotó</small><?php endif; ?>
+                                <?php if (!empty($c['pendiente_norm'])):
+                                    // Se dice QUÉ falta, no sólo que falta algo: así se
+                                    // completa sin tener que abrir la ficha para averiguarlo.
+                                    $falta = contacto_falta($c); ?>
+                                    <small class="pend">Falta <?= e(implode(', ', $falta)) ?></small>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </td>
