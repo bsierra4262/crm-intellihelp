@@ -93,12 +93,15 @@
             <?php endif; ?>
             <label class="fld"><span>Propietario por defecto</span>
                 <select name="propietario_id">
-                    <option value="">— El que diga el archivo —</option>
                     <?php foreach ($usuarios as $u): ?>
-                        <option value="<?= (int)$u['id'] ?>"><?= e($u['nombre']) ?></option>
+                        <option value="<?= (int)$u['id'] ?>" <?= (int)$u['id'] === (int)current_user_id() ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
-                <i class="hint">Se usa cuando el propietario del CSV no existe como usuario del CRM.</i>
+                <i class="hint">
+                    Si el archivo trae un propietario que existe como usuario del CRM, manda ese.
+                    Para el resto se usa éste. <strong>Nunca quedan sin dueño</strong>: un contacto
+                    sin propietario no aparece en «Lo mío» de nadie.
+                </i>
             </label>
             <div class="fld wide abajo">
                 <label class="switch">

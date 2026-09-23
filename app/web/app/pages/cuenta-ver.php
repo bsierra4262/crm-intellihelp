@@ -11,7 +11,15 @@ if (!$c) {
     exit;
 }
 
+// Lo que no está en marcha no se muestra y tampoco se consulta.
+$verNegocios    = ruta_habilitada('negocios');
+$verActividades = ruta_habilitada('actividades');
+$verAdjuntos    = ruta_habilitada('adjunto');
+
 render('cuenta-ver', [
+    'verNegocios'    => $verNegocios,
+    'verActividades' => $verActividades,
+    'verAdjuntos'    => $verAdjuntos,
     'c'           => $c,
     'contactos'   => q('SELECT * FROM contactos WHERE cuenta_id = ? AND eliminado_en IS NULL
                         ORDER BY apellido, nombre', [$id])->fetchAll(),

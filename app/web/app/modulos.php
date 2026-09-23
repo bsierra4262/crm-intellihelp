@@ -63,6 +63,11 @@ function modulos(): array
             'rutas'  => ['agenda', 'agenda-form', 'reservas', 'reserva-accion', 'reserva-mover',
                          'google-desconectar'],
         ],
+        'adjuntos' => [
+            'nombre' => 'Archivos adjuntos',
+            'ayuda'  => 'Subir documentos a la ficha de un contacto o una empresa: contratos, remitos, presupuestos.',
+            'rutas'  => ['adjunto', 'adjunto-subir'],
+        ],
         'reportes' => [
             'nombre' => 'Reportes',
             'ayuda'  => 'Los números del mes: qué entró, qué se cerró y por dónde se cae.',

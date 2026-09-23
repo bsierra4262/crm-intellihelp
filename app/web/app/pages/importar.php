@@ -33,10 +33,14 @@ if (is_post()) {
                 }
                 $resultado = importar_lista_csv($archivo['tmp_name'], $listaId) + ['modo' => 'lista'];
             } else {
+                // Si no se eligió uno y el archivo no lo dice, queda a nombre
+                // de quien importa. Un contacto sin propietario no aparece en
+                // «Lo mío» de NADIE: se importaban 29.000 y el panel mostraba
+                // cero, como si la importación no hubiera pasado.
                 $resultado = importar_contactos_zoho(
                     $archivo['tmp_name'],
                     $simular,
-                    (int)($_POST['propietario_id'] ?? 0) ?: null
+                    (int)($_POST['propietario_id'] ?? 0) ?: (int) current_user_id()
                 ) + ['modo' => 'contactos'];
             }
         } catch (\Throwable $e) {

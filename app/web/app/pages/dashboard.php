@@ -3,7 +3,29 @@ declare(strict_types=1);
 require_login();
 
 $uid = current_user_id();
-$mio = ($_GET['ambito'] ?? 'mio') !== 'todos';   // por defecto, lo mío
+
+/**
+ * Cómo quiere ver el panel esta persona.
+ *
+ * Separado: una tarjeta por cosa —contactos, empresas, y los pendientes de cada
+ * una— para ver de un vistazo cuánto hay que aprobar de cada lado. Unificado:
+ * los totales juntos, para quien prefiere menos tarjetas.
+ *
+ * Es una preferencia POR USUARIO y se guarda: si se perdiera al cerrar sesión,
+ * habría que volver a elegirla todos los días.
+ */
+$vista = (string) setting_get('panel_vista_' . $uid, 'separado');
+if (isset($_GET['vista']) && in_array($_GET['vista'], ['separado', 'unificado'], true)) {
+    $vista = (string) $_GET['vista'];
+    setting_set('panel_vista_' . $uid, $vista);
+    redirect('dashboard' . (($_GET['ambito'] ?? '') === 'mio' ? '?ambito=mio' : ''));
+}
+$separado = $vista === 'separado';
+// Por defecto se ve TODO. Arrancaba filtrando por «lo mío» y, con los
+// contactos importados sin propietario asignado, el panel mostraba cero:
+// parecía que la importación no había pasado. Lo general es lo que responde
+// «cómo viene el sistema»; lo personal es un recorte que se pide.
+$mio = ($_GET['ambito'] ?? 'todos') === 'mio';
 
 // Filtro de propietario reutilizado en todas las consultas del panel.
 $fProp = $mio ? ' AND propietario_id = ' . (int)$uid : '';
@@ -76,5 +98,5 @@ $campanas = $verCampanas
          ORDER BY actualizado_en DESC LIMIT 5")->fetchAll()
     : [];
 
-render('dashboard', compact('m', 'emb', 'ganadoMes', 'hoy', 'vencidas', 'campanas', 'mio',
+render('dashboard', compact('m', 'emb', 'ganadoMes', 'hoy', 'vencidas', 'campanas', 'mio', 'separado',
                             'verPosibles', 'verNegocios', 'verActividades', 'verCampanas'), 'Panel');

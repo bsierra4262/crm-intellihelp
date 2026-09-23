@@ -17,7 +17,9 @@ foreach ($negocios as $n) {
     </div>
     <div class="head-actions">
         <a class="btn btn-ghost" href="<?= e(url('contacto-form?cuenta_id=' . (int)$c['id'])) ?>"><?= icon('contactos', 16) ?>Nuevo contacto</a>
-        <a class="btn btn-ghost" href="<?= e(url('negocio-form?cuenta_id=' . (int)$c['id'])) ?>"><?= icon('negocios', 16) ?>Nuevo negocio</a>
+        <?php if ($verNegocios): ?>
+            <a class="btn btn-ghost" href="<?= e(url('negocio-form?cuenta_id=' . (int)$c['id'])) ?>"><?= icon('negocios', 16) ?>Nuevo negocio</a>
+        <?php endif; ?>
         <a class="btn btn-primary" href="<?= e(url('cuenta-form?id=' . (int)$c['id'])) ?>"><?= icon('editar', 16) ?>Editar</a>
     </div>
 </div>
@@ -88,6 +90,7 @@ foreach ($negocios as $n) {
             <?php endif; ?>
         </div>
 
+        <?php if ($verNegocios): ?>
         <div class="card">
             <div class="card-head"><h2>Negocios</h2>
                 <a class="btn btn-ghost btn-sm" href="<?= e(url('negocio-form?cuenta_id=' . (int)$c['id'])) ?>"><?= icon('mas', 14) ?>Agregar</a>
@@ -112,16 +115,18 @@ foreach ($negocios as $n) {
                 </div>
             <?php endif; ?>
         </div>
+        <?php endif; ?>
     </div>
 
     <div class="col-stack">
 
 <?php $etqEntidad = 'cuenta'; $etqId = (int)$c['id'];
       include APP . '/views/_etiquetas.php'; ?>
-        <?php $adjEntidad = 'cuenta'; $adjId = (int)$c['id'];
-      include APP . '/views/_adjuntos.php'; ?>
+        <?php if ($verAdjuntos): $adjEntidad = 'cuenta'; $adjId = (int)$c['id'];
+            include APP . '/views/_adjuntos.php';
+        endif; ?>
         <?php include APP . '/views/_notas.php'; ?>
-        <?php include APP . '/views/_actividades_panel.php'; ?>
+        <?php if ($verActividades): include APP . '/views/_actividades_panel.php'; endif; ?>
         <div class="card">
             <div class="card-head"><h2>Historial</h2></div>
             <?php if (!$linea): ?>

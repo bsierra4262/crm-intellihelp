@@ -1,7 +1,8 @@
 <?php
 /** @var array $m @var array $emb @var float $ganadoMes @var array $hoy
  *  @var int $vencidas @var array $campanas @var bool $mio
- *  @var bool $verPosibles @var bool $verNegocios @var bool $verActividades @var bool $verCampanas */
+ *  @var bool $verPosibles @var bool $verNegocios @var bool $verActividades @var bool $verCampanas
+ *  @var bool $separado */
 $u = auth_user();
 
 // Lo que falta terminar de cargar, en un solo número. Es lo más accionable que
@@ -12,13 +13,22 @@ $pendientes = (int)($m['cont_pend'] ?? 0) + (int)($m['cta_pend'] ?? 0);
 <div class="page-head">
     <div>
         <h1>Hola, <?= e(explode(' ', (string)$u['nombre'])[0]) ?></h1>
-        <p class="muted"><?= e(ucfirst(fecha_larga())) ?></p>
+        <p class="muted">
+            <?= e(ucfirst(fecha_larga())) ?>
+            · <?= $mio ? 'viendo sólo lo asignado a vos' : 'viendo todo el sistema' ?>
+        </p>
     </div>
     <div class="head-actions">
         <div class="seg">
-            <a class="seg-item <?= $mio ? 'active' : '' ?>" href="<?= e(url('dashboard?ambito=mio')) ?>">Lo mío</a>
-            <a class="seg-item <?= $mio ? '' : 'active' ?>" href="<?= e(url('dashboard?ambito=todos')) ?>">Todo el equipo</a>
+            <a class="seg-item <?= $mio ? '' : 'active' ?>" href="<?= e(url('dashboard?ambito=todos')) ?>">Todo</a>
+            <a class="seg-item <?= $mio ? 'active' : '' ?>" href="<?= e(url('dashboard?ambito=mio')) ?>">Sólo lo mío</a>
         </div>
+        <?php /* Cada uno arma su panel: separado muestra una tarjeta por cosa,
+                 unificado junta los totales. Queda guardado por usuario. */ ?>
+        <a class="btn btn-ghost" title="<?= $separado ? 'Juntar contactos y empresas en menos tarjetas' : 'Una tarjeta por cada cosa' ?>"
+           href="<?= e(url('dashboard?vista=' . ($separado ? 'unificado' : 'separado') . ($mio ? '&ambito=mio' : ''))) ?>">
+            <?= icon($separado ? 'menu' : 'panel', 16) ?><?= $separado ? 'Ver unificado' : 'Ver separado' ?>
+        </a>
         <?php /* El botón principal apunta a lo que de verdad se puede hacer. Ofrecía
                  «Nuevo posible cliente» incluso con esa sección apagada, así que
                  llevaba a una pantalla que el sistema da por no disponible. */ ?>
@@ -33,21 +43,46 @@ $pendientes = (int)($m['cont_pend'] ?? 0) + (int)($m['cta_pend'] ?? 0);
 <?php include APP . '/views/_aviso_gcal.php'; ?>
 
 <div class="cards" data-vivo="numeros">
-    <a class="card stat stat-link" href="<?= e(url('contactos')) ?>">
-        <span class="stat-label">Contactos</span>
-        <span class="stat-value"><?= number_format($m['contactos'], 0, ',', '.') ?></span>
-        <span class="stat-foot"><?= number_format($m['cuentas'], 0, ',', '.') ?> empresas</span>
-    </a>
-    <a class="card stat stat-link" href="<?= e(url('contactos?pendiente=1')) ?>">
-        <span class="stat-label">Pendientes de aprobar</span>
-        <span class="stat-value <?= $pendientes ? 'warn' : '' ?>"><?= number_format($pendientes, 0, ',', '.') ?></span>
-        <span class="stat-foot">
-            <?= $pendientes
-                ? number_format((int)$m['cont_pend'], 0, ',', '.') . ' contactos · '
-                  . number_format((int)$m['cta_pend'], 0, ',', '.') . ' empresas'
-                : 'Todas las fichas están completas' ?>
-        </span>
-    </a>
+    <?php if ($separado): ?>
+        <a class="card stat stat-link" href="<?= e(url('contactos')) ?>">
+            <span class="stat-label">Contactos</span>
+            <span class="stat-value"><?= number_format($m['contactos'], 0, ',', '.') ?></span>
+            <span class="stat-foot">en la base</span>
+        </a>
+        <a class="card stat stat-link" href="<?= e(url('cuentas')) ?>">
+            <span class="stat-label">Empresas</span>
+            <span class="stat-value"><?= number_format($m['cuentas'], 0, ',', '.') ?></span>
+            <span class="stat-foot">en la base</span>
+        </a>
+        <?php /* Cada pendiente con su tarjeta y su número grande: en letra chica
+                 debajo de otro número, nadie ve cuánto hay por aprobar. */ ?>
+        <a class="card stat stat-link" href="<?= e(url('contactos?pendiente=1')) ?>">
+            <span class="stat-label">Contactos a aprobar</span>
+            <span class="stat-value <?= (int)$m['cont_pend'] ? 'warn' : '' ?>"><?= number_format((int)$m['cont_pend'], 0, ',', '.') ?></span>
+            <span class="stat-foot"><?= (int)$m['cont_pend'] ? 'les falta algún dato' : 'todos completos' ?></span>
+        </a>
+        <a class="card stat stat-link" href="<?= e(url('cuentas?pendiente=1')) ?>">
+            <span class="stat-label">Empresas a aprobar</span>
+            <span class="stat-value <?= (int)$m['cta_pend'] ? 'warn' : '' ?>"><?= number_format((int)$m['cta_pend'], 0, ',', '.') ?></span>
+            <span class="stat-foot"><?= (int)$m['cta_pend'] ? 'les falta algún dato' : 'todas completas' ?></span>
+        </a>
+    <?php else: ?>
+        <a class="card stat stat-link" href="<?= e(url('contactos')) ?>">
+            <span class="stat-label">Contactos</span>
+            <span class="stat-value"><?= number_format($m['contactos'], 0, ',', '.') ?></span>
+            <span class="stat-foot"><?= number_format($m['cuentas'], 0, ',', '.') ?> empresas</span>
+        </a>
+        <a class="card stat stat-link" href="<?= e(url('contactos?pendiente=1')) ?>">
+            <span class="stat-label">Pendientes de aprobar</span>
+            <span class="stat-value <?= $pendientes ? 'warn' : '' ?>"><?= number_format($pendientes, 0, ',', '.') ?></span>
+            <span class="stat-foot">
+                <?= $pendientes
+                    ? number_format((int)$m['cont_pend'], 0, ',', '.') . ' contactos · '
+                      . number_format((int)$m['cta_pend'], 0, ',', '.') . ' empresas'
+                    : 'Todas las fichas están completas' ?>
+            </span>
+        </a>
+    <?php endif; ?>
     <?php if ($verPosibles): ?>
         <a class="card stat stat-link" href="<?= e(url('posibles')) ?>">
             <span class="stat-label">Posibles clientes</span>

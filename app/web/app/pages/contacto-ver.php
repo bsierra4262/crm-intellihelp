@@ -31,6 +31,7 @@ if (is_post() && ($_POST['accion'] ?? '') === 'reactivar') {
 $verNegocios    = ruta_habilitada('negocios');
 $verActividades = ruta_habilitada('actividades');
 $verCampanas    = ruta_habilitada('campanas');
+$verAdjuntos    = ruta_habilitada('adjunto');
 
 render('contacto-ver', [
     'c'           => $c,
@@ -52,4 +53,5 @@ render('contacto-ver', [
     'verNegocios' => $verNegocios,
     'verActividades' => $verActividades,
     'verCampanas' => $verCampanas,
+    'verAdjuntos' => $verAdjuntos,
 ], $c['nombre_completo']);

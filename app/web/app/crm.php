@@ -279,7 +279,7 @@ function cuenta_asegurar(string $nombre, array $extra = [], ?int $usuarioId = nu
                             pendiente_norm)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)', [
         $nombre,
-        $extra['propietario_id'] ?? null,
+        ($extra['propietario_id'] ?? null) ?: ($usuarioId ?: null),
         $extra['sitio_web'] ?? null,
         $extra['telefono'] ?? null,
         $extra['calle'] ?? null,
@@ -318,7 +318,9 @@ function cuentas_listar(array $f): array
     [$where, $p] = cuentas_where($f);
     $total = (int) qv("SELECT COUNT(*) FROM cuentas c $where", $p);
     $pg    = paginar($total, $f['page'] ?? 1);
-    $rows  = q("SELECT c.*, u.nombre AS propietario,
+    $rows  = q("SELECT c.id, c.nombre, c.cuit, c.tipo, c.sector, c.telefono,
+                       c.localidad, c.provincia, c.sitio_web, c.pendiente_norm,
+                       u.nombre AS propietario,
                        (SELECT COUNT(*) FROM contactos ct WHERE ct.cuenta_id = c.id AND ct.eliminado_en IS NULL) AS n_contactos
                 FROM cuentas c LEFT JOIN usuarios u ON u.id = c.propietario_id
                 $where ORDER BY c.nombre LIMIT {$pg['per']} OFFSET {$pg['offset']}", $p)->fetchAll();
@@ -359,6 +361,7 @@ function cuenta_guardar(array $d, ?int $id = null): int
         return $id;
     }
     $campos['creado_por'] = current_user_id();
+    if (empty($campos['propietario_id'])) { $campos['propietario_id'] = current_user_id(); }
     $cols = implode(', ', array_keys($campos));
     $ph   = implode(', ', array_fill(0, count($campos), '?'));
     q("INSERT INTO cuentas ($cols) VALUES ($ph)", array_values($campos));
@@ -418,7 +421,14 @@ function contactos_listar(array $f): array
         'empresa'  => 'cu.nombre, ct.apellido',
         default    => 'ct.apellido, ct.nombre',
     };
-    $rows = q("SELECT ct.*, cu.nombre AS cuenta, u.nombre AS propietario $sql
+    // Se piden SOLO las columnas que el listado dibuja, mas las que necesita
+    // contacto_falta() para decir que le falta a la ficha. Con ct.* venian
+    // tambien la descripcion y las notas —texto largo que no se muestra—, y a
+    // 100 filas por pagina eso es traer de la base lo que se va a tirar.
+    $rows = q("SELECT ct.id, ct.nombre, ct.apellido, ct.nombre_completo, ct.email, ct.cargo,
+                      ct.telefono, ct.movil, ct.conmutador, ct.localidad, ct.provincia,
+                      ct.cuenta_id, ct.no_email, ct.email_rebotado, ct.pendiente_norm,
+                      cu.nombre AS cuenta, u.nombre AS propietario $sql
                ORDER BY $orden LIMIT {$pg['per']} OFFSET {$pg['offset']}", $p)->fetchAll();
     return $pg + ['rows' => $rows, 'total' => $total];
 }
@@ -491,6 +501,9 @@ function contacto_guardar(array $d, ?int $id = null): int
         return $id;
     }
     $campos['creado_por'] = current_user_id();
+    // Sin propietario, la ficha no aparece en «Lo mío» de nadie y queda
+    // flotando: si no se eligió uno, se queda quien la está creando.
+    if (empty($campos['propietario_id'])) { $campos['propietario_id'] = current_user_id(); }
     $cols = implode(', ', array_keys($campos));
     $ph   = implode(', ', array_fill(0, count($campos), '?'));
     q("INSERT INTO contactos ($cols) VALUES ($ph)", array_values($campos));

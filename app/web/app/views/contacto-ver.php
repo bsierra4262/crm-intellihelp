@@ -1,6 +1,6 @@
 <?php
 /** @var array $c @var array $notas @var array $actividades @var array $negocios
- *  @var bool $verNegocios @var bool $verActividades @var bool $verCampanas
+ *  @var bool $verNegocios @var bool $verActividades @var bool $verCampanas @var bool $verAdjuntos
  *  @var array $envios @var array $linea */
 ?>
 <div class="detail-head">
@@ -133,10 +133,11 @@
 
 <?php $etqEntidad = 'contacto'; $etqId = (int)$c['id'];
       include APP . '/views/_etiquetas.php'; ?>
-        <?php $adjEntidad = 'contacto'; $adjId = (int)$c['id'];
-      include APP . '/views/_adjuntos.php'; ?>
+        <?php if ($verAdjuntos): $adjEntidad = 'contacto'; $adjId = (int)$c['id'];
+            include APP . '/views/_adjuntos.php';
+        endif; ?>
         <?php include APP . '/views/_notas.php'; ?>
-        <?php include APP . '/views/_actividades_panel.php'; ?>
+        <?php if ($verActividades): include APP . '/views/_actividades_panel.php'; endif; ?>
 
         <div class="card">
             <div class="card-head"><h2>Historial</h2></div>
