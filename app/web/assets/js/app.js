@@ -266,5 +266,58 @@
                      btn.getAttribute('data-cargando-detalle') || '');
     });
 
+    // --------------------------------------------------------
+    //  Selección múltiple en los listados
+    //
+    //  Normalizar una base importada es repasar cientos de fichas. Abriendo una
+    //  por una nadie lo termina: se filtra por pendientes, se repasa la pantalla
+    //  y se aprueba de a tandas. La barra aparece recién cuando hay algo
+    //  marcado, porque fija ocuparía lugar todo el tiempo.
+    // --------------------------------------------------------
+    function casillas() {
+        return Array.prototype.slice.call(document.querySelectorAll('input[name="ids[]"]'));
+    }
+
+    function refrescarSeleccion() {
+        var barra = document.querySelector('[data-barra-seleccion]');
+        if (!barra) { return; }
+        var todas = casillas();
+        var marcadas = todas.filter(function (c) { return c.checked; });
+
+        barra.hidden = marcadas.length === 0;
+        var n = barra.querySelector('[data-sel-n]');
+        if (n) { n.textContent = String(marcadas.length); }
+
+        // La fila marcada se ve marcada: con la casilla sola, en una tabla de
+        // cien filas se pierde de vista qué se eligió.
+        todas.forEach(function (c) {
+            var tr = c.closest('tr');
+            if (tr) { tr.classList.toggle('marcada', c.checked); }
+        });
+
+        var todo = document.querySelector('[data-marcar-todo]');
+        if (todo) {
+            todo.checked = todas.length > 0 && marcadas.length === todas.length;
+            // Ni todas ni ninguna: el estado intermedio lo dice mejor que un
+            // tilde a medias.
+            todo.indeterminate = marcadas.length > 0 && marcadas.length < todas.length;
+        }
+    }
+
+    document.addEventListener('change', function (e) {
+        if (e.target.matches && e.target.matches('[data-marcar-todo]')) {
+            var v = e.target.checked;
+            casillas().forEach(function (c) { c.checked = v; });
+            refrescarSeleccion();
+            return;
+        }
+        if (e.target.matches && e.target.matches('input[name="ids[]"]')) { refrescarSeleccion(); }
+    });
+
+    // El refresco automático reemplaza la tabla: la selección se va con ella y
+    // la barra tiene que dejar de prometer una cantidad que ya no existe.
+    document.addEventListener('vivo:actualizado', refrescarSeleccion);
+    refrescarSeleccion();
+
     window.crmConfirmar = confirmar;
 })();

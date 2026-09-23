@@ -947,3 +947,20 @@ table.grid tr.sin-leer td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
 .pager-por>span{font-size:12.5px;color:var(--muted);font-weight:600}
 .pager-por select,.pager-por .sel{min-width:140px}
 @media (max-width:640px){ .pager-por{margin-right:0;width:100%} .pager-por select,.pager-por .sel{width:100%} }
+
+/* ---- Selección múltiple en los listados ----
+   La barra aparece recién cuando hay algo marcado: fija ocuparía lugar todo el
+   tiempo para una acción que se usa de a ratos. */
+table.grid th.w-check,table.grid td.w-check{width:40px;padding-right:0;text-align:center}
+.barra-sel{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.75rem;
+  padding:.6rem .9rem;border-radius:var(--radius-sm);background:var(--primary-050);
+  border:1px solid var(--primary-100)}
+.barra-sel-n{font-size:13px;color:var(--primary-700);margin-right:auto}
+.barra-sel-n strong{font-size:15px;font-weight:800}
+table.grid tr.marcada{background:var(--primary-050)}
+@media (max-width:768px){
+  table.grid td.w-check{width:auto;justify-content:flex-start}
+  table.grid td.w-check::before{content:'Marcar';font-size:11px;color:var(--muted);
+    font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-right:.6rem}
+  .barra-sel{position:sticky;bottom:.6rem;z-index:20;box-shadow:var(--shadow)}
+}

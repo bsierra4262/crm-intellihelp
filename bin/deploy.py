@@ -8,6 +8,7 @@ Despliegue del CRM a Hostinger por SFTP/SSH.
     python bin/deploy.py config       sube app/server-config/config.php fuera del webroot
     python bin/deploy.py schema       importa app/db/schema.sql en la base
     python bin/deploy.py run "<cmd>"  ejecuta un comando por SSH
+    python bin/deploy.py test         sube test/ y corre las baterias alla
     python bin/deploy.py check        verifica sintaxis PHP de todo lo desplegado
 
 Las credenciales NO viven en el repositorio: se leen de variables de entorno o
@@ -67,6 +68,7 @@ DESTINOS = {
 DESTINO = "pruebas" if "--pruebas" in sys.argv else "produccion"
 WEBROOT = DESTINOS[DESTINO]["webroot"]
 STORAGE = DESTINOS[DESTINO]["storage"]
+URL     = DESTINOS[DESTINO]["url"]
 
 # Nunca se suben al servidor: son del repositorio, no de la aplicacion.
 EXCLUIR = {".git", "__pycache__", ".DS_Store", "Thumbs.db", "config.php"}
@@ -186,6 +188,33 @@ def cmd_schema(cli: paramiko.SSHClient) -> None:
     sys.exit(rc)
 
 
+def cmd_test(cli: paramiko.SSHClient) -> None:
+    """Sube test/ y corre las baterias contra la instalacion elegida.
+
+    En la maquina de Brian no hay PHP: el unico interprete disponible es el del
+    hosting. Correr los tests alla ademas prueba la version exacta que atiende
+    al usuario, que es la que importa.
+    """
+    remoto = "/home/u566451014/crm_test"
+    sftp = cli.open_sftp()
+    n = subir_arbol(sftp, RAIZ / "test", remoto)
+    sftp.close()
+    print(f"{n} archivos de prueba subidos.\n")
+
+    fallos = 0
+    for nombre, cmd in (
+        ("logica",    f"cd {remoto} && CRM_SRC={WEBROOT}/app php run_tests.php"),
+        ("interfaz",  f"cd {remoto} && CRM_SRC={WEBROOT} php ui_test.php"),
+        ("HTTP",      f"cd {remoto} && bash smoke.sh {URL}"),
+    ):
+        print(f"----- {nombre} -----")
+        rc, _ = ejecutar(cli, cmd)
+        if rc != 0:
+            fallos += 1
+        print()
+    sys.exit(1 if fallos else 0)
+
+
 def cmd_check(cli: paramiko.SSHClient) -> None:
     rc, salida = ejecutar(
         cli,
@@ -210,6 +239,8 @@ def main() -> None:
             cmd_config(cli)
         elif accion == "schema":
             cmd_schema(cli)
+        elif accion == "test":
+            cmd_test(cli)
         elif accion == "check":
             cmd_check(cli)
         elif accion == "run":

@@ -99,6 +99,44 @@ function contacto_falta(array $d): array
     return $falta;
 }
 
+/**
+ * Aprueba (o vuelve a dejar pendientes) varias fichas de una.
+ *
+ * Aprobar no completa la ficha: deja constancia de que alguien la miró y la dio
+ * por buena así como está. Hay contactos que nunca van a tener empresa cargada
+ * y no por eso hay que seguir viéndolos en la lista de pendientes para siempre.
+ *
+ * Se puede deshacer, y esa es la razón por la que existe el camino de vuelta:
+ * una aprobación masiva hecha sobre la selección equivocada no puede ser un
+ * camino de ida.
+ *
+ * @param string   $tabla  'contactos' o 'cuentas'
+ * @param int[]    $ids    los que se marcaron en la lista
+ * @param bool     $aprobar  false para devolverlos a pendientes
+ * @return int cuántas fichas cambiaron
+ */
+function aprobar_registros(string $tabla, array $ids, bool $aprobar = true): int
+{
+    if (!in_array($tabla, ['contactos', 'cuentas'], true)) { return 0; }
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+    if (!$ids) { return 0; }
+
+    $marcas = implode(',', array_fill(0, count($ids), '?'));
+    $n = $aprobar
+        ? q("UPDATE `$tabla` SET aprobado_en = NOW(), aprobado_por = ?
+             WHERE id IN ($marcas) AND eliminado_en IS NULL AND aprobado_en IS NULL",
+            [current_user_id(), ...$ids])->rowCount()
+        : q("UPDATE `$tabla` SET aprobado_en = NULL, aprobado_por = NULL
+             WHERE id IN ($marcas) AND eliminado_en IS NULL AND aprobado_en IS NOT NULL",
+            $ids)->rowCount();
+
+    if ($n > 0) {
+        log_app($tabla === 'contactos' ? 'contacto.aprobar' : 'cuenta.aprobar',
+            ['detalle' => ($aprobar ? 'Aprobadas ' : 'Devueltas a pendientes ') . $n . ' de ' . count($ids) . ' fichas']);
+    }
+    return $n;
+}
+
 /** Lo mismo para una empresa: sin CUIT no se puede facturar. */
 function cuenta_falta(array $d): array
 {
@@ -308,8 +346,10 @@ function cuentas_where(array $f): array
     if (!empty($f['provincia']))      { $w[] = 'c.provincia = ?';      $p[] = $f['provincia']; }
     if (!empty($f['tipo']))           { $w[] = 'c.tipo = ?';           $p[] = $f['tipo']; }
     if (!empty($f['sector']))         { $w[] = 'c.sector = ?';         $p[] = $f['sector']; }
-    if (($f['pendiente'] ?? '') === '1') { $w[] = 'c.pendiente_norm = 1'; }
-    if (($f['pendiente'] ?? '') === '0') { $w[] = 'c.pendiente_norm = 0'; }
+    // Pendiente = le falta algo Y nadie la aprobó igual. Una ficha incompleta
+    // que alguien miró y dio por buena deja de pedir atención.
+    if (($f['pendiente'] ?? '') === '1') { $w[] = 'c.pendiente_norm = 1 AND c.aprobado_en IS NULL'; }
+    if (($f['pendiente'] ?? '') === '0') { $w[] = '(c.pendiente_norm = 0 OR c.aprobado_en IS NOT NULL)'; }
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
@@ -319,7 +359,7 @@ function cuentas_listar(array $f): array
     $total = (int) qv("SELECT COUNT(*) FROM cuentas c $where", $p);
     $pg    = paginar($total, $f['page'] ?? 1);
     $rows  = q("SELECT c.id, c.nombre, c.cuit, c.tipo, c.sector, c.telefono,
-                       c.localidad, c.provincia, c.sitio_web, c.pendiente_norm,
+                       c.localidad, c.provincia, c.sitio_web, c.pendiente_norm, c.aprobado_en,
                        u.nombre AS propietario,
                        (SELECT COUNT(*) FROM contactos ct WHERE ct.cuenta_id = c.id AND ct.eliminado_en IS NULL) AS n_contactos
                 FROM cuentas c LEFT JOIN usuarios u ON u.id = c.propietario_id
@@ -403,8 +443,8 @@ function contactos_where(array $f): array
     // Fichas a las que les falta algo de lo que pedimos siempre. Es el filtro
     // que permite ir completando la base de a poco en vez de descubrir el
     // agujero el día que hace falta el dato.
-    if (($f['pendiente'] ?? '') === '1') { $w[] = 'ct.pendiente_norm = 1'; }
-    if (($f['pendiente'] ?? '') === '0') { $w[] = 'ct.pendiente_norm = 0'; }
+    if (($f['pendiente'] ?? '') === '1') { $w[] = 'ct.pendiente_norm = 1 AND ct.aprobado_en IS NULL'; }
+    if (($f['pendiente'] ?? '') === '0') { $w[] = '(ct.pendiente_norm = 0 OR ct.aprobado_en IS NOT NULL)'; }
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
@@ -427,7 +467,7 @@ function contactos_listar(array $f): array
     // 100 filas por pagina eso es traer de la base lo que se va a tirar.
     $rows = q("SELECT ct.id, ct.nombre, ct.apellido, ct.nombre_completo, ct.email, ct.cargo,
                       ct.telefono, ct.movil, ct.conmutador, ct.localidad, ct.provincia,
-                      ct.cuenta_id, ct.no_email, ct.email_rebotado, ct.pendiente_norm,
+                      ct.cuenta_id, ct.no_email, ct.email_rebotado, ct.pendiente_norm, ct.aprobado_en,
                       cu.nombre AS cuenta, u.nombre AS propietario $sql
                ORDER BY $orden LIMIT {$pg['per']} OFFSET {$pg['offset']}", $p)->fetchAll();
     return $pg + ['rows' => $rows, 'total' => $total];

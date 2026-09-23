@@ -54,11 +54,27 @@
     </div>
 </form>
 
+<?php /* La acción vive FUERA de la tabla y las casillas la referencian con
+         `form=`: un <form> adentro de un <table> es HTML inválido y el navegador
+         lo saca de ahí al interpretarlo, que es como se desarmó Embudos. */ ?>
+<form method="post" id="aprobar" class="barra-sel" data-barra-seleccion hidden>
+    <?= csrf_field() ?>
+    <span class="barra-sel-n"><strong data-sel-n>0</strong> marcadas</span>
+    <button class="btn btn-primary btn-sm" name="accion" value="aprobar"
+            data-confirmar-titulo="Aprobar las fichas marcadas"
+            data-confirmar="Quedan aprobadas así como están, aunque les falte algún dato. Se puede deshacer."
+            data-confirmar-ok="Aprobar"><?= icon('ok', 15) ?>Aprobar las marcadas</button>
+    <button class="btn btn-ghost btn-sm" name="accion" value="pendiente"><?= icon('refrescar', 15) ?>Volver a pendientes</button>
+</form>
 <div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">
         <table class="grid">
             <thead>
                 <tr>
+                    <?php /* La casilla de la cabecera marca y desmarca la página
+                             entera: repasar 100 fichas de a una sería tan lento
+                             que nadie lo haría. */ ?>
+                    <th class="w-check"><input type="checkbox" data-marcar-todo aria-label="Marcar todas"></th>
                     <th>Empresa</th>
                     <th class="num">Contactos</th>
                     <th class="prio-2">Tipo</th>
@@ -75,6 +91,9 @@
                 <tr><td colspan="8" class="empty">No hay empresas que coincidan con el filtro.</td></tr>
             <?php else: foreach ($data['rows'] as $c): ?>
                 <tr>
+                    <td class="w-check" data-label="">
+                        <input type="checkbox" name="ids[]" value="<?= (int)$c['id'] ?>" form="aprobar" aria-label="Marcar esta ficha">
+                    </td>
                     <td data-label="Empresa">
                         <div class="cell-main">
                             <a href="<?= e(url('cuenta-ver?id=' . (int)$c['id'])) ?>"><strong><?= e($c['nombre']) ?></strong></a>

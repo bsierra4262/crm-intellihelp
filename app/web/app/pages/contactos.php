@@ -2,6 +2,24 @@
 declare(strict_types=1);
 require_login();
 
+// Aprobar varias de una. Es lo que vuelve manejable normalizar una base
+// importada: se filtra por pendientes, se repasa la pantalla y se aprueba lo
+// que está bien así como está, en vez de abrir ficha por ficha.
+if (is_post()) {
+    verify_csrf();
+    $ids = array_map('intval', (array)($_POST['ids'] ?? []));
+    if ($ids) {
+        $aprobar = ($_POST['accion'] ?? 'aprobar') === 'aprobar';
+        $n = aprobar_registros('contactos', $ids, $aprobar);
+        flash($n > 0
+            ? ($aprobar ? "Se aprobaron $n fichas." : "Se devolvieron $n fichas a pendientes.")
+            : 'No hubo cambios: ya estaban así.', $n > 0 ? 'success' : 'info');
+    } else {
+        flash('No marcaste ninguna ficha.', 'info');
+    }
+    redirect('contactos' . query_con([]));
+}
+
 $f = [
     'q'              => trim((string)($_GET['q'] ?? '')),
     'cuenta_id'      => $_GET['cuenta_id'] ?? '',

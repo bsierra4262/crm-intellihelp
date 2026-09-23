@@ -1036,6 +1036,93 @@ ok('y el desfase se calcula solo, no está escrito a mano',
 ok('la pantalla de CRON muestra si coinciden',
    str_contains((string) @file_get_contents($WEB . '/app/pages/cron.php'), "'reloj'"));
 
+echo "== Ganchos de JavaScript en las vistas ==\n";
+// La barra de selección múltiple se publicó con `data-barra-seleccion` en el
+// HTML y sin una sola línea de JavaScript que la escuchara: quedaba escondida
+// para siempre y el «marcar todo» no marcaba nada. Un atributo que nadie lee
+// es código muerto o una función rota, y desde afuera se ven igual.
+$jsTodo = '';
+foreach (glob($WEB . '/assets/js/*.js') ?: [] as $f) { $jsTodo .= (string) file_get_contents($f); }
+$soloEstilo = ['data-label'];   // la hoja de estilos lo usa para el modo tarjeta
+$huerfanos  = [];
+foreach ($vistas as $v) {
+    $src = (string) file_get_contents($v);
+    // La vista puede traer su propio <script>: ahí también cuenta como atendido.
+    $propio = '';
+    if (preg_match_all('#<script\b[^>]*>(.*?)</script>#s', $src, $ms)) {
+        $propio = implode("\n", $ms[1]);
+    }
+    preg_match_all('/\sdata-[a-z0-9-]+/', $src, $m);
+    foreach (array_unique($m[0]) as $bruto) {
+        $attr = trim($bruto);
+        if (in_array($attr, $soloEstilo, true)) { continue; }
+        // El JavaScript puede leerlo como atributo o como `dataset.enCamello`.
+        $camello = lcfirst(str_replace(' ', '', ucwords(str_replace('-', ' ', substr($attr, 5)))));
+        $atendido = false;
+        foreach ([$jsTodo, $CSS, $propio] as $donde) {
+            if (str_contains($donde, $attr) || str_contains($donde, 'dataset.' . $camello)) {
+                $atendido = true; break;
+            }
+        }
+        if (!$atendido) { $huerfanos[] = basename($v) . ' → ' . $attr; }
+    }
+}
+ok('ningún data-* del HTML se quedó sin quien lo escuche', !$huerfanos,
+   '→ ' . implode(', ', array_slice($huerfanos, 0, 6)));
+
+echo "== Aprobar de a varios ==\n";
+// Normalizar una base importada es repasar cientos de fichas; de a una no se
+// termina nunca. El filtro de pendientes tiene que poder resolverse en tandas.
+$appJs = (string) @file_get_contents($WEB . '/assets/js/app.js');
+$cont  = (string) @file_get_contents($WEB . '/app/views/contactos.php');
+$cuen  = (string) @file_get_contents($WEB . '/app/views/cuentas.php');
+foreach (['contactos' => $cont, 'cuentas' => $cuen] as $nom => $vista) {
+    ok("$nom tiene casilla por fila", str_contains($vista, 'name="ids[]"'));
+    // Un <form> adentro de la tabla lo saca el navegador de su lugar y se
+    // lleva puestas las casillas: la barra va afuera y las filas la apuntan
+    // con form="aprobar".
+    // Adentro de una celda un <form> es valido y se usa (el boton de papelera
+    // de cada fila). Lo invalido es colgarlo de <table>, <tbody> o <tr>: ahi el
+    // navegador lo saca de su lugar y se lleva puesto lo que tenga adentro.
+    $suelto = false;
+    // Sin el PHP de por medio: un comentario que nombra <table> hacia arrancar
+    // el escaneo en el comentario y se tragaba media vista.
+    $htmlSolo = (string) preg_replace('#<\?(php|=)[\s\S]*?\?>#', '', $vista);
+    if (preg_match_all('#<table\b[\s\S]*?</table>#', $htmlSolo, $tablas)) {
+        foreach ($tablas[0] as $tabla) {
+            $sinCeldas = preg_replace('#<(td|th)\b[\s\S]*?</\1>#', '', $tabla);
+            if (str_contains((string) $sinCeldas, '<form')) { $suelto = true; }
+        }
+    }
+    ok("$nom deja la barra fuera de la tabla",
+       !$suelto && str_contains($vista, 'form="aprobar"'));
+}
+ok('el «marcar todo» está implementado', str_contains($appJs, 'data-marcar-todo')
+   && str_contains($appJs, 'indeterminate'));
+ok('la barra se esconde sola cuando no hay nada marcado',
+   preg_match('/barra\.hidden\s*=\s*marcadas\.length\s*===\s*0/', $appJs) === 1);
+// El refresco en vivo reemplaza la tabla entera: si la barra no se entera,
+// sigue ofreciendo aprobar filas que ya no están en pantalla.
+ok('y se rearma después de un refresco en vivo',
+   str_contains($appJs, "addEventListener('vivo:actualizado', refrescarSeleccion)"));
+
+$crmSrc = (string) @file_get_contents($WEB . '/app/crm.php');
+ok('aprobar_registros existe y solo acepta las dos tablas',
+   str_contains($crmSrc, 'function aprobar_registros(') && str_contains($crmSrc, "'contactos', 'cuentas'"));
+ok('y arma los marcadores del IN, no concatena ids',
+   str_contains($crmSrc, 'array_fill(0, count($ids), ' . "'?')"),
+   '→ concatenar ids adentro del SQL es la puerta de entrada clásica');
+// `pendiente_norm` se recalcula en cada guardado: si la aprobación viviera ahí,
+// la primera edición posterior la borraría. Son dos cosas distintas: «le falta
+// algo» lo calcula el sistema, «alguien la aprobó igual» lo decide una persona.
+ok('el pendiente se pregunta por las dos columnas en los listados',
+   str_contains($crmSrc, 'c.pendiente_norm = 1 AND c.aprobado_en IS NULL')
+   && str_contains($crmSrc, 'ct.pendiente_norm = 1 AND ct.aprobado_en IS NULL'));
+ok('y el tablero cuenta con la misma regla',
+   substr_count((string) @file_get_contents($WEB . '/app/pages/dashboard.php'),
+                'pendiente_norm = 1 AND aprobado_en IS NULL') === 2,
+   '-> si el tablero contara distinto, el numero del panel y el del filtro no coincidirian');
+
 echo "\n" . str_repeat('=', 60) . "\n";
 printf("  %d comprobaciones de interfaz · %d correctas · %d fallidas\n", $T, $T - $F, $F);
 if ($fallos) {

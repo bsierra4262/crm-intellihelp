@@ -182,7 +182,7 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
     </div>
 </form>
 
-<div class="card table-card" data-vivo="cola" data-vivo-tabla>
+<div class="card table-card" data-vivo="cola">
     <div class="table-scroll">
         <table class="grid">
             <thead>

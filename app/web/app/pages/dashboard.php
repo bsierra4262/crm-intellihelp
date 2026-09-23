@@ -45,8 +45,8 @@ $verCampanas    = ruta_habilitada('campanas');
 $m = q1("SELECT
           (SELECT COUNT(*) FROM contactos WHERE eliminado_en IS NULL $fProp) AS contactos,
           (SELECT COUNT(*) FROM cuentas   WHERE eliminado_en IS NULL $fProp) AS cuentas,
-          (SELECT COUNT(*) FROM contactos WHERE eliminado_en IS NULL AND pendiente_norm = 1 $fProp) AS cont_pend,
-          (SELECT COUNT(*) FROM cuentas   WHERE eliminado_en IS NULL AND pendiente_norm = 1 $fProp) AS cta_pend") ?: [];
+          (SELECT COUNT(*) FROM contactos WHERE eliminado_en IS NULL AND pendiente_norm = 1 AND aprobado_en IS NULL $fProp) AS cont_pend,
+          (SELECT COUNT(*) FROM cuentas   WHERE eliminado_en IS NULL AND pendiente_norm = 1 AND aprobado_en IS NULL $fProp) AS cta_pend") ?: [];
 $m = array_map('intval', $m);
 
 if ($verPosibles) {
