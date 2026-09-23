@@ -1,7 +1,29 @@
 <?php
 /** @var ?array $c @var int $id @var array $errores @var array $usuarios */
 $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
+
+// Lo que le falta a esta ficha, marcado ahí mismo: abrir una empresa pendiente
+// y tener que adivinar cuál de los campos es el que falta no ayuda a nadie.
+$faltaCampo = [];
+if ($id) {
+    $mapa = ['nombre' => 'nombre', 'CUIT' => 'cuit', 'tipo' => 'tipo', 'sector' => 'sector'];
+    foreach (cuenta_falta($c ?? []) as $qf) {
+        if (isset($mapa[$qf])) { $faltaCampo[$mapa[$qf]] = $qf; }
+    }
+}
+$falta = fn(string $campo) => isset($faltaCampo[$campo]) ? ' falta' : '';
+$avisoFalta = function (string $campo) use ($faltaCampo) {
+    if (!isset($faltaCampo[$campo])) { return; }
+    echo '<i class="hint pendiente">Falta este dato para que la ficha quede aprobada.</i>';
+};
 ?>
+<?php if ($faltaCampo): ?>
+    <div class="flash flash-warn">
+        <strong>Esta ficha está pendiente de aprobar.</strong>
+        Le falta <?= e(implode(', ', $faltaCampo)) ?>. Están marcados abajo: completalos y al
+        guardar queda aprobada.
+    </div>
+<?php endif; ?>
 <div class="page-head">
     <div><h1><?= $id ? 'Editar empresa' : 'Nueva empresa' ?></h1></div>
     <div class="head-actions">
@@ -19,11 +41,12 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
     <div class="card form-card">
         <h2 class="sec">Identificación</h2>
         <div class="grid-fields">
-            <label class="fld wide"><span>Nombre de la empresa <i class="req">*</i></span>
+            <label class="fld<?= $falta('nombre') ?> wide"><span>Nombre de la empresa <i class="req">*</i></span>
                 <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus placeholder="Distribuidora del Sur S.A.">
                 <?php if (isset($errores['nombre'])): ?><i class="hint bad"><?= e($errores['nombre']) ?></i><?php endif; ?>
+                <?php $avisoFalta('nombre'); ?>
             </label>
-            <label class="fld"><span>Tipo <i class="req">*</i></span>
+            <label class="fld<?= $falta('tipo') ?>"><span>Tipo <i class="req">*</i></span>
                 <select name="tipo" required data-tipo-empresa>
                     <option value="">— Elegí el tipo —</option>
                     <?php foreach (tipos_cuenta() as $t): ?>
@@ -31,21 +54,23 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Qué es para nosotros: un cliente, un prospecto, un proveedor.</i>
+                <?php $avisoFalta('tipo'); ?>
             </label>
             <?php /* El sector depende del tipo: a un proveedor no le sirven las
                      mismas categorías que a un cliente. Se escribía a mano, y así
                      la misma industria terminaba cargada de cinco formas
                      distintas —«Logistica», «logística», «Transporte y
                      logística»—, que es lo que hace inservible un filtro. */ ?>
-            <label class="fld"><span>Sector <i class="req">*</i></span>
+            <label class="fld<?= $falta('sector') ?>"><span>Sector <i class="req">*</i></span>
                 <select name="sector" required data-sector-empresa
                         data-mapa="<?= e(json_encode(sectores_por_tipo(), JSON_UNESCAPED_UNICODE)) ?>"
                         data-elegido="<?= $v('sector') ?>">
                     <option value="">— Elegí primero el tipo —</option>
                 </select>
                 <i class="hint">El rubro. La lista cambia según el tipo que elijas arriba.</i>
+                <?php $avisoFalta('sector'); ?>
             </label>
-            <label class="fld"><span>CUIT <i class="req">*</i></span>
+            <label class="fld<?= $falta('cuit') ?>"><span>CUIT <i class="req">*</i></span>
                 <input name="cuit" value="<?= e(formatear_cuit($c['cuit'] ?? '')) ?>" maxlength="13" required placeholder="30-12345678-1"
                        data-solo="cuit" inputmode="numeric" pattern="[0-9]{2}-?[0-9]{8}-?[0-9]" title="Once números: 30-12345678-1">
                 <?php if (isset($errores['cuit'])): ?><i class="hint bad"><?= e($errores['cuit']) ?></i>

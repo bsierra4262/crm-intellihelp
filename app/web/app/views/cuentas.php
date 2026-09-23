@@ -66,6 +66,7 @@
                     <th class="prio-3">Localidad</th>
                     <th class="prio-4">Sitio web</th>
                     <th class="prio-4">Propietario</th>
+                    <th class="w-estado">Estado</th>
                     <th class="acts">Acciones</th>
                 </tr>
             </thead>
@@ -95,6 +96,15 @@
                         <?php else: ?><span class="muted">—</span><?php endif; ?>
                     </td>
                     <td data-label="Propietario" class="prio-4"><?= e($c['propietario'] ?: '—') ?></td>
+                    <?php /* Una columna propia, no sólo el texto debajo del nombre:
+                             de un vistazo se ve cuáles están listas y cuáles no. */ ?>
+                    <td data-label="Estado" class="w-estado">
+                        <?php if (!empty($c['pendiente_norm'])): ?>
+                            <span class="badge badge-pend" title="Falta <?= e(implode(', ', cuenta_falta($c))) ?>">Pendiente</span>
+                        <?php else: ?>
+                            <span class="badge badge-ok">Aprobado</span>
+                        <?php endif; ?>
+                    </td>
                     <td class="acts" data-label="Acciones">
                         <a class="act" href="<?= e(url('cuenta-form?id=' . (int)$c['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">

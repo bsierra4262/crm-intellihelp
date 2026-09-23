@@ -110,8 +110,15 @@
         </div>
     </div>
 
+    <?php /* Importar unos miles de filas lleva su tiempo y la pantalla se queda
+             quieta: sin nada que lo indique, la reacción natural es apretar de
+             nuevo —y ahí se importa dos veces— o cerrar la pestaña a la mitad.
+             El aviso lo arma el script; acá sólo se marca el formulario. */ ?>
     <div class="form-actions">
-        <button class="btn btn-primary"><?= icon('importar', 16) ?>Procesar archivo</button>
+        <button class="btn btn-primary" data-cargando="Importando el archivo…"
+                data-cargando-detalle="Estamos leyendo cada fila y cruzándola con lo que ya está cargado. No cierres esta pestaña.">
+            <?= icon('importar', 16) ?>Procesar archivo
+        </button>
     </div>
 </form>
 

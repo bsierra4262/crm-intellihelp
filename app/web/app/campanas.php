@@ -296,7 +296,7 @@ function lista_miembros(int $listaId, array $f = []): array
     }
     $where = 'WHERE ' . implode(' AND ', $w);
     $total = (int) qv("SELECT COUNT(*) FROM lista_miembros m $join $where", $p);
-    $pg    = paginar($total, $f['page'] ?? 1, 50);
+    $pg    = paginar($total, $f['page'] ?? 1);
     $rows  = q("SELECT m.id, m.lista_id, m.contacto_id, m.posible_cliente_id, m.creado_en,
                        $datos,
                        (d.email IS NOT NULL) AS dado_de_baja,
@@ -354,7 +354,7 @@ function campanas_listar(array $f = []): array
     if (!empty($f['categoria_id'])) { $w[] = 'c.categoria_id = ?'; $p[] = (int)$f['categoria_id']; }
     $where = 'WHERE ' . implode(' AND ', $w);
     $total = (int) qv("SELECT COUNT(*) FROM campanas c $where", $p);
-    $pg    = paginar($total, $f['page'] ?? 1, 25);
+    $pg    = paginar($total, $f['page'] ?? 1);
     // Los contadores se leen de la cola en el momento, no de las columnas
     // guardadas en la campaña. Esas columnas se actualizan durante el envío,
     // pero si el proceso se corta a mitad quedan viejas y la pantalla miente.

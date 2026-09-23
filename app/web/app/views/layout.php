@@ -170,10 +170,17 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
         <?php /* La campana. El número se actualiza solo: sin esto, una respuesta
                  de un cliente quedaba esperando a que alguien entrara a mirar la
                  campaña, que es exactamente cuando no sirve. */ ?>
-        <a class="alertas-btn" href="<?= $asset('alertas') ?>" title="Alertas" data-alertas>
-            <?= icon('campanas', 18) ?>
-            <span class="alertas-n" data-alertas-n <?= notif_sin_leer((int)$u['id']) ? '' : 'hidden' ?>><?= notif_sin_leer((int)$u['id']) ?></span>
-        </a>
+        <?php /* Las alertas avisan de respuestas, reuniones agendadas y rebotes:
+                 todo eso nace de las campañas o de la agenda. Con las dos
+                 apagadas no hay de qué avisar, y una campana que nunca se
+                 enciende es una promesa vacía en la barra. */
+        if (ruta_habilitada('campanas') || ruta_habilitada('agenda')):
+            $sinLeerBarra = notif_sin_leer((int)$u['id']); ?>
+            <a class="alertas-btn" href="<?= $asset('alertas') ?>" title="Alertas" data-alertas>
+                <?= icon('campanas', 18) ?>
+                <span class="alertas-n" data-alertas-n <?= $sinLeerBarra ? '' : 'hidden' ?>><?= $sinLeerBarra ?></span>
+            </a>
+        <?php endif; ?>
         <form class="gsearch" method="get" action="<?= $asset('buscar') ?>" role="search">
             <?= icon('buscar', 16) ?>
             <input type="search" name="q" placeholder="Buscar en el CRM…" value="<?= e($_GET['q'] ?? '') ?>" aria-label="Buscar">

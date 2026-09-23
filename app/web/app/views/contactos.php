@@ -56,14 +56,20 @@
     <div class="filter-actions">
         <button class="btn btn-primary btn-sm"><?= icon('filtro', 15) ?>Filtrar</button>
         <button type="button" class="btn btn-ghost btn-sm" data-limpiar>Limpiar</button>
-        <label class="switch push">
-            <input type="checkbox" name="no_email" value="1" <?= $f['no_email'] === '1' ? 'checked' : '' ?>>
-            <span class="track"></span><span class="small">Sólo dados de baja</span>
-        </label>
-        <label class="switch">
-            <input type="checkbox" name="rebotado" value="1" <?= $f['rebotado'] === '1' ? 'checked' : '' ?>>
-            <span class="track"></span><span class="small">Sólo rebotados</span>
-        </label>
+        <?php /* «Dado de baja» y «rebotado» son estados que sólo existen si hay
+                 campañas: la baja la pide el destinatario desde un correo y el
+                 rebote lo devuelve el servidor al enviarlo. Sin campañas, los
+                 dos filtros devuelven siempre cero y sólo ocupan lugar. */ ?>
+        <?php if (ruta_habilitada('campanas')): ?>
+            <label class="switch push">
+                <input type="checkbox" name="no_email" value="1" <?= $f['no_email'] === '1' ? 'checked' : '' ?>>
+                <span class="track"></span><span class="small">Sólo dados de baja</span>
+            </label>
+            <label class="switch">
+                <input type="checkbox" name="rebotado" value="1" <?= $f['rebotado'] === '1' ? 'checked' : '' ?>>
+                <span class="track"></span><span class="small">Sólo rebotados</span>
+            </label>
+        <?php endif; ?>
         <?php /* Las fichas a las que les falta algo de lo que pedimos siempre.
                  Es el filtro que permite ir completando la base de a poco, en
                  vez de descubrir el agujero el día que hace falta el dato. */ ?>
@@ -86,6 +92,7 @@
                     <th class="prio-3">Teléfono</th>
                     <th class="prio-4">Localidad</th>
                     <th class="prio-4">Propietario</th>
+                    <th class="w-estado">Estado</th>
                     <th class="acts">Acciones</th>
                 </tr>
             </thead>
@@ -101,11 +108,8 @@
                                 <a href="<?= e(url('contacto-ver?id=' . (int)$c['id'])) ?>"><strong><?= e($c['nombre_completo']) ?></strong></a>
                                 <?php if ($c['no_email']): ?><small>Dado de baja de las campañas</small>
                                 <?php elseif ($c['email_rebotado']): ?><small>El correo rebotó</small><?php endif; ?>
-                                <?php if (!empty($c['pendiente_norm'])):
-                                    // Se dice QUÉ falta, no sólo que falta algo: así se
-                                    // completa sin tener que abrir la ficha para averiguarlo.
-                                    $falta = contacto_falta($c); ?>
-                                    <small class="pend">Falta <?= e(implode(', ', $falta)) ?></small>
+                                <?php if (!empty($c['pendiente_norm'])): ?>
+                                    <small class="pend">Falta <?= e(implode(', ', contacto_falta($c))) ?></small>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -123,6 +127,16 @@
                     <td data-label="Teléfono" class="prio-3"><?= e(telefono_formato($c['telefono'] ?: $c['movil'] ?: $c['conmutador']) ?: '—') ?></td>
                     <td data-label="Localidad" class="prio-4"><?= e($c['localidad'] ?: $c['provincia'] ?: '—') ?></td>
                     <td data-label="Propietario" class="prio-4"><?= e($c['propietario'] ?: '—') ?></td>
+                    <?php /* Una columna propia, no sólo el texto debajo del nombre:
+                             de un vistazo se ve cuáles están listas y cuáles no,
+                             y se puede ordenar la cabeza en torno a eso. */ ?>
+                    <td data-label="Estado" class="w-estado">
+                        <?php if (!empty($c['pendiente_norm'])): ?>
+                            <span class="badge badge-pend" title="Falta <?= e(implode(', ', contacto_falta($c))) ?>">Pendiente</span>
+                        <?php else: ?>
+                            <span class="badge badge-ok">Aprobado</span>
+                        <?php endif; ?>
+                    </td>
                     <td class="acts" data-label="Acciones">
                         <a class="act" href="<?= e(url('contacto-form?id=' . (int)$c['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">

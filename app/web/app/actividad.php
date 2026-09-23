@@ -111,7 +111,7 @@ function actividad_list(array $f): array
     }
     [$where, $p] = actividad_where($f);
     $total = (int) qv("SELECT COUNT(*) FROM actividad a $where", $p);
-    $pg    = paginar($total, $f['page'] ?? 1, 25);
+    $pg    = paginar($total, $f['page'] ?? 1);
     $rows  = q("SELECT a.*, u.email AS usuario_email, u.avatar_url AS usuario_avatar
                 FROM actividad a LEFT JOIN usuarios u ON u.id = a.usuario_id
                 $where ORDER BY a.creado_en DESC, a.id DESC

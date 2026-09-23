@@ -192,5 +192,79 @@
     setTimeout(ajustarMarcos, 60);
     setTimeout(ajustarMarcos, 400);   // las imágenes del correo llegan después
 
+    // --------------------------------------------------------
+    //  Lo que se recorta en la tabla, se puede leer igual
+    //
+    //  Las celdas cortan con puntos suspensivos para que la tabla entre en la
+    //  pantalla sin barra horizontal. Pero un correo cortado a la mitad no
+    //  sirve de nada si no hay forma de verlo entero, así que el valor completo
+    //  queda en el `title` —y SÓLO en las celdas que de verdad se cortaron: un
+    //  tooltip en cada celda es ruido que tapa la que importa.
+    // --------------------------------------------------------
+    function marcarRecortadas(raiz) {
+        (raiz || document).querySelectorAll('table.grid td').forEach(function (td) {
+            // El ancho de la tarjeta en el celular es otro: ahí no se corta nada.
+            if (window.innerWidth <= 768) { td.removeAttribute('title'); return; }
+            var el = td.querySelector('.cell-main strong, .cell-main a') || td;
+            var corta = el.scrollWidth > el.clientWidth + 1;
+            if (corta) {
+                var txt = (td.textContent || '').trim().replace(/\s+/g, ' ');
+                if (txt && td.getAttribute('title') !== txt) { td.setAttribute('title', txt); }
+            } else if (td.hasAttribute('title')) {
+                td.removeAttribute('title');
+            }
+        });
+    }
+
+    var relojRecorte = null;
+    function revisarRecortes() {
+        clearTimeout(relojRecorte);
+        relojRecorte = setTimeout(function () { marcarRecortadas(); }, 120);
+    }
+    window.addEventListener('resize', revisarRecortes);
+    // El refresco automático trae filas nuevas, que todavía no pasaron por acá.
+    document.addEventListener('vivo:actualizado', revisarRecortes);
+    revisarRecortes();
+
+    // --------------------------------------------------------
+    //  Trabajos que tardan: decir que está pasando algo
+    //
+    //  Importar unos miles de filas lleva su tiempo y la pantalla se queda
+    //  quieta. Sin nada que lo indique, la reacción natural es apretar de nuevo
+    //  —y ahí se importa dos veces— o cerrar la pestaña a la mitad. El botón se
+    //  bloquea y se muestra un aviso con los colores de la casa.
+    // --------------------------------------------------------
+    function tapaCargando(titulo, detalle) {
+        var t = document.createElement('div');
+        t.className = 'cargando-tapa';
+        t.innerHTML =
+            '<div class="cargando-caja">' +
+              '<div class="cargando-aro" aria-hidden="true"><i></i><i></i><i></i></div>' +
+              '<strong></strong><span></span>' +
+            '</div>';
+        t.querySelector('strong').textContent = titulo;
+        t.querySelector('span').textContent = detalle || '';
+        t.setAttribute('role', 'status');
+        t.setAttribute('aria-live', 'polite');
+        document.body.appendChild(t);
+        requestAnimationFrame(function () { t.classList.add('visible'); });
+        return t;
+    }
+
+    document.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (!form || form.dataset.enviando === '1') { return; }
+        var btn = form.querySelector('[data-cargando]');
+        if (!btn) { return; }
+        // Si el navegador frenó el envío por un campo inválido, no hay nada que
+        // esperar: mostrar la tapa dejaría la pantalla bloqueada sin motivo.
+        if (typeof form.checkValidity === 'function' && !form.checkValidity()) { return; }
+
+        form.dataset.enviando = '1';
+        btn.disabled = true;
+        tapaCargando(btn.getAttribute('data-cargando') || 'Procesando…',
+                     btn.getAttribute('data-cargando-detalle') || '');
+    });
+
     window.crmConfirmar = confirmar;
 })();

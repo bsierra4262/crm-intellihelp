@@ -279,9 +279,23 @@ body.app{background:var(--bg);min-height:100vh;display:flex;flex-direction:colum
 
 /* ---------- Tablas ---------- */
 .table-card{padding:0;overflow:hidden}
-.table-scroll{overflow-x:auto}
-table.grid{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
-table.grid th,table.grid td{padding:.7rem .9rem;text-align:left;border-bottom:1px solid var(--line-soft);white-space:nowrap;vertical-align:middle}
+/* La tabla entra en la pantalla, sin barra para correr al costado.
+   Antes cada celda era `nowrap`: un correo largo empujaba la tabla más ancha
+   que su contenedor y aparecía la barra horizontal. Correr una barra para leer
+   la última columna es incómodo y hace que el usuario ni se entere de que esa
+   columna existe.
+   Ahora el ancho lo reparte la tabla (`fixed`) y lo que no entra se corta con
+   puntos suspensivos; el valor completo queda en el `title`, que lo pone el
+   script sólo en las celdas que de verdad se cortaron. */
+.table-scroll{overflow-x:auto;overscroll-behavior-x:contain}
+table.grid{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:13.5px}
+table.grid th,table.grid td{padding:.7rem .9rem;text-align:left;border-bottom:1px solid var(--line-soft);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+/* Columnas de ancho propio: lo demás se reparte lo que queda. */
+table.grid th.acts,table.grid td.acts{width:104px}
+table.grid th.num,table.grid td.num{width:92px}
+table.grid th.w-estado,table.grid td.w-estado{width:124px}
+table.grid th.w-fecha,table.grid td.w-fecha{width:132px}
 table.grid thead th{background:var(--soft);font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;position:sticky;top:0;z-index:1}
 table.grid tbody tr:hover{background:var(--soft)}
 table.grid td.num,table.grid th.num{text-align:right;font-variant-numeric:tabular-nums}
@@ -293,7 +307,8 @@ table.grid tfoot .totals td{background:var(--soft);font-weight:700;border-top:2p
   padding:.35rem;border-radius:8px;color:var(--muted);line-height:0;margin-left:.1rem}
 .act:hover{background:var(--primary-050);color:var(--primary)}
 .act.danger:hover{background:var(--danger-bg);color:var(--danger)}
-.cell-main{display:flex;flex-direction:column;line-height:1.25}
+.cell-main{display:flex;flex-direction:column;line-height:1.25;min-width:0}
+.cell-main strong,.cell-main small,.cell-main a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 .cell-main strong{font-weight:700}
 .cell-main small{color:var(--muted);font-size:11.5px}
 /* Prioridad de columnas: se ocultan progresivamente antes de pasar a tarjetas. */
@@ -305,8 +320,12 @@ table.grid tfoot .totals td{background:var(--soft);font-weight:700;border-top:2p
   table.grid,table.grid tbody,table.grid tr,table.grid td{display:block;width:100%}
   table.grid tr{border:1px solid var(--line);border-radius:var(--radius-sm);margin:0 0 .7rem;
     background:var(--surface);box-shadow:var(--shadow);padding:.3rem .9rem}
+  table.grid{table-layout:auto}
+  table.grid th,table.grid td{width:auto}
   table.grid td{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.5rem 0;
-    border-bottom:1px solid var(--line-soft);white-space:normal;text-align:right}
+    border-bottom:1px solid var(--line-soft);white-space:normal;overflow:visible;text-align:right;
+    overflow-wrap:anywhere}
+  .cell-main strong,.cell-main small,.cell-main a{white-space:normal;overflow:visible}
   table.grid tr td:last-child{border-bottom:0}
   table.grid td::before{content:attr(data-label);font-weight:700;color:var(--muted);text-align:left;font-size:12px;flex:none}
   /* Un correo largo no tiene espacios donde cortar, así que sin esta regla se
@@ -889,3 +908,42 @@ table.grid tr.sin-leer td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
 .modulo-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
 .modulo-txt strong{font-size:14px;color:var(--ink)}
 .modulo-txt small{font-size:12.5px;color:var(--muted);line-height:1.45}
+
+/* ---- Campo pendiente de completar ----
+   Abrir una ficha marcada como pendiente y tener que adivinar cuál de los
+   treinta campos es el que falta no ayuda a nadie. El que falta se ve. */
+.fld.falta>span{color:var(--warn)}
+.fld.falta input,.fld.falta select,.fld.falta textarea,.fld.falta .sel-btn{
+  border-color:var(--warn);background:var(--warn-bg)}
+.fld.falta input:focus,.fld.falta select:focus,.fld.falta textarea:focus,.fld.falta .sel-btn:focus-visible{
+  border-color:var(--warn);box-shadow:0 0 0 3px #fdf3e3}
+.hint.pendiente{color:var(--warn);font-weight:600;font-style:normal}
+.hint.pendiente::before{content:'●';margin-right:.35rem;font-size:9px;vertical-align:middle}
+
+/* ---- Trabajo en curso: importar, procesar ----
+   Con los colores de la casa: el violeta de marca girando sobre el verde del
+   acento. Sin esto la pantalla se queda quieta y la reacción natural es apretar
+   de nuevo, que importa el archivo dos veces. */
+.cargando-tapa{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
+  background:rgba(24,16,40,.42);backdrop-filter:blur(2px);opacity:0;transition:opacity .2s ease}
+.cargando-tapa.visible{opacity:1}
+.cargando-caja{display:flex;flex-direction:column;align-items:center;gap:.55rem;text-align:center;
+  background:var(--surface);border-radius:var(--radius);padding:1.8rem 2rem;box-shadow:var(--shadow-lg);
+  max-width:min(420px,calc(100vw - 32px))}
+.cargando-caja strong{font-size:15px;color:var(--ink)}
+.cargando-caja span{font-size:13px;color:var(--muted);line-height:1.5}
+.cargando-aro{position:relative;width:46px;height:46px;margin-bottom:.35rem}
+.cargando-aro i{position:absolute;inset:0;border:3px solid transparent;border-radius:50%;
+  animation:cargando-giro 1.1s cubic-bezier(.5,0,.5,1) infinite}
+.cargando-aro i:nth-child(1){border-top-color:var(--primary)}
+.cargando-aro i:nth-child(2){border-top-color:var(--accent);animation-delay:-.14s;inset:6px}
+.cargando-aro i:nth-child(3){border-top-color:var(--primary-100);animation-delay:-.28s;inset:12px}
+@keyframes cargando-giro{to{transform:rotate(360deg)}}
+/* A quien le molesta el movimiento se le muestra el aviso igual, sin girar. */
+@media (prefers-reduced-motion:reduce){ .cargando-aro i{animation:none;border-top-color:var(--primary)} }
+
+/* El selector de filas por página, junto a los botones de paginado. */
+.pager-por{display:flex;align-items:center;gap:.5rem;margin-right:auto}
+.pager-por>span{font-size:12.5px;color:var(--muted);font-weight:600}
+.pager-por select,.pager-por .sel{min-width:140px}
+@media (max-width:640px){ .pager-por{margin-right:0;width:100%} .pager-por select,.pager-por .sel{width:100%} }

@@ -114,7 +114,21 @@ $pelados = preg_match_all('/class="badge"(?!\s*<\?)/', $html);
 ok('ningún badge queda sin variante', $pelados === 0, "→ $pelados pelados");
 
 echo "== Responsive: sin desbordes horizontales ==\n";
-ok('las tablas scrollean dentro de su contenedor', str_contains($CSS, '.table-scroll{overflow-x:auto}'));
+// Ya no alcanza con que la tabla scrollee adentro de su caja: la barra para
+// correr al costado es incómoda y hace que el usuario ni se entere de que la
+// última columna existe. Ahora la tabla reparte el ancho y corta lo que no
+// entra; el contenedor con scroll queda como red, para un caso extremo.
+ok('la tabla reparte el ancho en vez de desbordar',
+   str_contains($CSS, 'table.grid{width:100%;table-layout:fixed'));
+ok('lo que no entra se corta con puntos suspensivos',
+   preg_match('/table\.grid th,table\.grid td\{[^}]*text-overflow:ellipsis/', $CSS) === 1);
+ok('y el valor completo se puede leer igual',
+   str_contains($JS ?: '', 'function marcarRecortadas('),
+   'un correo cortado a la mitad no sirve si no hay forma de verlo entero');
+ok('en el celular el texto vuelve a envolverse',
+   preg_match('/@media \(max-width:768px\)[\s\S]{0,900}table\.grid\{table-layout:auto\}/', $CSS) === 1,
+   'ahí la fila es una tarjeta y hay lugar de sobra a lo alto');
+ok('queda la red por si algo igual desborda', str_contains($CSS, '.table-scroll{overflow-x:auto'));
 ok('las tablas pasan a tarjetas en el celular', str_contains($CSS, '@media (max-width:768px)'));
 ok('los encabezados de página se apilan en pantallas chicas',
    preg_match('/@media \(max-width:860px\)[\s\S]{0,600}\.page-head\{[^}]*flex-direction:column/', $CSS) === 1);

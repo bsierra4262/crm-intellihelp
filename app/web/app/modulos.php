@@ -102,6 +102,14 @@ function modulo_de_ruta(string $ruta): ?string
  */
 function ruta_habilitada(string $ruta): bool
 {
+    // Las alertas no son un módulo propio: son el aviso de lo que producen las
+    // campañas y la agenda —una respuesta, una reunión, un rebote—. Con las dos
+    // apagadas no hay de qué avisar, así que la sección tampoco va: una bandeja
+    // que nunca puede recibir nada es una promesa vacía.
+    if ($ruta === 'alertas' || $ruta === 'api-alertas') {
+        return modulo_activo('campanas') || modulo_activo('agenda');
+    }
+
     $m = modulo_de_ruta($ruta);
     return $m === null || modulo_activo($m);
 }

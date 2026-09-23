@@ -1,7 +1,32 @@
 <?php
 /** @var ?array $c @var int $id @var array $errores @var array $usuarios @var array $cuentas */
 $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
+
+// Qué le falta a esta ficha. Abrir para editar una ficha marcada como pendiente
+// y tener que adivinar cuál de los treinta campos es el que falta no ayuda a
+// nadie: se marcan los que faltan, ahí mismo.
+$faltaCampo = [];
+if ($id) {
+    $mapa = ['nombre' => 'nombre', 'apellido' => 'apellido',
+             'correo principal' => 'email', 'empresa' => 'cuenta_id'];
+    foreach (contacto_falta($c ?? []) as $qf) {
+        if (isset($mapa[$qf])) { $faltaCampo[$mapa[$qf]] = $qf; }
+    }
+}
+/** Marca visualmente un campo que hay que completar. */
+$falta = fn(string $campo) => isset($faltaCampo[$campo]) ? ' falta' : '';
+$avisoFalta = function (string $campo) use ($faltaCampo) {
+    if (!isset($faltaCampo[$campo])) { return; }
+    echo '<i class="hint pendiente">Falta este dato para que la ficha quede aprobada.</i>';
+};
 ?>
+<?php if ($faltaCampo): ?>
+    <div class="flash flash-warn">
+        <strong>Esta ficha está pendiente de aprobar.</strong>
+        Le falta <?= e(implode(', ', $faltaCampo)) ?>. Están marcados abajo: completalos y al
+        guardar queda aprobada.
+    </div>
+<?php endif; ?>
 <div class="page-head">
     <div>
         <h1><?= $id ? 'Editar contacto' : 'Nuevo contacto' ?></h1>
@@ -22,13 +47,15 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
     <div class="card form-card">
         <h2 class="sec">Quién es</h2>
         <div class="grid-fields">
-            <label class="fld"><span>Nombre <i class="req">*</i></span>
+            <label class="fld<?= $falta('nombre') ?>"><span>Nombre <i class="req">*</i></span>
                 <input name="nombre" value="<?= $v('nombre') ?>" maxlength="120" required autofocus placeholder="Juan">
+                <?php $avisoFalta('nombre'); ?>
                 <?php if (isset($errores['nombre'])): ?><i class="hint bad"><?= e($errores['nombre']) ?></i><?php endif; ?>
             </label>
-            <label class="fld"><span>Apellido <i class="req">*</i></span>
+            <label class="fld<?= $falta('apellido') ?>"><span>Apellido <i class="req">*</i></span>
                 <input name="apellido" value="<?= $v('apellido') ?>" maxlength="120" required placeholder="Perez">
                 <?php if (isset($errores['apellido'])): ?><i class="hint bad"><?= e($errores['apellido']) ?></i><?php endif; ?>
+                <?php $avisoFalta('apellido'); ?>
             </label>
             <label class="fld"><span>Cargo</span>
                 <input name="cargo" value="<?= $v('cargo') ?>" maxlength="150" placeholder="Gerente de Sistemas">
@@ -39,7 +66,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <i class="hint">El área dentro de la empresa: Sistemas, Compras, RRHH.</i>
             </label>
 
-            <label class="fld wide"><span>Empresa <i class="req">*</i></span>
+            <label class="fld<?= $falta('cuenta_id') ?> wide"><span>Empresa <i class="req">*</i></span>
                 <select name="cuenta_id" required>
                     <option value="">— Elegí una empresa —</option>
                     <?php foreach ($cuentas as $cu): ?>
@@ -77,9 +104,10 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
     <div class="card form-card">
         <h2 class="sec">Cómo se lo contacta</h2>
         <div class="grid-fields">
-            <label class="fld wide"><span>Correo principal</span>
+            <label class="fld wide<?= $falta('email') ?>"><span>Correo principal <i class="req">*</i></span>
                 <input type="email" name="email" value="<?= $v('email') ?>" maxlength="190" required placeholder="juan.perez@empresa.com">
                 <?php if (isset($errores['email'])): ?><i class="hint bad"><?= e($errores['email']) ?></i><?php endif; ?>
+                <?php $avisoFalta('email'); ?>
             </label>
             <label class="fld"><span>Correo secundario</span>
                 <input type="email" name="email2" value="<?= $v('email2') ?>" maxlength="190" placeholder="jperez@gmail.com">

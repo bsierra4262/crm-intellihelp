@@ -566,8 +566,31 @@ function formatear_cuit($s): string
  * Calcula los datos de paginación.
  * @return array{page:int, per:int, offset:int, paginas:int}
  */
-function paginar(int $total, $page, int $per = 25): array
+/**
+ * Cuántas filas por página quiere ver esta persona.
+ *
+ * Se elige en la pantalla y se recuerda mientras dure la sesión: quien trabaja
+ * con una base grande no tiene por qué volver a elegir «100» en cada listado
+ * que abre. Se limita a los valores de la lista para que nadie pida 50.000
+ * filas escribiendo el número en la dirección y tire abajo la pantalla.
+ */
+function filas_por_pagina(): int
 {
+    $permitidos = [25, 50, 100];
+    if (isset($_GET['por'])) {
+        $p = (int) $_GET['por'];
+        if (in_array($p, $permitidos, true)) {
+            $_SESSION['filas_por_pagina'] = $p;
+            return $p;
+        }
+    }
+    $g = (int) ($_SESSION['filas_por_pagina'] ?? 0);
+    return in_array($g, $permitidos, true) ? $g : 25;
+}
+
+function paginar(int $total, $page, ?int $per = null): array
+{
+    $per     = $per ?: filas_por_pagina();
     $page    = max(1, (int)$page);
     $paginas = max(1, (int)ceil($total / $per));
     $page    = min($page, $paginas);

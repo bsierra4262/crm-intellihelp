@@ -71,7 +71,7 @@ function negocios_listar(array $f): array
             LEFT JOIN usuarios u ON u.id = n.propietario_id $where";
     $total = (int) qv("SELECT COUNT(*) $sql", $p);
     $suma  = q1("SELECT COALESCE(SUM(n.importe),0) importe, COALESCE(SUM(n.ingreso_esperado),0) ponderado $sql", $p);
-    $pg    = paginar($total, $f['page'] ?? 1, 25);
+    $pg    = paginar($total, $f['page'] ?? 1);
     $rows  = q("SELECT n.*, e.nombre AS etapa, e.color AS etapa_color, e.tipo AS etapa_tipo,
                        cu.nombre AS cuenta, u.nombre AS propietario $sql
                 ORDER BY n.fecha_cierre IS NULL, n.fecha_cierre

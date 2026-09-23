@@ -317,7 +317,7 @@ function cuentas_listar(array $f): array
 {
     [$where, $p] = cuentas_where($f);
     $total = (int) qv("SELECT COUNT(*) FROM cuentas c $where", $p);
-    $pg    = paginar($total, $f['page'] ?? 1, 25);
+    $pg    = paginar($total, $f['page'] ?? 1);
     $rows  = q("SELECT c.*, u.nombre AS propietario,
                        (SELECT COUNT(*) FROM contactos ct WHERE ct.cuenta_id = c.id AND ct.eliminado_en IS NULL) AS n_contactos
                 FROM cuentas c LEFT JOIN usuarios u ON u.id = c.propietario_id
@@ -412,7 +412,7 @@ function contactos_listar(array $f): array
             LEFT JOIN cuentas cu ON cu.id = ct.cuenta_id
             LEFT JOIN usuarios u ON u.id = ct.propietario_id $where";
     $total = (int) qv("SELECT COUNT(*) $sql", $p);
-    $pg    = paginar($total, $f['page'] ?? 1, 25);
+    $pg    = paginar($total, $f['page'] ?? 1);
     $orden = match ($f['orden'] ?? '') {
         'reciente' => 'ct.creado_en DESC',
         'empresa'  => 'cu.nombre, ct.apellido',
@@ -535,7 +535,7 @@ function posibles_listar(array $f): array
     [$where, $p] = posibles_where($f);
     $sql   = "FROM posibles_clientes pc LEFT JOIN usuarios u ON u.id = pc.propietario_id $where";
     $total = (int) qv("SELECT COUNT(*) $sql", $p);
-    $pg    = paginar($total, $f['page'] ?? 1, 25);
+    $pg    = paginar($total, $f['page'] ?? 1);
     $rows  = q("SELECT pc.*, u.nombre AS propietario $sql
                 ORDER BY pc.puntaje DESC, pc.creado_en DESC
                 LIMIT {$pg['per']} OFFSET {$pg['offset']}", $p)->fetchAll();

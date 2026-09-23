@@ -82,7 +82,7 @@ function actividades_listar(array $f): array
             LEFT JOIN contactos c ON c.id = a.contacto_id
             LEFT JOIN cuentas cu ON cu.id = a.cuenta_id $where";
     $total = (int) qv("SELECT COUNT(*) $sql", $p);
-    $pg    = paginar($total, $f['page'] ?? 1, 25);
+    $pg    = paginar($total, $f['page'] ?? 1);
     $rows  = q("SELECT a.*, u.nombre AS propietario, c.nombre_completo AS contacto, cu.nombre AS cuenta $sql
                 ORDER BY COALESCE(a.vence_el, a.inicia_el) IS NULL,
                          COALESCE(a.vence_el, a.inicia_el)

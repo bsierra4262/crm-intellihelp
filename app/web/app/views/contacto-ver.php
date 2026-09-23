@@ -1,5 +1,6 @@
 <?php
 /** @var array $c @var array $notas @var array $actividades @var array $negocios
+ *  @var bool $verNegocios @var bool $verActividades @var bool $verCampanas
  *  @var array $envios @var array $linea */
 ?>
 <div class="detail-head">
@@ -29,8 +30,12 @@
                         data-confirmar-ok="Habilitar"><?= icon('ok', 16) ?>Volver a habilitar</button>
             </form>
         <?php endif; ?>
-        <a class="btn btn-ghost" href="<?= e(url('actividad-form?contacto_id=' . (int)$c['id'])) ?>"><?= icon('tareas', 16) ?>Nueva actividad</a>
-        <a class="btn btn-ghost" href="<?= e(url('negocio-form?contacto_id=' . (int)$c['id'])) ?>"><?= icon('negocios', 16) ?>Nuevo negocio</a>
+        <?php if ($verActividades): ?>
+            <a class="btn btn-ghost" href="<?= e(url('actividad-form?contacto_id=' . (int)$c['id'])) ?>"><?= icon('tareas', 16) ?>Nueva actividad</a>
+        <?php endif; ?>
+        <?php if ($verNegocios): ?>
+            <a class="btn btn-ghost" href="<?= e(url('negocio-form?contacto_id=' . (int)$c['id'])) ?>"><?= icon('negocios', 16) ?>Nuevo negocio</a>
+        <?php endif; ?>
         <a class="btn btn-primary" href="<?= e(url('contacto-form?id=' . (int)$c['id'])) ?>"><?= icon('editar', 16) ?>Editar</a>
     </div>
 </div>
@@ -75,6 +80,7 @@
         </div>
         <?php endif; ?>
 
+        <?php if ($verNegocios): ?>
         <div class="card">
             <div class="card-head"><h2>Negocios</h2>
                 <a class="btn btn-ghost btn-sm" href="<?= e(url('negocio-form?contacto_id=' . (int)$c['id'])) ?>"><?= icon('mas', 14) ?>Agregar</a>
@@ -99,8 +105,9 @@
                 </div>
             <?php endif; ?>
         </div>
+        <?php endif; ?>
 
-        <?php if ($envios): ?>
+        <?php if ($verCampanas && $envios): ?>
         <div class="card">
             <div class="card-head"><h2>Campañas recibidas</h2></div>
             <div class="table-scroll">
