@@ -137,6 +137,34 @@ function aprobar_registros(string $tabla, array $ids, bool $aprobar = true): int
     return $n;
 }
 
+/**
+ * Cuántas fichas esperan aprobación, por sección.
+ *
+ * Va al lado de su sección en la barra lateral: es el número que se mira todo
+ * el día mientras se normaliza una base importada, y tenerlo que ir a buscar al
+ * tablero es un viaje de ida y vuelta por cada tanda que se aprueba.
+ *
+ * Las dos cuentas salen en una sola consulta: la barra se dibuja en TODAS las
+ * pantallas, así que lo que cueste acá se paga en cada clic.
+ *
+ * @return array<string,int> claves 'contactos' y 'cuentas'
+ */
+function contar_pendientes(): array
+{
+    static $cache = null;
+    if ($cache !== null) { return $cache; }
+
+    $pend = 'eliminado_en IS NULL AND pendiente_norm = 1 AND aprobado_en IS NULL';
+    $f = q1("SELECT
+              (SELECT COUNT(*) FROM contactos WHERE $pend) AS contactos,
+              (SELECT COUNT(*) FROM cuentas   WHERE $pend) AS cuentas") ?: [];
+
+    return $cache = [
+        'contactos' => (int) ($f['contactos'] ?? 0),
+        'cuentas'   => (int) ($f['cuentas'] ?? 0),
+    ];
+}
+
 /** Lo mismo para una empresa: sin CUIT no se puede facturar. */
 function cuenta_falta(array $d): array
 {

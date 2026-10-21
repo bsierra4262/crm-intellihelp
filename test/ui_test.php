@@ -74,20 +74,27 @@ ok('las versalitas apuntan al primer span del campo',
    str_contains($CSS, '.filters .filter-grid>label>span:first-child'));
 
 echo "== Barra de navegación (regresión BUG #9) ==\n";
-// BUG #9 — catorce solapas no entraban ni en 1920 px y la última quedaba
-// cortada al medio. Lo administrativo pasó al menú «Más».
+// BUG #9 — catorce solapas sueltas no entraban ni en 1920 px y la última
+// quedaba cortada al medio. El primer parche fue esconder lo administrativo en
+// un menú «Más»; ahora la navegación es una columna, como en el portal de
+// RRHH, y entran todas con su rótulo a la vista.
 preg_match('/\$nav\s*=\s*\[(.*?)\];/s', $layout, $m);
 $items = preg_match_all('/=>\s*\[/', $m[1] ?? '');
 ok('la barra tiene 10 solapas o menos', $items > 0 && $items <= 10, "→ $items solapas");
-ok('existe el menú «Más» para lo administrativo', str_contains($layout, 'details class="menu"'));
-ok('la barra ya no scrollea en horizontal',
-   !str_contains(regla($CSS, '.topnav'), 'overflow-x:auto'));
-ok('los rótulos se ocultan antes de que la barra desborde',
-   str_contains($CSS, '@media (max-width:1280px)'));
-ok('la barra pasa a menú desplegable en pantallas chicas',
-   str_contains($CSS, '@media (max-width:1024px)'));
-ok('el menú «Más» se cierra al hacer clic afuera',
-   str_contains($JS ?: '', "details.menu[open]"));
+ok('la navegación es una barra lateral fija', str_contains($layout, 'class="sidebar"')
+   && str_contains(regla($CSS, '.sidebar'), 'position:fixed'));
+ok('lo administrativo va en su propio grupo, no mezclado con el trabajo diario',
+   str_contains($layout, 'class="nav-title"'));
+// Con campañas encendido son trece entradas: en un portátil no entran a lo
+// alto. Scrollea la barra, no la página.
+ok('la barra scrollea sola si no entran las secciones',
+   str_contains(regla($CSS, '.nav'), 'overflow-y:auto'));
+ok('el contenido no queda tapado por la barra',
+   str_contains(regla($CSS, '.main'), 'margin-left:var(--sidebar)'));
+ok('en pantallas chicas la barra se guarda y sale como cajón',
+   preg_match('/@media \(max-width:900px\)[\s\S]{0,600}body\.nav-open \.sidebar\{transform:none\}/', $CSS) === 1);
+ok('y el cajón se puede cerrar sin navegar',
+   str_contains($layout, 'data-close-nav') && str_contains($JS ?: '', 'data-toggle-nav'));
 
 echo "== Embudo (regresión BUG #10) ==\n";
 // BUG #10 — columnas de ancho fijo: la última quedaba cortada a la mitad.
@@ -107,6 +114,20 @@ ok('los on/off usan el toggle propio', !preg_match('/type=["\']checkbox["\'][^>]
    || substr_count($html, 'class="track"') > 0);
 ok('no hay estilos en línea en selects ni fechas',
    !preg_match('/<(select|input[^>]*type=["\'](date|month|time)["\'])[^>]*\sstyle=/i', $html));
+
+echo "== El atributo hidden ==\n";
+// `.barra-sel{display:flex}` le ganaba a `hidden` y la barra de selección se
+// veía siempre, ofreciendo aprobar «0 marcadas». Un elemento marcado como
+// escondido tiene que estar escondido, lo diga quien lo diga.
+ok('hidden gana sobre cualquier display', str_contains($CSS, '[hidden]{display:none!important}'));
+$conDisplay = [];
+foreach (['.barra-sel', '.alertas-n', '.avisos'] as $sel) {
+    $r = regla($CSS, $sel);
+    if ($r !== '' && !str_contains($r, 'display')) { continue; }
+    $conDisplay[] = $sel;
+}
+ok('y las clases que declaran display no necesitan su propio parche',
+   !str_contains($CSS, '.alertas-n[hidden]'), '→ ' . implode(', ', $conDisplay));
 
 echo "== Badges siempre con variante ==\n";
 // Un `.badge` pelado sale transparente: siempre lleva su variante.
@@ -925,9 +946,12 @@ ok('el campo explica la consecuencia, no sólo qué hace',
    preg_match('/name="responder_a".*?no la va a registrar/s',
               (string) @file_get_contents($WEB . '/app/views/campana-form.php')) === 1);
 // El globo del contador se veía con un cero adentro: la regla propia de
-// `display` pisaba el `hidden` del navegador.
-ok('el globo de alertas se esconde cuando no hay ninguna',
-   str_contains($CSS, '.alertas-n[hidden]{display:none}'));
+// `display` pisaba el `hidden` del navegador. Se arregló primero acá y después
+// para todos, con `[hidden]{display:none!important}`; lo comprueba el bloque
+// «El atributo hidden», y acá queda lo que de verdad importa: que el marcado
+// siga poniendo el atributo cuando no hay nada que contar.
+ok('el globo de alertas se marca como escondido cuando no hay ninguna',
+   preg_match('/data-alertas-n\s*<\?=\s*\$sinLeerBarra \? \'\' : \'hidden\'/', $layout) === 1);
 
 echo "== El avance mide lo resuelto, no sólo lo entregado ==\n";
 // Una campaña que entregó 3 y rebotó 3 terminó su trabajo con los 6: no queda

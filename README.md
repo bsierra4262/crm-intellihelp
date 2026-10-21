@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/MySQL-MariaDB-4479A1?logo=mysql&logoColor=white" alt="MySQL / MariaDB">
   <img src="https://img.shields.io/badge/auth-Google%20Workspace-4285F4?logo=google&logoColor=white" alt="Google Workspace">
   <img src="https://img.shields.io/badge/Calendar%20%2B%20Meet-integrado-00897B?logo=googlemeet&logoColor=white" alt="Google Calendar + Meet">
-  <img src="https://img.shields.io/badge/tests-238%20comprobaciones-9CC930" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-552%20comprobaciones-663399" alt="Tests">
   <img src="https://img.shields.io/badge/licencia-propietaria-663399" alt="Licencia propietaria">
 </p>
 
@@ -21,6 +21,7 @@
 ## Índice
 
 - [Descripción](#descripción)
+- [La aplicación por dentro](#la-aplicación-por-dentro)
 - [Características](#características)
 - [Arquitectura del sistema](#arquitectura-del-sistema)
 - [Motor de campañas](#motor-de-campañas)
@@ -57,6 +58,114 @@ automáticamente.
 > `crm.intellihelp.tech` existe porque el hosting lo necesita para servir la carpeta, pero
 > redirige acá con un 301.
 > Herramienta interna: el acceso se restringe a las cuentas del dominio de la organización.
+
+## La aplicación por dentro
+
+Identidad visual compartida con el [Portal de RRHH](https://github.com/bsierra-ith): tipografía
+Saira y paleta `#663399` · `#9f88b1` · `#fff6ff` · `#fffade`, con colores planos y sin
+degradados. Las dos aplicaciones de la casa se usan el mismo día y tienen que verse como una
+sola.
+
+> Las capturas salen de la instalación de **pruebas**, que corre exactamente el mismo código
+> que producción pero con datos ficticios y todos los módulos encendidos. En producción cada
+> sección se habilita por separado, y los contactos son reales: no van a una captura.
+
+<p align="center"><img src="docs/screenshots/login.png" alt="Pantalla de ingreso" width="100%"></p>
+
+### Panel
+
+<p align="center"><img src="docs/screenshots/panel.png" alt="Panel del CRM" width="100%"></p>
+
+### Base comercial
+
+<table>
+  <tr>
+    <td width="50%"><b>Contactos</b><br><img src="docs/screenshots/contactos.png" alt="Listado de contactos"></td>
+    <td width="50%"><b>Pendientes de aprobar, de a tandas</b><br><img src="docs/screenshots/contacto-pendiente.png" alt="Contactos pendientes de aprobar"></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>Ficha de contacto</b><br><img src="docs/screenshots/contacto-ficha.png" alt="Ficha de contacto"></td>
+    <td width="50%"><b>Alta de contacto</b><br><img src="docs/screenshots/contacto-nuevo.png" alt="Nuevo contacto"></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>Empresas</b><br><img src="docs/screenshots/empresas.png" alt="Listado de empresas"></td>
+    <td width="50%"><b>Ficha de empresa</b><br><img src="docs/screenshots/empresa-ficha.png" alt="Ficha de empresa"></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>Posibles clientes</b><br><img src="docs/screenshots/posibles.png" alt="Posibles clientes"></td>
+    <td width="50%"><b>Buscador global</b><br><img src="docs/screenshots/buscador.png" alt="Buscador global"></td>
+  </tr>
+</table>
+
+### Embudo y actividades
+
+<table>
+  <tr>
+    <td width="50%"><b>Embudo en Kanban</b><br><img src="docs/screenshots/embudo.png" alt="Embudo de ventas"></td>
+    <td width="50%"><b>Etapas configurables</b><br><img src="docs/screenshots/embudos-etapas.png" alt="Embudos y etapas"></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>Actividades</b><br><img src="docs/screenshots/actividades.png" alt="Actividades"></td>
+    <td width="50%"><b>Reportes y pronóstico</b><br><img src="docs/screenshots/reportes.png" alt="Reportes"></td>
+  </tr>
+</table>
+
+### Campañas de correo
+
+<p align="center"><img src="docs/screenshots/plantilla-editor.png" alt="Editor de plantillas por bloques" width="100%"></p>
+
+<table>
+  <tr>
+    <td width="50%"><b>Campañas</b><br><img src="docs/screenshots/campanas.png" alt="Campañas"></td>
+    <td width="50%"><b>Plantillas por servicio</b><br><img src="docs/screenshots/plantillas.png" alt="Plantillas"></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>Listas de distribución</b><br><img src="docs/screenshots/listas.png" alt="Listas"></td>
+    <td width="50%"><b>Detalle de una lista</b><br><img src="docs/screenshots/lista-ficha.png" alt="Detalle de lista"></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>Alertas: respuestas, rebotes y reuniones</b><br><img src="docs/screenshots/alertas.png" alt="Alertas"></td>
+    <td width="50%"><b>Importación desde CSV</b><br><img src="docs/screenshots/importar.png" alt="Importar datos"></td>
+  </tr>
+</table>
+
+### Agenda de reuniones
+
+<table>
+  <tr>
+    <td width="50%"><b>Agendas públicas</b><br><img src="docs/screenshots/agenda.png" alt="Agendas"></td>
+    <td width="50%"><b>Reuniones reservadas</b><br><img src="docs/screenshots/reservas.png" alt="Reservas"></td>
+  </tr>
+</table>
+
+### Administración
+
+<table>
+  <tr>
+    <td width="50%"><b>Ajustes</b><br><img src="docs/screenshots/ajustes.png" alt="Ajustes"></td>
+    <td width="50%"><b>Usuarios</b><br><img src="docs/screenshots/usuarios.png" alt="Usuarios"></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>CRON y registro de errores</b><br><img src="docs/screenshots/cron.png" alt="CRON"></td>
+    <td width="50%"><b>Claves de API</b><br><img src="docs/screenshots/api.png" alt="API"></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>Papelera con restauración</b><br><img src="docs/screenshots/papelera.png" alt="Papelera"></td>
+    <td width="50%"></td>
+  </tr>
+</table>
+
+### En el celular
+
+La barra lateral se guarda y sale como cajón; las tablas pasan a tarjetas, una por fila.
+
+<p align="center">
+  <img src="docs/screenshots/movil-login.png" alt="Ingreso en celular" width="30%">
+  &nbsp;
+  <img src="docs/screenshots/movil-panel.png" alt="Panel en celular" width="30%">
+  &nbsp;
+  <img src="docs/screenshots/movil-contactos.png" alt="Contactos en celular" width="30%">
+</p>
 
 ## Características
 
@@ -373,7 +482,7 @@ bin/                    # deploy.py (subida, esquema, verificación de sintaxis)
 test/                   # run_tests.php · ui_test.php · smoke.sh · render.sh
                         #   + verificar_unificacion.py (238 comprobaciones en total)
 md/                     # documento maestro, referencia de Zoho, requerimientos
-docs/                   # banner
+docs/                   # banner y capturas de pantalla
 ```
 
 ## Puesta en marcha

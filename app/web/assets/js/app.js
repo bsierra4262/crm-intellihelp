@@ -84,21 +84,25 @@
     }, true);
 
     // --------------------------------------------------------
-    //  Cierre de los menús al hacer clic afuera
-    //  (drawer de la barra y desplegable «Más»)
+    //  Cajón de la barra lateral en pantallas chicas
+    //
+    //  Se abre con el botón de la topbar y se cierra con el velo, con Escape o
+    //  al tocar cualquier cosa que no sea la barra. Si quedara abierto tapando
+    //  la pantalla después de navegar, el primer gesto de cada pantalla sería
+    //  cerrarlo a mano.
     // --------------------------------------------------------
     document.addEventListener('click', function (e) {
-        if (document.body.classList.contains('nav-open') && !e.target.closest('.topnav, .nav-toggle')) {
+        if (e.target.closest('[data-toggle-nav]')) {
+            document.body.classList.toggle('nav-open');
+            return;
+        }
+        if (!document.body.classList.contains('nav-open')) { return; }
+        if (e.target.closest('[data-close-nav]') || !e.target.closest('.sidebar')) {
             document.body.classList.remove('nav-open');
         }
-        document.querySelectorAll('details.menu[open]').forEach(function (d) {
-            if (!d.contains(e.target)) { d.removeAttribute('open'); }
-        });
     });
     document.addEventListener('keydown', function (e) {
-        if (e.key !== 'Escape') { return; }
-        document.body.classList.remove('nav-open');
-        document.querySelectorAll('details.menu[open]').forEach(function (d) { d.removeAttribute('open'); });
+        if (e.key === 'Escape') { document.body.classList.remove('nav-open'); }
     });
 
     // --------------------------------------------------------

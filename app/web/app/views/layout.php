@@ -49,32 +49,19 @@ if ($u && ($u['rol'] ?? '') === 'admin') {
         'importar'       => ['Importar datos',  'importar'],
         'cuentas-correo' => ['Cuentas de correo', 'campanas'],
         'imagenes'       => ['Imágenes',        'subir'],
-        '-'              => null,
         'embudos'  => ['Embudos y etapas', 'embudo'],
         'cuotas'   => ['Objetivos de venta', 'reportes'],
         'usuarios' => ['Usuarios',       'usuarios'],
         'papelera' => ['Papelera',       'papelera'],
-        '--'       => null,
         'ajustes'  => ['Ajustes',        'ajustes'],
         'api-keys' => ['API',            'clave'],
         'cron'     => ['CRON',           'cron'],
     ];
 }
-// El menú «Más» se filtra igual que la barra: si no, ahí seguirían apareciendo
-// Importar, Cuentas de correo o Embudos con su módulo apagado, y hacer clic
-// llevaría a la pantalla de «esto todavía no está en marcha».
-$admin = array_filter($admin, fn($k) => $k === '-' || $k === '--' || ruta_habilitada($k), ARRAY_FILTER_USE_KEY);
-// Y si al sacar entradas un separador quedó primero, último o pegado a otro,
-// sobra: una línea suelta arriba de todo se ve como un error.
-$claves = array_keys($admin);
-foreach ($claves as $i => $k) {
-    if ($admin[$k] !== null) { continue; }
-    $antes    = $i > 0 ? $admin[$claves[$i - 1]] ?? null : null;
-    $despues  = $i < count($claves) - 1 ? $admin[$claves[$i + 1]] ?? null : null;
-    if ($antes === null || $despues === null) { unset($admin[$k]); }
-}
-
-$adminActivo = isset($admin[$seccion]);
+// El grupo de administración se filtra igual que el resto: si no, ahí
+// seguirían apareciendo Importar, Cuentas de correo o Embudos con su módulo
+// apagado, y hacer clic llevaría a «esto todavía no está en marcha».
+$admin = array_filter($admin, fn($k) => ruta_habilitada($k), ARRAY_FILTER_USE_KEY);
 
 $asset     = fn($p) => e(url($p));
 $extraHead = $extraHead ?? '';
@@ -138,73 +125,86 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
 <body class="<?= e($bodyClass) ?>">
 <?php if ($u && $bodyClass === 'app'):
     $ini = iniciales((string)($u['nombre'] ?? '?'));
+    // Las alertas nacen de las campañas o de la agenda. Con las dos apagadas no
+    // hay de qué avisar, y una campana que nunca suena es una promesa vacía.
+    $verAlertas   = ruta_habilitada('campanas') || ruta_habilitada('agenda');
+    $sinLeerBarra = $verAlertas ? notif_sin_leer((int)$u['id']) : 0;
+    // Cuántas fichas esperan aprobación, al lado de su sección. Es el número que
+    // se mira todo el día mientras se normaliza la base: tenerlo que ir a buscar
+    // al tablero es un viaje de ida y vuelta por cada tanda.
+    $pendientes = contar_pendientes();
+    $contador = fn(int $n): string => $n > 999 ? '999+' : (string) $n;
 ?>
-    <header class="topbar">
-        <div class="brand">
-            <a href="<?= $asset('dashboard') ?>" aria-label="Inicio">
-                <img src="<?= $asset($brandLogo) ?>" alt="<?= e($brandOrg) ?>" class="brand-logo">
-            </a>
-        </div>
-        <button class="nav-toggle" aria-label="Menú" onclick="document.body.classList.toggle('nav-open')"><?= icon('menu', 20) ?></button>
-        <nav class="topnav">
-            <?php foreach ($nav as $r => [$etiqueta, $ic]): ?>
-                <a href="<?= $asset($r) ?>" class="<?= $seccion === $r ? 'active' : '' ?>"
-                   title="<?= e($etiqueta) ?>"><?= icon($ic) ?><span><?= e($etiqueta) ?></span></a>
+<div class="shell">
+    <aside class="sidebar" id="sidebar">
+        <a class="brand" href="<?= $asset('dashboard') ?>">
+            <img src="<?= $asset($brandLogo) ?>" alt="<?= e($brandOrg) ?>" class="brand-logo">
+            <span><b><?= e($brandOrg) ?></b><small>CRM comercial</small></span>
+        </a>
+        <nav class="nav">
+            <?php foreach ($nav as $r => [$etiqueta, $ic]):
+                $n = (int) ($pendientes[$r] ?? 0); ?>
+                <a href="<?= $asset($r) ?>" class="<?= $seccion === $r ? 'active' : '' ?>">
+                    <?= icon($ic) ?><span><?= e($etiqueta) ?></span>
+                    <?php if ($n): ?><em class="count" title="<?= $n ?> para aprobar"><?= $contador($n) ?></em><?php endif; ?>
+                </a>
             <?php endforeach; ?>
             <?php if ($admin): ?>
-                <details class="menu">
-                    <summary class="menu-btn <?= $adminActivo ? 'tiene-activo' : '' ?>" title="Administración">
-                        <?= icon('ajustes') ?><span>Más</span><?= icon('abajo', 14) ?>
-                    </summary>
-                    <div class="menu-pop">
-                        <?php foreach ($admin as $r => $def): ?>
-                            <?php if ($def === null): ?><div class="sep"></div><?php continue; ?><?php endif; ?>
-                            <a href="<?= $asset($r) ?>" class="<?= $seccion === $r ? 'active' : '' ?>">
-                                <?= icon($def[1], 16) ?><?= e($def[0]) ?>
-                            </a>
-                        <?php endforeach; ?>
-                    </div>
-                </details>
+                <div class="nav-title">Administración</div>
+                <?php foreach ($admin as $r => $def): ?>
+                    <?php if ($def === null) { continue; } ?>
+                    <a href="<?= $asset($r) ?>" class="<?= $seccion === $r ? 'active' : '' ?>">
+                        <?= icon($def[1]) ?><span><?= e($def[0]) ?></span>
+                    </a>
+                <?php endforeach; ?>
             <?php endif; ?>
         </nav>
-        <?php /* La campana. El número se actualiza solo: sin esto, una respuesta
-                 de un cliente quedaba esperando a que alguien entrara a mirar la
-                 campaña, que es exactamente cuando no sirve. */ ?>
-        <?php /* Las alertas avisan de respuestas, reuniones agendadas y rebotes:
-                 todo eso nace de las campañas o de la agenda. Con las dos
-                 apagadas no hay de qué avisar, y una campana que nunca se
-                 enciende es una promesa vacía en la barra. */
-        if (ruta_habilitada('campanas') || ruta_habilitada('agenda')):
-            $sinLeerBarra = notif_sin_leer((int)$u['id']); ?>
-            <a class="alertas-btn" href="<?= $asset('alertas') ?>" title="Alertas" data-alertas>
-                <?= icon('campanas', 18) ?>
-                <span class="alertas-n" data-alertas-n <?= $sinLeerBarra ? '' : 'hidden' ?>><?= $sinLeerBarra ?></span>
-            </a>
-        <?php endif; ?>
-        <form class="gsearch" method="get" action="<?= $asset('buscar') ?>" role="search">
-            <?= icon('buscar', 16) ?>
-            <input type="search" name="q" placeholder="Buscar en el CRM…" value="<?= e($_GET['q'] ?? '') ?>" aria-label="Buscar">
-        </form>
-        <div class="user-box">
-            <div class="user-meta">
-                <span class="user-name"><?= e($u['nombre']) ?></span>
-                <span class="user-rol"><?= e($u['rol'] === 'admin' ? 'Administrador' : 'Comercial') ?></span>
+        <div class="sidebar-foot">
+            <div class="me">
+                <?php if (!empty($u['avatar_url'])): ?>
+                    <img class="avatar" src="<?= e($u['avatar_url']) ?>" alt="" referrerpolicy="no-referrer">
+                <?php else: ?>
+                    <span class="avatar-fallback"><?= e($ini) ?></span>
+                <?php endif; ?>
+                <span>
+                    <b><?= e($u['nombre']) ?></b>
+                    <small><?= e($u['rol'] === 'admin' ? 'Administrador' : 'Comercial') ?></small>
+                </span>
             </div>
-            <?php if (!empty($u['avatar_url'])): ?>
-                <img class="avatar" src="<?= e($u['avatar_url']) ?>" alt="" referrerpolicy="no-referrer">
-            <?php else: ?>
-                <span class="avatar-fallback"><?= e($ini) ?></span>
-            <?php endif; ?>
-            <a class="btn-logout" href="<?= $asset('logout') ?>" title="Cerrar sesión"><?= icon('salir', 16) ?><span>Salir</span></a>
+            <a class="icon-btn" href="<?= $asset('logout') ?>" title="Cerrar sesión" aria-label="Cerrar sesión"><?= icon('salir', 18) ?></a>
         </div>
-    </header>
-    <main class="content">
-        <?php foreach (take_flash() as $f): ?>
-            <div class="flash flash-<?= e($f['type']) ?>"><?= e($f['msg']) ?></div>
-        <?php endforeach; ?>
-        <?= $content ?>
-    </main>
-    <footer class="foot"><?= e($appName) ?> · <?= e($brandOrg) ?> — <?= date('Y') ?></footer>
+    </aside>
+    <div class="scrim" data-close-nav></div>
+
+    <div class="main">
+        <header class="topbar">
+            <button class="icon-btn menu-btn" type="button" data-toggle-nav aria-label="Menú" aria-controls="sidebar"><?= icon('menu', 22) ?></button>
+            <div class="topbar-title"><?= e($title) ?></div>
+            <div class="topbar-actions">
+                <form class="gsearch" method="get" action="<?= $asset('buscar') ?>" role="search">
+                    <?= icon('buscar', 16) ?>
+                    <input type="search" name="q" placeholder="Buscar en el CRM…" value="<?= e($_GET['q'] ?? '') ?>" aria-label="Buscar">
+                </form>
+                <?php /* El número se actualiza solo: sin eso, la respuesta de un
+                         cliente queda esperando a que alguien entre a mirar la
+                         campaña, que es exactamente cuando no sirve. */ ?>
+                <?php if ($verAlertas): ?>
+                    <a class="icon-btn alertas-btn" href="<?= $asset('alertas') ?>" title="Alertas" data-alertas>
+                        <?= icon('campanas', 18) ?>
+                        <span class="alertas-n" data-alertas-n <?= $sinLeerBarra ? '' : 'hidden' ?>><?= $sinLeerBarra ?></span>
+                    </a>
+                <?php endif; ?>
+            </div>
+        </header>
+        <main class="content">
+            <?php foreach (take_flash() as $f): ?>
+                <div class="flash flash-<?= e($f['type']) ?>"><?= e($f['msg']) ?></div>
+            <?php endforeach; ?>
+            <?= $content ?>
+        </main>
+        <footer class="foot"><?= e($appName) ?> · <?= e($brandOrg) ?> — <?= date('Y') ?></footer>
+    </div>
+</div>
 <?php else: ?>
     <?= $content ?>
 <?php endif; ?>
