@@ -115,6 +115,9 @@ y el versionado, [SemVer](https://semver.org/lang/es/).
 
 ### Fixed
 
+- El título de los correos de la agenda y de las alertas salía **sin tamaño de letra**: el
+  bloque sin `nivel` leía la clave igual y dejaba dos avisos de PHP en la auditoría por cada
+  correo.
 - La reserva aceptaba **cualquier** inicio que llegara por POST (un domingo a las 3, o encima de
   una reunión de Google). Ahora tiene que ser un hueco que la agenda ofrece y que siga libre.
 - **Doble reserva**: entre comprobar el horario y guardarlo no había bloqueo. Ahora se bloquea

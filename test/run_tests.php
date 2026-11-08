@@ -237,6 +237,14 @@ no_contiene('sin número no dibuja el botón',
 $waCtx = bloques_render([['tipo' => 'whatsapp']], [], ['empresa_whatsapp' => '5491150274827']);
 contiene('si no le ponen número usa el de la empresa', $waCtx, 'phone=5491150274827');
 
+echo "== Título sin nivel (correos de la agenda y de las alertas) ==\n";
+$avisos = [];
+set_error_handler(static function (int $n, string $m) use (&$avisos): bool { $avisos[] = $m; return true; });
+$tit = bloques_render([['tipo' => 'titulo', 'texto' => 'Reunión confirmada']], [], []);
+restore_error_handler();
+eq('sin nivel no deja avisos de PHP', $avisos, []);
+contiene('y sale con el tamaño del nivel 2', $tit, 'font-size:21px');
+
 echo "== Botón de agenda ==\n";
 $ag = bloques_render([['tipo' => 'agenda', 'texto' => 'Agendar reunión']], [], $ctxE);
 contiene('deja la variable para resolver al enviar', $ag, '{{agenda}}');

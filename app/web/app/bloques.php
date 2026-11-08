@@ -212,7 +212,10 @@ function bloque_html(array $b, array $a, array $ctx): string
             return $h . '</td></tr>';
 
         case 'titulo':
-            $niv = in_array((int)($b['nivel'] ?? 2), [1, 2, 3], true) ? (int)$b['nivel'] : 2;
+            // Sin `nivel` (los correos de la agenda y de las alertas no lo mandan)
+            // va el 2: leerlo directo dejaba el título sin tamaño de letra.
+            $niv = (int)($b['nivel'] ?? 2);
+            if (!in_array($niv, [1, 2, 3], true)) { $niv = 2; }
             $tam = [1 => 26, 2 => 21, 3 => 17][$niv];
             return _fila('<p style="margin:0;font-family:' . $f . ';font-size:' . $tam . 'px;line-height:1.3;'
                 . 'font-weight:bold;color:' . _c($a['titulo'], '#241a33') . ';text-align:' . _al($b['alineacion'] ?? '') . ';">'
