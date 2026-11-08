@@ -7,6 +7,9 @@ Despliegue del CRM a Hostinger por SFTP/SSH.
                                         (public_html/crm-pruebas, base propia)
     python bin/deploy.py config       sube app/server-config/config.php fuera del webroot
     python bin/deploy.py schema       importa app/db/schema.sql en la base
+    python bin/deploy.py migrar app/db/migracion-NNN-....sql [--simular]
+                                      aplica una migracion con el migrar.php de la
+                                      instalacion (su propia config y su propia base)
     python bin/deploy.py run "<cmd>"  ejecuta un comando por SSH
     python bin/deploy.py test         sube test/ y corre las baterias alla
     python bin/deploy.py check        verifica sintaxis PHP de todo lo desplegado
@@ -145,8 +148,9 @@ def cmd_app(cli: paramiko.SSHClient) -> None:
     print(f"Subiendo app/web/ → {WEBROOT}")
     n = subir_arbol(sftp, RAIZ / "app" / "web", WEBROOT)
     # Scripts que viven junto al webroot pero se corren por línea de comandos.
-    # Los dos se niegan a ejecutarse por HTTP (devuelven 404).
-    for nombre in ("cron.php", "reinicio.php"):
+    # Ninguno se ejecuta por HTTP: reinicio.php y migrar.php devuelven 404, y
+    # cron.php pide la clave que se configura en Ajustes.
+    for nombre in ("cron.php", "reinicio.php", "migrar.php"):
         local = RAIZ / "app" / nombre
         if not local.is_file():
             continue
@@ -178,8 +182,10 @@ def cmd_schema(cli: paramiko.SSHClient) -> None:
     remoto = "/home/u566451014/crm_schema.sql"
     sftp.put(str(sql), remoto)
     sftp.close()
-    db = os.getenv("CRM_DB_NAME", "u566451014_crm")
-    us = os.getenv("CRM_DB_USER", "u566451014_crm")
+    # La base sale del destino elegido. Antes el valor por defecto era siempre
+    # la de produccion, asi que `schema --pruebas` importaba en la base real.
+    db = os.getenv("CRM_DB_NAME", DESTINOS[DESTINO]["db"])
+    us = os.getenv("CRM_DB_USER", DESTINOS[DESTINO]["db"])
     pw = os.getenv("CRM_DB_PASS", "")
     if not pw:
         sys.exit("Definí CRM_DB_PASS para importar el esquema.")
@@ -188,12 +194,48 @@ def cmd_schema(cli: paramiko.SSHClient) -> None:
     sys.exit(rc)
 
 
+def cmd_migrar(cli: paramiko.SSHClient, args: list[str]) -> None:
+    """Aplica una migracion con el migrar.php de la instalacion elegida.
+
+    No hace falta ninguna contraseña de base: migrar.php arranca con el
+    bootstrap de esa instalacion, que ya sabe a que base conectarse. Es la
+    misma razon por la que no puede pasar lo de `schema`, que apuntaba a
+    produccion aunque se le pidiera pruebas.
+    """
+    archivos = [a for a in args if not a.startswith("--")]
+    if not archivos:
+        sys.exit("Uso: python bin/deploy.py migrar app/db/migracion-NNN-....sql [--pruebas] [--simular]")
+    local = (RAIZ / archivos[0]).resolve()
+    carpeta = (RAIZ / "app" / "db").resolve()
+    if not local.is_file() or local.parent != carpeta or local.suffix != ".sql":
+        sys.exit(f"No es una migracion de app/db/: {archivos[0]}")
+
+    # Fuera del webroot y con el nombre original: migrar.php saca de ahí el
+    # número para dejar la marca `migracion_<nnn>`. Con un nombre fijo la
+    # migración se aplicaba pero la marca no quedaba nunca.
+    carpeta_remota = "/home/u566451014/crm_migracion"
+    remoto = f"{carpeta_remota}/{local.name}"
+    sftp = cli.open_sftp()
+    mkdirs(sftp, carpeta_remota)
+    sftp.chmod(carpeta_remota, stat.S_IRWXU)  # 700
+    sftp.put(str(local), remoto)
+    sftp.chmod(remoto, stat.S_IRUSR | stat.S_IWUSR)  # 600
+    sftp.close()
+    print(f"Migracion {local.name} subida. Aplicando en {DESTINO}...")
+    simular = " --simular" if "--simular" in args else ""
+    try:
+        rc, _ = ejecutar(cli, f"php {WEBROOT}/migrar.php {remoto}{simular}")
+    finally:
+        ejecutar(cli, f"rm -f {remoto}", silencioso=True)
+    sys.exit(rc)
+
+
 def cmd_test(cli: paramiko.SSHClient) -> None:
     """Sube test/ y corre las baterias contra la instalacion elegida.
 
-    En la maquina de Brian no hay PHP: el unico interprete disponible es el del
-    hosting. Correr los tests alla ademas prueba la version exacta que atiende
-    al usuario, que es la que importa.
+    En la maquina de desarrollo el PHP no trae todas las extensiones del CRM: el
+    interprete de referencia es el del hosting. Correr los tests alla ademas
+    prueba la version exacta que atiende al usuario, que es la que importa.
     """
     remoto = "/home/u566451014/crm_test"
     sftp = cli.open_sftp()
@@ -205,7 +247,16 @@ def cmd_test(cli: paramiko.SSHClient) -> None:
     for nombre, cmd in (
         ("logica",    f"cd {remoto} && CRM_SRC={WEBROOT}/app php run_tests.php"),
         ("interfaz",  f"cd {remoto} && CRM_SRC={WEBROOT} php ui_test.php"),
-        ("HTTP",      f"cd {remoto} && bash smoke.sh {URL}"),
+        # En pruebas, el campo trampa de la agenda publica se prueba con el tipo
+        # que siembra reinicio.php. En produccion la Agenda sigue apagada.
+        ("HTTP",      f"cd {remoto} && bash smoke.sh {URL} "
+                      + (os.getenv("CRM_SMOKE_AGENDA", "bsierra/demo-30") if DESTINO == "pruebas" else "")),
+    ) + (
+        # La bateria de la API escribe en la base (crea su propia clave, reserva
+        # y cancela), asi que corre SOLO contra pruebas. Contra produccion no
+        # se ofrece ni por error.
+        (("API", f"cd {remoto} && CRM_WEBROOT={WEBROOT} CRM_SRC={WEBROOT}/app CRM_URL={URL} php api_test.php"),)
+        if DESTINO == "pruebas" and (RAIZ / "test" / "api_test.php").is_file() else ()
     ):
         print(f"----- {nombre} -----")
         rc, _ = ejecutar(cli, cmd)
@@ -239,6 +290,8 @@ def main() -> None:
             cmd_config(cli)
         elif accion == "schema":
             cmd_schema(cli)
+        elif accion == "migrar":
+            cmd_migrar(cli, sys.argv[2:])
         elif accion == "test":
             cmd_test(cli)
         elif accion == "check":
