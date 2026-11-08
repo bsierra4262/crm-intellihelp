@@ -24,8 +24,8 @@ if (is_post()) {
                     throw new RuntimeException('Elegí a qué lista cargar los correos.');
                 }
                 if ($simular) {
-                    // Antes esta rama ignoraba la casilla y guardaba igual: se
-                    // marcaba «Simular primero» y los correos entraban lo mismo.
+                    // La carga a lista no tiene modo simulación: se corta acá para
+                    // no guardar los correos con «Simular primero» marcado.
                     throw new RuntimeException(
                         'La simulación todavía no está disponible para cargar correos a una lista. '
                       . 'Destildá «Simular primero» para hacerlo de verdad, o usá el destino '

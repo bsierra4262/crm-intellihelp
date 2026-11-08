@@ -6,7 +6,7 @@ declare(strict_types=1);
 //
 //  ¿Por qué un cliente IMAP propio y no la extensión `imap` de PHP?
 //
-//  Porque la extensión usa la librería c-client, que **no envía SNI** al
+//  Porque la extensión usa la librería c-client, que no envía SNI al
 //  negociar TLS. Gmail responde a eso con un certificado de descarte y PHP
 //  aborta con el error:
 //
@@ -15,7 +15,7 @@ declare(strict_types=1);
 //
 //  La salida fácil es `/novalidate-cert`, pero eso apaga la verificación del
 //  certificado: deja la conexión abierta a un intermediario. La salida correcta
-//  es hablar IMAP sobre un socket propio, que **sí** manda SNI y **sí** valida
+//  es hablar IMAP sobre un socket propio, que sí manda SNI y sí valida
 //  el certificado. Es el mismo camino que ya tomamos con SMTP.
 //
 //  La lógica de detección (qué es un rebote, cuál es definitivo, de quién es la
@@ -101,7 +101,7 @@ function imap_conectar(?string &$err = null, ?array $cfg = null)
     ]]);
 
     // Se abre en texto plano y se sube a TLS a mano: así el contexto con SNI
-    // se aplica de verdad (con `ssl://` algunos PHP lo arman antes de tiempo).
+    // se aplica bien (con `ssl://` algunos PHP lo arman antes de tiempo).
     $fp = @stream_socket_client("tcp://$host:$port", $en, $es, 20, STREAM_CLIENT_CONNECT, $ctx);
     if (!$fp) {
         $err = "No se pudo conectar a $host:$port ($es).";
@@ -253,7 +253,7 @@ function imap_nombre(string $cabecera): string
 //  codificación y su juego de caracteres. Guardando el crudo, la respuesta de
 //  un cliente se veía como «Hola, c=C3=B3mo est=C3=A1s» o directamente como un
 //  bloque de base64. Para poder leerla y contestarla desde el CRM hay que
-//  armarla de verdad.
+//  decodificarla.
 // ------------------------------------------------------------
 
 /** Deshace la codificación de transporte de una parte. */
@@ -338,8 +338,8 @@ function mensaje_partir_cita(string $texto): array
 
     // Se trabaja por líneas y no con una expresión sobre el texto entero: la
     // línea de atribución de Gmail («El dom, 2 de ago…, ITHOS <…> escribió:»)
-    // viene partida en dos, así que buscándola de una sola pieza no aparecía
-    // nunca y la respuesta de dos palabras quedaba enterrada bajo la campaña.
+    // viene partida en dos, así que buscándola de una sola pieza no aparece
+    // nunca y una respuesta de dos palabras queda enterrada bajo la campaña.
     foreach ($lineas as $i => $l) {
         $t = trim($l);
 
@@ -362,7 +362,7 @@ function mensaje_partir_cita(string $texto): array
             for ($j = $i - 1; $j >= max(0, $i - 5); $j--) {
                 $prev = trim($lineas[$j]);
                 // Las líneas en blanco se saltean: Gmail deja una entre la
-                // atribución y la cita, y cortando ahí la atribución quedaba
+                // atribución y la cita, y cortando ahí la atribución quedaría
                 // colgada arriba, como si fuera parte de lo que escribieron.
                 if ($prev === '') { continue; }
                 $bloque = $prev . ' ' . $bloque;
@@ -508,25 +508,23 @@ function extraer_destinatario_rebote(string $cuerpo): array
 /**
  * Revisa la casilla de TODAS las cuentas de correo activas.
  *
- * Antes el cron revisaba una sola casilla —la de Ajustes—, así que las
- * campañas que salían por cualquier otra cuenta nunca se enteraban de sus
- * rebotes: esos contactos seguían recibiendo correo a direcciones que ya no
- * existían, que es justo lo que arruina la reputación del remitente.
+ * Revisando una sola casilla, las campañas que salen por otras cuentas no se
+ * enterarían de sus rebotes: esos contactos seguirían recibiendo correo en
+ * direcciones que ya no existen, que es justo lo que arruina la reputación
+ * del remitente.
  *
- * Cada cuenta lleva su propia marca de por dónde iba (la tabla imap_estado ya
- * estaba preparada para eso, sólo que nadie la usaba con más de un buzón), así
+ * Cada cuenta lleva su propia marca de por dónde iba (tabla imap_estado), así
  * que ninguna vuelve a leer lo que ya leyó.
  */
 /**
  * Lee la casilla si ya pasó el tiempo mínimo desde la última vez.
  *
- * Existe porque «cada 15 minutos y siempre al final» no sirve cuando hay una
- * campaña andando: los rebotes llegan a los segundos de cada envío y las
- * respuestas empiezan a entrar enseguida, pero nada de eso aparecía en pantalla
- * hasta que la corrida terminaba. Todo junto, al final, cuando ya no sirve para
- * reaccionar. Ahora se mira seguido mientras la campaña manda —que es cuando
- * pasan cosas— y espaciado cuando no hay nada en curso, porque abrir IMAP es
- * caro y no tiene sentido hacerlo cada cinco minutos para no encontrar nada.
+ * Con una campaña andando, los rebotes llegan a los segundos de cada envío y
+ * las respuestas empiezan a entrar enseguida: leer sólo al final de la corrida
+ * los mostraría todos juntos, cuando ya no sirven para reaccionar. Por eso se
+ * mira seguido mientras la campaña manda —que es cuando pasan cosas— y
+ * espaciado cuando no hay nada en curso, porque abrir IMAP es caro y no tiene
+ * sentido hacerlo cada cinco minutos para no encontrar nada.
  *
  * Devuelve null si todavía no tocaba mirar.
  */
@@ -644,7 +642,7 @@ function imap_revisar(int $diasPrimeraVez = 30, ?array $cfg = null, string $etiq
             if (!$h['ok']) {
                 // No se pudo leer. El puntero NO avanza: si avanzara, este
                 // mensaje quedaría dado por procesado y ese rebote —o esa
-                // respuesta de un cliente— se perdería para siempre, sin que
+                // respuesta de un cliente— se perdería sin que
                 // nadie se entere. Se corta acá y la próxima corrida reintenta
                 // desde este mismo mensaje.
                 log_app('imap.lectura_fallida', ['tipo' => 'error',
@@ -680,10 +678,9 @@ function imap_revisar(int $diasPrimeraVez = 30, ?array $cfg = null, string $etiq
 
             // Respuesta de un destinatario de campaña.
             if (qv("SELECT 1 FROM envios WHERE email = ? AND estado = 'enviado' LIMIT 1", [$de])) {
-                // Se guarda el correo entero, no sólo que respondió. Antes se
-                // anotaba la marca y el mensaje se tiraba: el CRM avisaba de
-                // una respuesta que después no podía mostrar, y para leerla
-                // había que irse al correo igual.
+                // Se guarda el correo entero, no sólo la marca de que
+                // respondió: así la respuesta se lee desde el CRM sin tener
+                // que irse al correo.
                 $b     = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[])", 2097152);
                 $partes = $b['ok'] ? mime_partes($b['crudo']) : ['texto' => '', 'html' => ''];
                 $fecha  = imap_cabecera($cab, 'Date');

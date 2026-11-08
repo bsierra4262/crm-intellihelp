@@ -55,10 +55,9 @@
     //  El sector depende del tipo de empresa.
     //
     //  A un proveedor no le sirven las mismas categorías que a un cliente.
-    //  Antes el sector se escribía a mano y la misma industria terminaba
-    //  cargada de cinco formas distintas —«Logistica», «logística»,
-    //  «Transporte y logística»—, que es exactamente lo que vuelve inservible
-    //  un filtro y una segmentación.
+    //  Se elige de una lista y no se escribe a mano, para que una misma
+    //  industria no quede cargada de varias formas («Logistica», «logística»,
+    //  «Transporte y logística») y los filtros y segmentaciones funcionen.
     // ------------------------------------------------------------------
     function llenarSectores() {
         var tipo = document.querySelector('[data-tipo-empresa]');

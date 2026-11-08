@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 // ============================================================
-//  Auditoría de interfaz — CRM INTELLIHELP
+//  Tests estáticos de interfaz — CRM INTELLIHELP
 //
 //  Revisa la hoja de estilos y TODAS las vistas buscando los defectos
 //  concretos que ya aparecieron una vez. No prueba lógica: prueba que la
@@ -14,8 +14,6 @@ declare(strict_types=1);
 
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
-
-for ($i = 0; $i < 1; $i++) { /* placeholder: mantiene el archivo autocontenido */ }
 
 $WEB = getenv('CRM_SRC') ?: (__DIR__ . '/../app/web');
 $CSS = @file_get_contents($WEB . '/assets/css/app.css');
@@ -51,30 +49,30 @@ function regla(string $css, string $selector): string
     return $out;
 }
 
-echo "== Tarjetas de estadística (regresión BUG #6) ==\n";
-// BUG #6 — `.stat-link{display:block}` pisaba el flex de `.stat` y el rótulo,
+echo "== Tarjetas de estadística (regresión: rótulo y número en una línea) ==\n";
+// `.stat-link{display:block}` pisaba el flex de `.stat` y el rótulo,
 // el número y el pie salían los tres en una sola línea.
 $statLink = regla($CSS, '.stat-link');
 ok('.stat es columna', str_contains(regla($CSS, '.stat'), 'flex-direction:column'));
 ok('.stat-link NO vuelve a declarar display', !preg_match('/display\s*:/', $statLink),
    '→ ' . trim($statLink));
 
-echo "== Botones de los filtros (regresión BUG #7) ==\n";
-// BUG #7 — sin align-items, los botones se estiraban a la altura de la fila
+echo "== Botones de los filtros (regresión: botones estirados) ==\n";
+// Sin align-items, los botones se estiraban a la altura de la fila
 // cuando convivían con un toggle de dos líneas: salían gigantes.
 $fa = regla($CSS, '.filter-actions');
 ok('.filter-actions centra verticalmente', str_contains($fa, 'align-items:center'), '→ ' . trim($fa));
 
-echo "== Rótulos de los filtros (regresión BUG #8) ==\n";
-// BUG #8 — `.filters label span` en mayúsculas alcanzaba también al texto de
-// los toggles, que salía gritado.
+echo "== Rótulos de los filtros (regresión: toggles en mayúsculas) ==\n";
+// `.filters label span` en mayúsculas alcanzaba también al texto de los
+// toggles.
 ok('el selector de versalitas es específico, no `label span` a secas',
    !preg_match('/\.filters\s+label\s+span\s*\{/', $CSS));
 ok('las versalitas apuntan al primer span del campo',
    str_contains($CSS, '.filters .filter-grid>label>span:first-child'));
 
-echo "== Barra de navegación (regresión BUG #9) ==\n";
-// BUG #9 — catorce solapas sueltas no entraban ni en 1920 px y la última
+echo "== Barra de navegación (regresión: solapas cortadas) ==\n";
+// Catorce solapas sueltas no entraban ni en 1920 px y la última
 // quedaba cortada al medio. El primer parche fue esconder lo administrativo en
 // un menú «Más»; ahora la navegación es una columna, como en el portal de
 // RRHH, y entran todas con su rótulo a la vista.
@@ -96,8 +94,8 @@ ok('en pantallas chicas la barra se guarda y sale como cajón',
 ok('y el cajón se puede cerrar sin navegar',
    str_contains($layout, 'data-close-nav') && str_contains($JS ?: '', 'data-toggle-nav'));
 
-echo "== Embudo (regresión BUG #10) ==\n";
-// BUG #10 — columnas de ancho fijo: la última quedaba cortada a la mitad.
+echo "== Embudo (regresión: última columna cortada) ==\n";
+// Columnas de ancho fijo: la última quedaba cortada a la mitad.
 $kcol = regla($CSS, '.kcol');
 ok('las columnas se reparten el ancho', preg_match('/flex\s*:\s*1\s+1/', $kcol) === 1, '→ ' . trim($kcol));
 ok('las columnas tienen ancho mínimo', str_contains($kcol, 'min-width'));
@@ -172,9 +170,8 @@ ok('los filtros usan la misma estructura', substr_count($html, 'class="filters c
 
 echo "== Cache-busting ==\n";
 ok('los assets van versionados', str_contains($layout, 'ASSETS_V'));
-// Era un número a mano y se olvidó justo en la pasada de diseño: se subió todo
-// y del otro lado no se veía ningún cambio, porque el navegador tenía la hoja
-// vieja cacheada por un año. Ahora sale de la fecha de los archivos.
+// La versión de los assets sale de la fecha de los archivos: un número a mano
+// se olvida y el navegador sigue con la hoja cacheada por un año.
 $bootAssets = (string) @file_get_contents($WEB . '/app/bootstrap.php');
 ok('la versión sale sola de los archivos, no de un número a mano',
    str_contains($bootAssets, 'filemtime') && preg_match("/define\('ASSETS_V',\s*'\d+'\)/", $bootAssets) !== 1,
@@ -183,15 +180,13 @@ ok('la hoja de estilos entra en el cálculo', str_contains($bootAssets, 'css/app
 ok('el aviso de sesión entra en el cálculo', str_contains($bootAssets, 'js/idle.js'));
 
 // ============================================================
-//  Pasada completa de diseño
+//  Estilos en línea y clases del sistema de diseño
 // ============================================================
 
 echo "== Estilos en línea ==\n";
-// Antes había 163 estilos escritos a mano en las vistas: el mismo párrafo bajo
-// el título de una tarjeta estaba con seis márgenes distintos, y por eso dos
-// pantallas parecidas se veían diferentes. Lo único que puede seguir yendo en
-// línea es lo que depende de un dato (el ancho de una barra de avance, el color
-// que eligió el usuario para una etapa), porque eso no se puede saber de antemano.
+// En las vistas sólo puede ir en línea lo que depende de un dato (ancho de una
+// barra de avance, color elegido para una etapa); el resto usa las clases y la
+// escala --sp-*.
 $sueltos = [];
 foreach ($vistas as $v) {
     foreach (preg_split('/\R/', (string) file_get_contents($v)) as $nl => $linea) {
@@ -277,7 +272,7 @@ ok('la salida distingue el motivo', str_contains($salir, 'inactividad') && str_c
 ok('el login explica por qué se cerró', str_contains($entrar, 'inactividad'));
 
 // ============================================================
-//  Regresiones de la auditoría
+//  Regresiones
 //  Cada una es un defecto que estuvo de verdad en el código.
 // ============================================================
 $campanas  = (string) @file_get_contents($WEB . '/app/campanas.php');
@@ -311,8 +306,8 @@ ok('una campaña con envíos a medias no se da por completada',
 ok('la corrida manda varios y respeta la pausa',
    str_contains($campanas, 'sleep($pausa)') && str_contains($campanas, '$hasta'));
 // El presupuesto sale de una constante y no de un número suelto: de él depende
-// el ritmo que la pantalla le promete al usuario, y los dos tienen que ser el
-// mismo valor o la estimación miente.
+// el ritmo que la pantalla le promete al usuario, y los dos valores tienen que
+// coincidir.
 ok('el cron le da presupuesto de tiempo a la corrida',
    preg_match('/campanas_despachar\(\d+,\s*(\d+|CRON_PRESUPUESTO_SEG)\)/', $cronPhp) === 1);
 ok('la fecha de arranque programa de verdad', str_contains($accion, "'programada'"));
@@ -628,7 +623,9 @@ $dp = (string) @file_get_contents($WEB . '/app/datos_prueba.php');
 // peor idea posible: se anotan al sembrarlos y se borran esos y ninguno más.
 ok('se anota exactamente qué sembró el script',
    str_contains($dp, 'function datos_prueba_anotar(')
-   && str_contains((string) @file_get_contents($WEB . '/reinicio.php'), 'datos_prueba_anotar(['));
+   // En el repositorio reinicio.php está al lado de app/web/; desplegado, adentro.
+   && str_contains((string) @file_get_contents($WEB . '/reinicio.php')
+                   . (string) @file_get_contents(dirname($WEB) . '/reinicio.php'), 'datos_prueba_anotar(['));
 ok('y se pueden sacar desde Ajustes, sin tocar nada más',
    str_contains($dp, 'function datos_prueba_limpiar(')
    && str_contains((string) @file_get_contents($WEB . '/app/pages/ajustes.php'), "\$accion === 'limpiar_prueba'"));
@@ -936,8 +933,6 @@ echo "== Las respuestas tienen que poder detectarse ==\n";
 // El sistema detecta una respuesta leyendo UNA casilla concreta. Si el
 // «Responder a» apunta a otra dirección, la respuesta le llega a esa persona y
 // el CRM no se entera nunca: no marca el envío, no avisa y no queda registrada.
-// Pasó de verdad, y no se nota hasta que alguien pregunta por qué no aparece
-// ninguna respuesta.
 ok('la campaña avisa si las respuestas van a caer en otra casilla',
    str_contains($campanas, "'respuestas'") && str_contains($campanas, 'cuenta_a_imap($cuenta)'));
 ok('y la pantalla de cuentas avisa donde nace el problema',
@@ -1040,7 +1035,7 @@ foreach ([dirname($WEB) . '/reinicio.php', $WEB . '/reinicio.php'] as $cand) {
 ok('existe la herramienta de reinicio', $rein !== '');
 ok('no corre si el sistema está en producción', str_contains($rein, "!== 'testing'"));
 // Los tres contactos de rebote terminan ARCHIVADOS y dados de baja después de
-// cada tanda, que es justo lo que se quiere comprobar. Si la siembra los
+// cada prueba, que es justo lo que se quiere comprobar. Si la siembra los
 // buscara sólo entre los activos no los encontraría, crearía un duplicado en
 // cada reinicio y además quedarían dados de baja para la próxima campaña.
 ok('la siembra encuentra también los archivados',
@@ -1096,7 +1091,7 @@ ok('ningún data-* del HTML se quedó sin quien lo escuche', !$huerfanos,
 
 echo "== Aprobar de a varios ==\n";
 // Normalizar una base importada es repasar cientos de fichas; de a una no se
-// termina nunca. El filtro de pendientes tiene que poder resolverse en tandas.
+// termina nunca. El filtro de pendientes tiene que poder resolverse de a muchas.
 $appJs = (string) @file_get_contents($WEB . '/assets/js/app.js');
 $cont  = (string) @file_get_contents($WEB . '/app/views/contactos.php');
 $cuen  = (string) @file_get_contents($WEB . '/app/views/cuentas.php');
@@ -1105,11 +1100,11 @@ foreach (['contactos' => $cont, 'cuentas' => $cuen] as $nom => $vista) {
     // Un <form> adentro de la tabla lo saca el navegador de su lugar y se
     // lleva puestas las casillas: la barra va afuera y las filas la apuntan
     // con form="aprobar".
-    // Adentro de una celda un <form> es valido y se usa (el boton de papelera
-    // de cada fila). Lo invalido es colgarlo de <table>, <tbody> o <tr>: ahi el
+    // Adentro de una celda un <form> es válido y se usa (el botón de papelera
+    // de cada fila). Lo inválido es colgarlo de <table>, <tbody> o <tr>: ahí el
     // navegador lo saca de su lugar y se lleva puesto lo que tenga adentro.
     $suelto = false;
-    // Sin el PHP de por medio: un comentario que nombra <table> hacia arrancar
+    // Sin el PHP de por medio: un comentario que nombra <table> hacía arrancar
     // el escaneo en el comentario y se tragaba media vista.
     $htmlSolo = (string) preg_replace('#<\?(php|=)[\s\S]*?\?>#', '', $vista);
     if (preg_match_all('#<table\b[\s\S]*?</table>#', $htmlSolo, $tablas)) {
@@ -1145,8 +1140,105 @@ ok('el pendiente se pregunta por las dos columnas en los listados',
 ok('y el tablero cuenta con la misma regla',
    substr_count((string) @file_get_contents($WEB . '/app/pages/dashboard.php'),
                 'pendiente_norm = 1 AND aprobado_en IS NULL') === 2,
-   '-> si el tablero contara distinto, el numero del panel y el del filtro no coincidirian');
+   '→ si el tablero contara distinto, el número del panel y el del filtro no coincidirían');
 
+
+echo "== Entradas desde la web y agenda (md/INTEGRACION-WEB.md) ==\n";
+$leer = static fn(string $rel): string => (string) @file_get_contents($WEB . '/' . $rel);
+/** El cuerpo de una función de PHP, hasta la llave que la cierra en la columna 0. */
+$cuerpoFn = static function (string $src, string $nombre): string {
+    $i = strpos($src, 'function ' . $nombre . '(');
+    if ($i === false) { return ''; }
+    $f = strpos($src, "\n}", $i);
+    return substr($src, $i, $f === false ? null : $f - $i);
+};
+$agendaSrc = $leer('app/agenda.php');
+$gcalSrc   = $leer('app/gcal.php');
+$apiSrc    = $leer('app/api.php');
+$indexSrc  = $leer('index.php');
+$publica   = $leer('app/views/agenda-publica.php');
+
+// Rutas: sin registrar, el front controller devuelve su 404 y la web no entra.
+foreach (['api/v1/disponibilidad', 'api/v1/reserva', 'api/v1/entrada'] as $r) {
+    ok("ruta «{$r}» registrada y pública (la firma es la autenticación)",
+       (bool) preg_match("#'" . preg_quote($r, '#') . "'\s*=>\s*\['public'\s*=>\s*true\]#", $indexSrc));
+    ok("y su controlador existe", is_file($WEB . '/app/pages/' . $r . '.php'));
+}
+ok('«Entradas desde la web» exige sesión', (bool) preg_match("#'entradas-web'\s*=>\s*\['public'\s*=>\s*false#", $indexSrc));
+ok('y está en el menú de administración', str_contains($layout, "'entradas-web'"));
+ok('api.php se carga después de crm.php',
+   (bool) preg_match("#require APP \. '/crm\.php';\s*require APP \. '/api\.php';#", $leer('app/bootstrap.php')));
+
+// Autenticación de la API.
+ok('la firma se compara con hash_equals (tiempo constante)',
+   str_contains($cuerpoFn($apiSrc, 'api_firma_coincide'), 'hash_equals('));
+ok('la ruta firmada es la del pedido, sin tocar', str_contains($cuerpoFn($apiSrc, 'api_autenticar'), "\$_SERVER['REQUEST_URI']"));
+ok('una clave de lectura no escribe', str_contains($cuerpoFn($apiSrc, 'api_autenticar'), "'escritura'"));
+$auditar = $cuerpoFn($apiSrc, 'api_auditar');
+ok('la auditoría de la API no lleva datos de la persona',
+   $auditar !== '' && !preg_match("/'(email|nombre|telefono|mensaje)'\]/", $auditar));
+ok('los controladores de la API responden JSON también en lo inesperado',
+   str_contains($leer('app/pages/api/v1/reserva.php'), 'api_fallo($e)')
+   && str_contains($leer('app/pages/api/v1/entrada.php'), 'api_fallo($e)')
+   && str_contains($leer('app/pages/api/v1/disponibilidad.php'), 'api_fallo($e)'));
+ok('el permiso «Escritura (web)» se puede elegir al crear una clave',
+   str_contains($leer('app/views/api-keys.php'), 'value="escritura"') && str_contains($leer('app/views/api-keys.php'), 'Escritura (web)'));
+ok('el secreto se guarda cifrado y sale de random_bytes',
+   str_contains($leer('app/pages/api-keys.php'), 'cifrar($secreto)') && str_contains($leer('app/pages/api-keys.php'), 'random_bytes(32)'));
+
+// Agenda (§4).
+ok('el calendario del vendedor se bloquea con el nombre de la base (§4 #2)',
+   str_contains($agendaSrc, "GET_LOCK(CONCAT(DATABASE(), ':agenda:', ?)"));
+ok('reservar valida el hueco con el calendario bloqueado (§4 #1)',
+   str_contains($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_hueco_libre(')
+   && strpos($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_bloquear(') < strpos($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_hueco_libre('));
+ok('la reunión guarda la empresa (§4 #7)', str_contains($cuerpoFn($agendaSrc, 'agenda_reservar'), "'cuenta_id'      => \$cuentaId"));
+$completar = $cuerpoFn($agendaSrc, 'agenda_reserva_completar');
+ok('el evento de Google NO lleva el comentario del cliente (§4 #5)',
+   $completar !== '' && !str_contains($completar, "\$r['comentario']") && !str_contains($completar, "\$r['invitado_telefono']"));
+ok('ni datos de marketing', !preg_match('/utm_|canal|entrada_web_resumen/', $completar));
+ok('el aviso de reunión nueva sale de la segunda parte de la reserva', str_contains($completar, "notificar('reunion'"));
+ok('Google no manda su invitación: sendUpdates=none por defecto (§4 #4)',
+   str_contains($gcalSrc, "(\$d['avisar'] ?? 'none')")
+   // En el código no puede quedar pedido; en los comentarios se explica por qué.
+   && !preg_match("/^[^\/*]*sendUpdates=all/m", $gcalSrc));
+ok('mover y borrar también callados por defecto',
+   (bool) preg_match("/function gcal_mover_evento\([^)]*string \\\$avisar = 'none'/s", $gcalSrc)
+   && (bool) preg_match("/function gcal_borrar_evento\([^)]*string \\\$avisar = 'none'/s", $gcalSrc));
+ok('la invitación usa el identificador guardado y la secuencia',
+   str_contains($cuerpoFn($agendaSrc, 'agenda_ics'), "\$reserva['ics_uid']")
+   && str_contains($cuerpoFn($agendaSrc, 'agenda_ics'), "'SEQUENCE:'"));
+ok('/r/ se apaga con el módulo Agenda (§4 #10)',
+   str_contains($leer('app/pages/r.php'), "modulo_activo('agenda')")
+   && str_contains($leer('app/pages/reservar.php'), "modulo_activo('agenda')"));
+ok('reservar mira el campo trampa y el token del formulario (§4 #11)',
+   str_contains($leer('app/pages/reservar.php'), "\$_POST['sitio_web']")
+   && str_contains($leer('app/pages/reservar.php'), 'agenda_form_token_valido(')
+   && str_contains($leer('app/pages/reservar.php'), 'agenda_limite_publico()'));
+ok('cancelar desde el correo pide el token del formulario (§4 #9)',
+   str_contains($leer('app/pages/r.php'), "'cancelar')"));
+ok('la página pública trae el campo trampa, oculto sin estilos en línea',
+   str_contains($publica, 'name="sitio_web"') && str_contains($publica, 'class="pub-trampa" hidden'));
+ok('y la casilla de consentimiento, obligatoria y sin marcar',
+   (bool) preg_match('/name="acepto" value="1" required <\?= !empty\(\$viejo\[\'acepto\'\]\)/', $publica));
+ok('con el enlace al aviso de privacidad', str_contains($publica, 'Ver el aviso de privacidad'));
+ok('la IP de los visitantes queda como hash en la auditoría (§4 #12)',
+   str_contains($leer('app/actividad.php'), "'h:' . substr(\$h, 0, 40)"));
+foreach (['agenda-mover.php', 'entradas-web.php', 'agenda-publica.php', 'agenda-ok.php', 'agenda-cancelar.php'] as $vista) {
+    ok("«{$vista}» sin estilos en línea", !str_contains($leer('app/views/' . $vista), 'style="'));
+}
+
+// Migración y reinicio.
+$mig = (string) @file_get_contents(dirname($WEB) . '/db/migracion-008-entradas-web.sql');
+if ($mig !== '') {
+    ok('la migración 008 es repetible', substr_count($mig, 'IF NOT EXISTS') >= 10 && str_contains($mig, 'ON DUPLICATE KEY UPDATE'));
+}
+$migrar = (string) @file_get_contents(dirname($WEB) . '/migrar.php') . (string) @file_get_contents($WEB . '/migrar.php');
+ok('migrar.php no corre por HTTP', str_contains($migrar, "PHP_SAPI !== 'cli'") && str_contains($migrar, 'http_response_code(404)'));
+$reinicio = (string) @file_get_contents(dirname($WEB) . '/reinicio.php') . (string) @file_get_contents($WEB . '/reinicio.php');
+ok('el reinicio vacía las entradas de la web y los contadores',
+   str_contains($reinicio, "'entradas_web'") && str_contains($reinicio, "'api_limites'"));
+ok('y siembra el tipo «diagnostico» que usa la landing', str_contains($reinicio, "'slug'         => 'diagnostico'"));
 echo "\n" . str_repeat('=', 60) . "\n";
 printf("  %d comprobaciones de interfaz · %d correctas · %d fallidas\n", $T, $T - $F, $F);
 if ($fallos) {

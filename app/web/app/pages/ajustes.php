@@ -67,10 +67,9 @@ if (is_post()) {
             }
         }
 
-        // La casilla por defecto ya no se configura acá: sólo se elige cuál de
-        // las cargadas en «Cuentas de correo» es la predeterminada. Antes esta
-        // pantalla tenía su propio juego de campos SMTP/IMAP en paralelo a esa
-        // tabla, y no había forma de saber cuál de los dos mandaba.
+        // La casilla por defecto se elige entre las cargadas en «Cuentas de
+        // correo». Esta pantalla no tiene campos SMTP/IMAP propios, para que haya
+        // una sola fuente de configuración.
         $elegida = (int)($_POST['cuenta_predeterminada'] ?? 0);
         if ($elegida > 0 && cuenta_correo_get($elegida)) {
             q('UPDATE cuentas_correo SET predeterminada = 0');

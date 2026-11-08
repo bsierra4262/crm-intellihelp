@@ -89,6 +89,14 @@ $rutas = [
 
     // --- API de lectura ---
     'api/estado'      => ['public' => true],
+
+    // --- API v1: lo que entra desde la web ---
+    // Públicas en el sentido de que no usan sesión: la autenticación es la
+    // firma de cada pedido (app/api.php).
+    'api/v1/disponibilidad' => ['public' => true],
+    'api/v1/reserva'  => ['public' => true],
+    'api/v1/entrada'  => ['public' => true],
+    'entradas-web'    => ['public' => false],
     'api-log'         => ['public' => false],
     'api-sesion'      => ['public' => false],   // latido del cierre por inactividad
     'api-campana'     => ['public' => false],   // avance de las campañas, en vivo
@@ -124,7 +132,7 @@ if (empty($def['public']) && !auth_user()) {
     redirect('login');
 }
 
-// Una sección apagada no se esconde solamente del menú: se bloquea de verdad.
+// Una sección apagada no se esconde solamente del menú: también se bloquea la ruta.
 // Esconder un enlace no impide entrar escribiendo la dirección, y quien lo
 // hiciera llegaría a una pantalla que el sistema da por no disponible, cargaría
 // algo ahí y después no aparecería donde espera.
@@ -138,9 +146,8 @@ if (!ruta_habilitada($rutaBase)) {
     exit;
 }
 if (!empty($def['admin']) && !auth_is_admin()) {
-    // Antes esto era un `exit('Acceso denegado.')`: una pantalla en blanco con
-    // una línea de texto, sin diseño y sin forma de volver. Se usa la pantalla
-    // de error del sistema, que explica y ofrece una salida.
+    // Pantalla de error del sistema y no un `exit()` con una línea de texto:
+    // explica qué pasa y ofrece una forma de volver.
     http_response_code(403);
     render('error', [
         'codigo'  => 403,

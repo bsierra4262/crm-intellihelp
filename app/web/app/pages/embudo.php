@@ -4,8 +4,8 @@ require_login();
 
 $embudosTodos = embudos();
 if (!$embudosTodos) {
-    // Antes esto era un callejón sin salida: el mensaje decía que faltaba
-    // configurar el embudo y no existía ninguna pantalla para configurarlo.
+    // Sin embudos cargados, el administrador va directo a crearlos; el resto
+    // recibe el aviso de a quién pedírselo.
     if (auth_is_admin()) { redirect('embudos'); }
     render('error', ['codigo' => 500, 'titulo' => 'Falta configurar el embudo',
         'mensaje' => 'Todavía no hay ningún embudo de ventas cargado. '

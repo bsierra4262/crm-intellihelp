@@ -29,9 +29,8 @@ $pendientes = (int)($m['cont_pend'] ?? 0) + (int)($m['cta_pend'] ?? 0);
            href="<?= e(url('dashboard?vista=' . ($separado ? 'unificado' : 'separado') . ($mio ? '&ambito=mio' : ''))) ?>">
             <?= icon($separado ? 'menu' : 'panel', 16) ?><?= $separado ? 'Ver unificado' : 'Ver separado' ?>
         </a>
-        <?php /* El botón principal apunta a lo que de verdad se puede hacer. Ofrecía
-                 «Nuevo posible cliente» incluso con esa sección apagada, así que
-                 llevaba a una pantalla que el sistema da por no disponible. */ ?>
+        <?php /* El botón principal depende de los módulos activos: con Posibles
+                 clientes apagado, ofrece «Nuevo contacto». */ ?>
         <?php if ($verPosibles): ?>
             <a class="btn btn-primary" href="<?= e(url('posible-form')) ?>"><?= icon('mas', 16) ?>Nuevo posible cliente</a>
         <?php else: ?>

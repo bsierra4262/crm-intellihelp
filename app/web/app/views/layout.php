@@ -3,8 +3,7 @@
 /** @var string $content @var string $title */
 $u       = auth_user();
 $ruta    = current_route();
-// Manda lo cargado en Ajustes; el config del servidor queda de respaldo. Antes
-// el campo de Ajustes se guardaba y no lo leía nadie.
+// Manda lo cargado en Ajustes; el config del servidor queda de respaldo.
 $appName = (string) (setting_get('app_nombre', '') ?: ($GLOBALS['CONFIG']['app']['name'] ?? 'CRM INTELLIHELP'));
 
 // La barra lleva SÓLO el trabajo diario. Todo lo administrativo va al menú
@@ -55,6 +54,7 @@ if ($u && ($u['rol'] ?? '') === 'admin') {
         'papelera' => ['Papelera',       'papelera'],
         'ajustes'  => ['Ajustes',        'ajustes'],
         'api-keys' => ['API',            'clave'],
+        'entradas-web' => ['Entradas desde la web', 'enlace'],
         'cron'     => ['CRON',           'cron'],
     ];
 }
@@ -125,13 +125,13 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
 <body class="<?= e($bodyClass) ?>">
 <?php if ($u && $bodyClass === 'app'):
     $ini = iniciales((string)($u['nombre'] ?? '?'));
-    // Las alertas nacen de las campañas o de la agenda. Con las dos apagadas no
-    // hay de qué avisar, y una campana que nunca suena es una promesa vacía.
+    // Las alertas nacen de las campañas o de la agenda: con los dos módulos
+    // apagados no se muestra la campana.
     $verAlertas   = ruta_habilitada('campanas') || ruta_habilitada('agenda');
     $sinLeerBarra = $verAlertas ? notif_sin_leer((int)$u['id']) : 0;
     // Cuántas fichas esperan aprobación, al lado de su sección. Es el número que
     // se mira todo el día mientras se normaliza la base: tenerlo que ir a buscar
-    // al tablero es un viaje de ida y vuelta por cada tanda.
+    // al tablero es un viaje de ida y vuelta por cada grupo que se aprueba.
     $pendientes = contar_pendientes();
     $contador = fn(int $n): string => $n > 999 ? '999+' : (string) $n;
 ?>

@@ -28,6 +28,18 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
                 <input name="slug" value="<?= $v('slug') ?>" maxlength="60" placeholder="se genera del nombre">
                 <i class="hint">Es la parte final de la URL pública.</i>
             </label>
+            <label class="fld"><span>Zona horaria</span>
+                <?php $zonas = agenda_zonas_comunes(); $zt = (string)($t['zona_horaria'] ?? AGENDA_ZONA_DEFECTO); ?>
+                <select name="zona_horaria">
+                    <?php if (!isset($zonas[$zt])): ?>
+                        <option value="<?= e($zt) ?>" selected><?= e(str_replace('_', ' ', $zt)) ?></option>
+                    <?php endif; ?>
+                    <?php foreach ($zonas as $zid => $znom): ?>
+                        <option value="<?= e($zid) ?>" <?= $zt === $zid ? 'selected' : '' ?>><?= e($znom) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <i class="hint">En qué hora está escrito el horario laboral de abajo. Es la que ve el visitante al elegir.</i>
+            </label>
             <label class="fld"><span>Duración (min)</span>
                 <input type="number" name="duracion_min" value="<?= $v('duracion_min', '30') ?>" min="5" max="480" required>
                 <i class="hint">Cuánto dura. Es lo que define el tamaño de cada hueco que se ofrece.</i>

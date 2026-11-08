@@ -8,12 +8,10 @@ declare(strict_types=1);
 
 // ---- Localizar la configuración ----
 //
-// PRIMERO se busca una configuración PROPIA de esta instalación, por el nombre
-// de su carpeta. Esto no es un detalle: el mismo código está desplegado dos
-// veces —producción en `crm/` y pruebas en `crm-pruebas/`— y sin esto la copia
-// de pruebas encontraría la configuración de producción y se conectaría a la
-// base real. Se probarían cambios contra los datos de los clientes creyendo
-// que se prueba en el aire, que es la peor forma posible de descubrirlo.
+// Primero se busca una configuración propia de la instalación, por el nombre
+// de su carpeta. El mismo código está en `crm/` (producción) y en
+// `crm-pruebas/` (pruebas); sin esto, la copia de pruebas tomaría la
+// configuración de producción y se conectaría a la base real.
 //
 // Producción sigue funcionando igual: no existe `crm.php` en esa carpeta, así
 // que cae en `config.php`, la de siempre.
@@ -63,11 +61,9 @@ define('APP_ENV', $CONFIG['app']['env'] ?? 'prod');
  * El `.htaccess` cachea CSS y JS por un año, así que si la dirección del
  * archivo no cambia, el navegador sigue mostrando la hoja de estilos vieja.
  *
- * Antes esto era un número que había que subir a mano en cada cambio visual, y
- * pasó lo que tenía que pasar: se subió una pasada entera de diseño y el número
- * quedó igual, así que del otro lado no se veía ningún cambio. Un paso manual
- * que hay que recordar no es una solución. Ahora sale de la fecha de
- * modificación de los propios archivos: si cambió alguno, cambia la versión.
+ * La versión sale de la fecha de modificación de los propios archivos: si
+ * cambia alguno, cambia la versión y el navegador no se queda con la hoja
+ * cacheada. No depende de acordarse de subir un número a mano.
  */
 define('ASSETS_V', (function (): string {
     $mayor = 0;
@@ -76,7 +72,7 @@ define('ASSETS_V', (function (): string {
         if ($t !== false && $t > $mayor) { $mayor = $t; }
     }
     // Si no se pudo leer ninguno, se cae a un valor fijo antes que servir sin
-    // versión, porque eso dejaría el caché de un año pegado para siempre.
+    // versión, porque eso dejaría el caché de un año pegado indefinidamente.
     return $mayor > 0 ? (string) $mayor : '3';
 })());
 
@@ -99,6 +95,7 @@ require APP . '/auth.php';
 require APP . '/google.php';
 require APP . '/icons.php';
 require APP . '/crm.php';
+require APP . '/api.php';
 require APP . '/registros.php';
 require APP . '/actividades.php';
 require APP . '/negocios.php';
@@ -152,7 +149,10 @@ register_shutdown_function(static function (): void {
 });
 
 // ---- Sesión (sólo web) ----
-if (PHP_SAPI !== 'cli') {
+// La API v1 no usa sesión: la autentica la firma de cada pedido, y quien
+// llama es otro servidor, no una persona con navegador. Abrirle una sesión
+// dejaba un archivo nuevo en el servidor por cada consulta de horarios.
+if (PHP_SAPI !== 'cli' && !str_starts_with(current_route(), 'api/v1/')) {
     $seguro = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
         || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
     session_set_cookie_params([
@@ -202,7 +202,7 @@ if (PHP_SAPI !== 'cli') {
         // El refresco automático NO cuenta como actividad. Lo dispara el
         // navegador solo, cada pocos segundos, con la pantalla abierta y nadie
         // delante: si contara, una pantalla olvidada mantendría la sesión viva
-        // para siempre y el cierre automático no cerraría nunca nada.
+        // indefinidamente y el cierre automático no cerraría nunca nada.
         if (!isset($_GET['__vivo'])) {
             $_SESSION['ultima_actividad'] = $ahora;
         }

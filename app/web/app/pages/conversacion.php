@@ -36,9 +36,7 @@ if (!$mensajes) {
     exit;
 }
 
-// Abrir la conversación es haberla leído: no hace falta un botón aparte para
-// decir «ya la vi». Antes lo ÚNICO que se podía hacer era marcarla como leída,
-// que es justamente lo que no sirve.
+// Abrir la conversación la marca como leída: no hace falta un botón aparte.
 conversacion_marcar_leida($email);
 
 $contacto = q1('SELECT * FROM contactos WHERE email = ? AND eliminado_en IS NULL LIMIT 1', [$email]);

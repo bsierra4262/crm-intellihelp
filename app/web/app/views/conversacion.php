@@ -20,11 +20,8 @@
 <div class="card mb-4" data-vivo="hilo">
     <div class="hilo">
         <?php
-        // El correo se muestra como lo mandaron: con su diseño, sus colores y
-        // su firma, igual que en el cliente de correo. Antes se le sacaban las
-        // etiquetas y quedaba una pared de texto con la cita en crudo, línea
-        // por línea con «>» adelante, que es justo lo que ningún cliente de
-        // correo muestra así.
+        // El correo se muestra como lo mandaron (diseño, colores y firma),
+        // igual que en un cliente de correo.
         //
         // Va dentro de un marco aislado. Es como lo hacen Gmail y Outlook, y
         // por el mismo motivo: el HTML lo escribió alguien de afuera y no puede

@@ -14,8 +14,9 @@
 
 <div class="card mb-4">
     <p class="muted small card-intro">
-        Al moverla le llega una confirmación nueva por correo, con la invitación para su
-        calendario, y el evento de Google se corre solo. El horario viejo queda libre.
+        Al moverla le llega la invitación actualizada por correo, que reemplaza a la anterior
+        en su calendario, y el evento de Google se corre solo. El horario viejo queda libre.
+        Los horarios están en <?= e(mb_strtolower(agenda_zona_etiqueta($tipo))) ?>.
     </p>
     <div class="kv">
         <?php
@@ -28,10 +29,12 @@
 </div>
 
 <?php if ($motivo === 'sin_calendario'): ?>
+    <?php /* El aviso decía que se mostraban igual los horarios del horario
+             laboral, pero sin calendario no se ofrece ninguno: no hay forma de
+             saber qué está ocupado. */ ?>
     <div class="flash flash-error">
-        No podemos leer el calendario de Google, así que no sabemos qué horarios están libres.
-        Se muestran igual los del horario laboral, pero <strong>revisá antes de mover</strong>:
-        puede haber algo agendado encima.
+        No podemos leer el calendario de Google, así que no sabemos qué horarios están libres
+        y no ofrecemos ninguno. Revisá la conexión con Google desde la <a href="<?= e(url('agenda')) ?>">Agenda</a>.
     </div>
 <?php endif; ?>
 
@@ -58,11 +61,11 @@
                         <?= csrf_field() ?>
                         <input type="hidden" name="accion" value="reprogramar">
                         <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
-                        <input type="hidden" name="cuando" value="<?= e(date('Y-m-d H:i:s', $ts)) ?>">
+                        <input type="hidden" name="inicio" value="<?= (int)$ts ?>">
                         <button class="slot" type="submit"
                                 data-confirmar-titulo="Mover la reunión"
                                 data-confirmar="La reunión con <?= e($r['invitado_nombre']) ?> pasa al <?= e(fecha_hora(date('Y-m-d H:i:s', $ts))) ?>. Le avisamos por correo."
-                                data-confirmar-ok="Mover"><?= date('H:i', $ts) ?></button>
+                                data-confirmar-ok="Mover"><?= e(agenda_local($ts, $tipo, 'H:i')) ?></button>
                     </form>
                 <?php endforeach; ?>
             </div>

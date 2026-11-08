@@ -1,7 +1,7 @@
 <?php
 /** @var int $aperturas @var array $c @var array $envios @var array $data @var array $f @var ?array $vista
  *  @var bool $testing @var array $motivos */
-// Dos cosas distintas que antes se mezclaban: «entregados» es cuántos llegaron,
+// Son dos cifras distintas: «entregados» es cuántos llegaron,
 // y el AVANCE es cuántos ya se resolvieron —entregados más rebotados—. Con 3
 // entregados y 3 rebotados, entregados son 3 pero el avance es 6 de 6: no queda
 // nada por hacer.
@@ -37,9 +37,8 @@ $boton = function (string $accion, string $etiqueta, string $ic, string $clase =
             <?php $boton('pausar', 'Pausar', 'reloj', 'btn-ghost'); ?>
         <?php endif; ?>
         <?php if (in_array($c['estado'], ['enviando', 'pausada', 'programada'], true)): ?>
-            <?php /* Cancelar existía en el servidor y no había ningún botón que
-                     lo disparara: una campaña arrancada por error sólo se podía
-                     pausar, y quedaba ahí para siempre. */ ?>
+            <?php /* Cancelar es la única forma de detener del todo una campaña
+                     arrancada por error: pausar la deja pendiente. */ ?>
             <?php $boton('cancelar', 'Cancelar campaña', 'x', 'btn-ghost', [
                 'titulo' => 'Cancelar la campaña',
                 'texto'  => 'Los correos que todavía no salieron se descartan y la campaña no se puede reanudar. '

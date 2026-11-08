@@ -7,12 +7,15 @@ declare(strict_types=1);
 //  Agendar en el cron de Hostinger (hPanel), cada 5 minutos:
 //      */5 * * * * /usr/bin/php /home/u566451014/domains/intellihelp.tech/public_html/crm/cron.php >/dev/null 2>&1
 //
-//  Hace cuatro cosas, en este orden:
+//  Hace estas cosas, en este orden:
 //    1. despacha los correos pendientes de las campañas (con su pausa)
 //    2. lee la casilla: rebotes y respuestas (los rebotes definitivos archivan
 //       el contacto, porque ya no se le puede escribir)
-//    3. manda los recordatorios de las reuniones de las próximas 24 h
-//    4. purga lo que lleva más de 60 días en la papelera
+//    3. completa las reservas que quedaron sin evento o sin correo, y manda
+//       los recordatorios de las reuniones de las próximas 24 h
+//    4. purga lo que lleva más de 60 días en la papelera, borra los datos
+//       personales de las entradas de la web que ya no tienen contacto y
+//       limpia los contadores de límites vencidos
 //
 //  Es seguro correrlo muchas veces: todo es idempotente y nada se duplica.
 // ============================================================
@@ -113,7 +116,7 @@ do {
     // de la corrida, así que leyendo al final los rebotes y las respuestas
     // aparecían casi cuatro minutos tarde, todos juntos, cuando la campaña ya había
     // terminado: la pantalla mostraba 6 de 6 con todo en cero mientras las cosas
-    // estaban pasando de verdad.
+    // ya estaban pasando.
     //
     // Cada cuánto se mira depende de si hay algo en curso: con una campaña
     // mandando, los rebotes vuelven a los segundos y las respuestas empiezan a
@@ -144,9 +147,9 @@ do {
     
     // ---- 2. Campañas ----
     try {
-        // El presupuesto sale de la constante, no de un número escrito acá: de él
-        // depende el ritmo que la pantalla le promete al usuario, y los dos tienen
-        // que ser el mismo número o la estimación miente.
+        // El presupuesto sale de la constante, no de un número escrito acá: la
+        // pantalla calcula con ella el ritmo de envío, y los dos valores tienen
+        // que coincidir.
         $r = campanas_despachar(3, CRON_PRESUPUESTO_SEG);
         $lineas[] = sprintf('campañas: %d enviados, %d rebotados, %d omitidos, %d errores',
             $r['enviados'], $r['rebotados'], $r['omitidos'], $r['errores']);
@@ -179,7 +182,27 @@ do {
 
 if ($vueltas > 1) { $lineas[] = $vueltas . ' vueltas'; }
 
-// ---- 3. Recordatorios de reuniones ----
+// ---- 3. Reservas sin completar ----
+// La reserva que llega de la web responde apenas queda guardada; el evento de
+// Google con Meet y el correo se hacen después. Si ese proceso se cortó (un
+// reinicio del servidor, un límite de tiempo), la reunión quedó tomada pero
+// nadie se enteró: ni el calendario del vendedor ni el invitado. Acá se
+// completan las que llevan más de dos minutos así.
+try {
+    if (function_exists('agenda_completar_pendientes')) {
+        $n = agenda_completar_pendientes();
+        $lineas[] = "reservas: $n completadas";
+        if ($n) {
+            log_app('cron.reservas', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
+        }
+    }
+} catch (\Throwable $e) {
+    db_reanudar();
+    $lineas[] = 'reservas ERROR: ' . $e->getMessage();
+    log_app('cron.reservas_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
+}
+
+// ---- 3b. Recordatorios de reuniones ----
 try {
     $n = agenda_recordatorios();
     $lineas[] = "agenda: $n recordatorios enviados";
@@ -207,7 +230,7 @@ try {
 }
 
 // ---- 5. Purga de la papelera ----
-// Es el ÚNICO lugar del sistema que borra de verdad, y sólo lo que ya cumplió
+// Es el único lugar del sistema que borra físicamente, y sólo lo que ya cumplió
 // su plazo. Se corre una vez por día para no castigar la base en cada pasada.
 try {
     if (date('Y-m-d') !== (string) setting_get('papelera_ultima_purga', '')) {
@@ -224,6 +247,32 @@ try {
 } catch (\Throwable $e) {
     $lineas[] = 'papelera ERROR: ' . $e->getMessage();
     log_app('cron.papelera_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
+}
+
+// ---- 6. Entradas desde la web ----
+// Una vez por día, como la papelera:
+//   · las entradas viejas sin contacto (se purgó de la papelera) o que
+//     quedaron con error pierden los datos personales; el canal, la página y
+//     la fecha quedan, que son los números del embudo (Ley 25.326: no se
+//     guarda lo que ya no hace falta);
+//   · se borran los contadores de límites ya vencidos.
+try {
+    if (function_exists('entradas_web_anonimizar')
+        && date('Y-m-d') !== (string) setting_get('entradas_web_ultima_limpieza', '')) {
+        setting_set('entradas_web_ultima_limpieza', date('Y-m-d'));
+        $anon  = entradas_web_anonimizar((int) setting_get('papelera_dias', '60') ?: 60);
+        $lims  = q('DELETE FROM api_limites WHERE vence_en < NOW()')->rowCount();
+        $lineas[] = "entradas web: $anon anonimizadas, $lims contadores vencidos";
+        if ($anon) {
+            log_app('cron.entradas_web', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
+        }
+    }
+} catch (\Throwable $e) {
+    // Sin la migración 008 todavía no hay tablas: no es un error del cron.
+    if (!($e instanceof \PDOException && $e->getCode() === '42S02')) {
+        $lineas[] = 'entradas web ERROR: ' . $e->getMessage();
+        log_app('cron.entradas_web_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
+    }
 }
 
 setting_set('cron_ultima_corrida', date('Y-m-d H:i:s'));

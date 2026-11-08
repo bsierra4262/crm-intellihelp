@@ -2,11 +2,10 @@
 /**
  * Aviso de que Google Calendar no está respondiendo.
  *
- * Existe porque el problema real se dio así: la API de Calendar estaba
- * deshabilitada en el proyecto de Google Cloud, la agenda pública seguía
- * tomando reservas, al visitante le decíamos «quedó agendada» y en el
- * calendario no aparecía nada. El error quedaba sólo en la auditoría.
- * Ahora se ve donde se trabaja, con el paso exacto para resolverlo.
+ * Se muestra cuando Google Calendar no responde (por ejemplo, con la API
+ * deshabilitada en el proyecto de Google Cloud). Sin este aviso la agenda
+ * pública seguiría confirmando reservas que no llegan al calendario y el
+ * error quedaría sólo en la auditoría. Indica el paso para resolverlo.
  */
 $gcalFalla = gcal_falla_pendiente();
 if (!$gcalFalla) { return; }
@@ -16,10 +15,8 @@ if (!$gcalFalla) { return; }
 // la instalación de pruebas. Se detecta por el 401 y por el texto que devuelve
 // Google, y tiene arreglo de un clic: reconectar. Un aviso que sólo dice que
 // algo anda mal, sin decir cómo salir, obliga a preguntar.
-// Ojo con los nombres: este archivo se incluye DENTRO de otra vista y comparte
-// su ámbito. Una variable llamada `$m` acá le pisó `$m` a la del panel —que
-// tiene los números— y la pantalla entera dejó de dibujarse. Por eso todo lo de
-// acá va con el prefijo del archivo.
+// Este archivo se incluye dentro de otra vista y comparte su ámbito: todas sus
+// variables llevan el prefijo $gcal para no pisar las de la vista que lo incluye.
 $gcalMsg = mb_strtolower((string)($gcalFalla['mensaje'] ?? ''));
 $gcalDesconectado = str_contains($gcalMsg, 'no tiene su cuenta de google conectada')
                  || str_contains($gcalMsg, '401')

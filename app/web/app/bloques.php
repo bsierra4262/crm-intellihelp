@@ -5,20 +5,18 @@ declare(strict_types=1);
 //  Motor de bloques del editor de campañas.
 //
 //  El usuario arma el correo con bloques (encabezado, título, texto, imagen,
-//  botón…) y acá se traduce a HTML de correo. La traducción NO es libre: el
-//  HTML de un correo no es el de una página web y hay reglas que no se pueden
-//  negociar sin perder el mensaje en el camino:
+//  botón…) y acá se traduce a HTML de correo, que tiene reglas fijas:
 //
-//   · **Todo con tablas.** Outlook usa el motor de Word: ignora flexbox, grid
+//   · Todo con tablas: Outlook usa el motor de Word, que ignora flexbox, grid
 //     y `border-radius`. Un diseño con `div` + flex se ve destruido.
-//   · **CSS en línea.** Gmail sanea el correo y descarta buena parte de las
+//   · CSS en línea: Gmail sanea el correo y descarta buena parte de las
 //     reglas de una hoja de estilos.
-//   · **Menos de 102 KB.** Pasado ese tamaño Gmail recorta el mensaje y
+//   · Menos de 102 KB: pasado ese tamaño Gmail recorta el mensaje y
 //     muestra «mensaje recortado»: el destinatario nunca ve el botón final.
-//   · **Fuentes seguras.** Las fuentes web no cargan en la mayoría de los
+//   · Fuentes seguras: las fuentes web no cargan en la mayoría de los
 //     clientes; se declara la familia con respaldo a Arial.
-//   · **Sin imágenes de fondo, sin JavaScript, sin formularios, sin video.**
-//     No funcionan y además suben el puntaje de spam.
+//   · Sin imágenes de fondo, JavaScript, formularios ni video: no funcionan
+//     y además suben el puntaje de spam.
 //
 //  Por eso el editor ofrece sólo lo que sobrevive en el correo: es más
 //  limitado que un editor de páginas a propósito.
@@ -96,7 +94,7 @@ function _n($v, int $def, int $min = 0, int $max = 9999): int
 }
 
 /** Escapa y convierte los saltos de línea en <br>. */
-function _parr(string $texto): string
+function _parr(string $texto, bool $enlazar = true): string
 {
     // Se escapa PRIMERO y recién después se buscan las direcciones: así el
     // texto de quien escribe nunca puede inyectar HTML, y el «&» de una
@@ -104,10 +102,15 @@ function _parr(string $texto): string
     // dentro de un href.
     $html = e($texto);
 
+    // Lo que escribió alguien de afuera (el nombre de quien reservó, por
+    // ejemplo) va sin enlaces: un correo con la marca de la empresa no puede
+    // convertir en enlace lo que puso un desconocido.
+    if (!$enlazar) { return nl2br($html, false); }
+
     // Una dirección escrita dentro de un párrafo se convierte en enlace. Sin
-    // esto salía como texto pelado: el destinatario la veía pero no podía
-    // tocarla, y en el celular ni siquiera se puede copiar cómodo. Pasaba con
-    // el enlace para cancelar una reunión, entre otros.
+    // esto saldría como texto pelado: el destinatario la ve pero no la puede
+    // tocar, y en el celular ni siquiera se copia cómodo. Es el caso del
+    // enlace para cancelar una reunión, entre otros.
     $html = preg_replace_callback(
         '#https?://[^\s<>"\']+#',
         static function (array $m): string {
@@ -216,9 +219,10 @@ function bloque_html(array $b, array $a, array $ctx): string
                 . _parr((string)($b['texto'] ?? '')) . '</p>', '22px 44px 6px 44px');
 
         case 'texto':
+            // `sin_enlaces`: el texto lleva datos de un visitante y no se enlaza.
             return _fila('<p style="margin:0;font-family:' . $f . ';font-size:16px;line-height:1.7;'
                 . 'color:' . _c($a['texto'], '#4a4a55') . ';text-align:' . _al($b['alineacion'] ?? '') . ';">'
-                . _parr((string)($b['texto'] ?? '')) . '</p>', '10px 44px 10px 44px');
+                . _parr((string)($b['texto'] ?? ''), empty($b['sin_enlaces'])) . '</p>', '10px 44px 10px 44px');
 
         case 'lista':
             $items = array_filter(array_map('trim', explode("\n", (string)($b['texto'] ?? ''))));

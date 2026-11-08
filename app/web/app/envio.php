@@ -23,9 +23,8 @@ declare(strict_types=1);
  * Cuenta con la que sale un correo suelto (avisos, confirmaciones, pruebas).
  *
  * Las casillas se cargan en UN solo lugar: la pantalla «Cuentas de correo». Si
- * hay una marcada como predeterminada, es esa. Antes esto se configuraba en dos
- * pantallas distintas —Ajustes por un lado y Cuentas de correo por el otro— y
- * no había forma de saber cuál mandaba: eran dos sistemas en paralelo.
+ * hay una marcada como predeterminada, es esa. Un solo lugar evita tener dos
+ * configuraciones en paralelo sin saber cuál manda.
  *
  * Los otros dos escalones quedan como red de seguridad para una instalación que
  * todavía no cargó ninguna cuenta.

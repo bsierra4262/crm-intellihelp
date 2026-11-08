@@ -39,11 +39,32 @@ function log_evento(string $canal, string $accion, array $o = []): void
             $o['entidad'] ?? null,
             isset($o['entidad_id']) ? (int)$o['entidad_id'] : null,
             isset($o['detalle']) ? mb_substr((string)$o['detalle'], 0, 500) : null,
-            function_exists('client_ip') ? client_ip() : ($_SERVER['REMOTE_ADDR'] ?? null),
+            log_ip(),
         ]);
     } catch (\Throwable $e) {
         // El log jamás debe tirar abajo la operación real.
     }
+}
+
+/**
+ * La IP que queda en la auditoría.
+ *
+ * Con sesión es alguien del equipo, y su IP sirve para revisar un ingreso
+ * raro: se guarda como siempre. Sin sesión es un visitante de las páginas
+ * públicas —la agenda, la baja de suscripción— o un pedido de la web, y su IP
+ * es un dato personal que no tenemos por qué guardar (Ley 25.326). Se guarda
+ * el hash recortado, con el secreto de la instalación: alcanza para ver que
+ * diez pedidos vinieron del mismo lugar, sin poder saber de cuál.
+ */
+function log_ip(): ?string
+{
+    // ip_confiable() y no client_ip(): las cabeceras de proxy las escribe el
+    // que hace el pedido, y la auditoría tiene que mostrar de dónde vino.
+    $ip = function_exists('ip_confiable') ? ip_confiable() : ($_SERVER['REMOTE_ADDR'] ?? null);
+    if ($ip === null || $ip === '') { return null; }
+    if (!empty($_SESSION['uid'])) { return $ip; }
+    $h = function_exists('ip_hash') ? ip_hash($ip) : null;
+    return $h ? 'h:' . substr($h, 0, 40) : null;
 }
 
 function log_app(string $accion, array $o = []): void { log_evento('app', $accion, $o); }

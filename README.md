@@ -81,7 +81,7 @@ sola.
 <table>
   <tr>
     <td width="50%"><b>Contactos</b><br><img src="docs/screenshots/contactos.png" alt="Listado de contactos"></td>
-    <td width="50%"><b>Pendientes de aprobar, de a tandas</b><br><img src="docs/screenshots/contacto-pendiente.png" alt="Contactos pendientes de aprobar"></td>
+    <td width="50%"><b>Pendientes de aprobar, de a varios</b><br><img src="docs/screenshots/contacto-pendiente.png" alt="Contactos pendientes de aprobar"></td>
   </tr>
   <tr>
     <td width="50%"><b>Ficha de contacto</b><br><img src="docs/screenshots/contacto-ficha.png" alt="Ficha de contacto"></td>
@@ -383,10 +383,18 @@ flowchart LR
   visitante completaba el formulario, se avisa en vez de generar una reunión pisada.
 - Si Google Calendar falla, **la reserva no se pierde**: queda en el CRM y el vendedor la ve
   con el aviso de que el evento no se creó.
+- **Una sola invitación**, la del CRM, con el mismo identificador que el evento de Google: el
+  cliente no recibe dos correos ni queda con dos eventos. Cambiar el horario o cancelar
+  reemplaza esa misma invitación.
+- **El cliente puede cambiar el horario** desde el correo (`/r/mover`), además de cancelar. Los
+  dos enlaces sirven aunque sean de un correo viejo.
+- **Protegida contra bots**: campo trampa, token de formulario firmado, límite de envíos por
+  visitante y consentimiento obligatorio para el uso de los datos.
+- La landing de la web reserva **en la misma agenda** por la API v1 (ver [API](#api)).
 
 ## Migración desde Zoho CRM
 
-El importador está escrito contra la exportación real del cliente, no contra un CSV ideal:
+El importador está escrito contra la exportación real de Zoho, no contra un CSV ideal:
 
 | Problema encontrado en la base real | Qué hace el importador |
 | --- | --- |
@@ -422,7 +430,7 @@ Resultado sobre el material real: **32.221 filas leídas → 29.338 contactos ú
 `test/verificar_unificacion.py` lo comprueba con 14 aserciones.
 
 El mapa completo de módulos, campos y funcionalidades de Zoho —con marcas de qué usa hoy el
-cliente, verificado contra la base exportada— está en
+equipo comercial, verificado contra la base exportada— está en
 [`md/ZOHO-CRM-REFERENCIA.md`](md/ZOHO-CRM-REFERENCIA.md).
 
 ## Auditoría
@@ -432,7 +440,10 @@ Cada movimiento del sistema queda registrado en la sección **CRON**, en dos can
 - **Aplicación** — navegación, altas, ediciones, borrados, conversiones, importaciones,
   campañas, accesos y **todos los errores**, tanto del servidor como del navegador. Cada error
   lleva un código estable `ERR-XXXXXX` por archivo y línea, para poder buscarlo y arreglarlo.
-- **API** — cada pedido de un sistema externo, con el token que lo hizo.
+- **API** — cada pedido de un sistema externo, con el token que lo hizo. Nunca los datos de
+  la persona que llenó un formulario.
+
+La IP de los visitantes de las páginas públicas se guarda como hash, no en claro.
 
 El histórico **nunca se borra**: en pantalla se muestran los últimos cuatro meses salvo que se
 pida una fecha anterior.
@@ -450,6 +461,44 @@ curl -H "X-API-Key: crm_..." https://intellihelp.tech/crm/api/estado
 Devuelve contactos, empresas, posibles clientes, negocios abiertos y su importe, actividades
 pendientes y vencidas, campañas activas y correos en cola, reuniones próximas y la última
 corrida del cron.
+
+### API v1: lo que entra desde la web
+
+La web (`intellihelp.tech/diagnostico/` y el formulario de contacto) le habla al CRM servidor a
+servidor: el navegador nunca ve la clave. Contrato completo en
+[md/INTEGRACION-WEB.md](md/INTEGRACION-WEB.md).
+
+| Recurso | Para qué |
+| --- | --- |
+| `GET api/v1/disponibilidad?tipo=&vendedor=&desde=&hasta=` | Horarios libres del vendedor (hasta 31 días), sobre su Google Calendar real |
+| `POST api/v1/reserva` | Reserva un horario: contacto, empresa, reunión con Meet y confirmación por correo |
+| `POST api/v1/entrada` | Consulta sin reunión: contacto, empresa, nota y tarea de contestar para el responsable |
+
+```mermaid
+flowchart LR
+    NAV([Navegador]) --> WEB[PHP de la web<br/>mismo origen]
+    WEB -- pedido firmado --> API[CRM · API v1]
+    API --> AG[Agenda<br/>bloqueo + hueco libre]
+    API --> EW[(entradas_web<br/>página, canal, UTM)]
+    AG --> RES[(Reserva + contacto<br/>+ empresa + reunión)]
+    RES -. después de responder .-> GC([Google Calendar + Meet])
+    RES -. después de responder .-> MAIL([Correo con la invitación])
+```
+
+- **Clave con permiso «Escritura (web)»** y un secreto que se muestra una sola vez y se guarda
+  cifrado. Una clave de lectura no escribe.
+- **Cada pedido va firmado**: `X-ITH-Signature = hex(HMAC-SHA256(secreto, ts + "\n" + MÉTODO +
+  "\n" + ruta + "\n" + cuerpo))`, con `X-ITH-Key`, `X-ITH-Timestamp` (±5 minutos) y, en las
+  escrituras, `X-ITH-Idempotency` y `X-ITH-Client-IP-Hash`. La ruta incluye la carpeta de la
+  instalación: una firma de pruebas no sirve en producción.
+- **Idempotente**: si la web reintenta, la reserva no se duplica; el mismo pedido recibe la
+  respuesta original y la misma clave con otro pedido, `409`.
+- **Límites** por clave y por visitante (hash de su IP, nunca la IP), con `429` y `Retry-After`.
+- **Siempre JSON**, también en los errores: `{ "ok": false, "error": "horario_tomado", "mensaje": "…" }`.
+  Los errores inesperados devuelven un código `ERR-XXXXXX`, nunca la traza.
+- La pantalla **Entradas desde la web** muestra cada consulta y reserva con la página y el canal
+  por el que llegó, y las métricas por canal: consultas, reuniones agendadas, realizadas y
+  canceladas.
 
 ## Stack técnico
 
@@ -471,15 +520,16 @@ app/
 ├─ web/                 # document root: index.php (router), vistas, assets
 │  ├─ app/              # dominio: crm, negocios, actividades, campanas, envio,
 │  │  │                 #   imap, agenda, gcal, google, auth, actividad, importador
-│  │  ├─ pages/         # un controlador por ruta (incluye api/)
+│  │  ├─ pages/         # un controlador por ruta (incluye api/ y api/v1/)
 │  │  └─ views/         # plantillas (layout + una por pantalla)
 │  ├─ assets/           # css, js, imágenes
 │  └─ .htaccess         # front controller + aislamiento del WordPress raíz
-├─ db/                  # schema.sql
-├─ cron.php             # tareas periódicas (campañas, IMAP, recordatorios)
+├─ db/                  # schema.sql y migraciones
+├─ cron.php             # tareas periódicas (campañas, IMAP, reservas, recordatorios)
+├─ migrar.php           # aplica una migración con la config de su instalación (CLI)
 └─ server-config/       # config.example.php (el real no se versiona)
-bin/                    # deploy.py (subida, esquema, verificación de sintaxis)
-test/                   # run_tests.php · ui_test.php · smoke.sh · render.sh
+bin/                    # deploy.py (subida, migraciones, pruebas, verificación de sintaxis)
+test/                   # run_tests.php · ui_test.php · smoke.sh · render.sh · api_test.php
                         #   + verificar_unificacion.py (238 comprobaciones en total)
 md/                     # documento maestro, referencia de Zoho, requerimientos
 docs/                   # banner y capturas de pantalla
@@ -512,18 +562,29 @@ Regla del proyecto: **cada defecto detectado incorpora un test** para impedir su
 
 ```bash
 php test/run_tests.php               # 138 casos de lógica pura, sin base ni red
-bash test/smoke.sh                   # 53 comprobaciones HTTP contra el sitio desplegado
+bash test/smoke.sh [url] [usr/tipo]  # comprobaciones HTTP contra el sitio desplegado
+php  test/api_test.php               # la API v1 de punta a punta (sólo contra pruebas)
 bash test/render.sh                  # 35 pantallas ejecutadas de verdad, con sesión
 php  test/ui_test.php                # 57 reglas de interfaz, responsive y sesión
 python test/verificar_unificacion.py # 14 aserciones sobre la base unificada
 ```
 
 - **`run_tests.php`** cubre la normalización de la base de Zoho (con los casos reales que trae
-  el CSV del cliente), la validación de CUIT, el formato de importes, las URLs de la aplicación
+  el CSV exportado), la validación de CUIT, el formato de importes, las URLs de la aplicación
   y de Google, la paginación, el renderizado de plantillas, la detección de rebotes, los slugs
-  de la agenda, el vencimiento de actividades y el cifrado de los tokens de Google.
+  de la agenda, el vencimiento de actividades y el cifrado de los tokens de Google. Para la API
+  v1: la firma (válida, vencida, alterada, de otra instalación), la validación de cada campo,
+  la idempotencia, las consultas duplicadas, los límites de envíos, la ventana y los huecos de
+  la agenda, el token del formulario y la invitación `.ics`. Lo que necesita base corre contra
+  una SQLite en memoria; en local hace falta cargar `mbstring`, `openssl` y `pdo_sqlite`.
 - **`smoke.sh`** verifica que **toda ruta privada exija sesión**, que las públicas respondan,
-  que la API rechace sin clave y que el código de la aplicación **no se pueda pedir por HTTP**.
+  que la API rechace sin clave, que la API v1 **rechace lo que no viene firmado**, que la agenda
+  pública **descarte lo que completa el campo trampa** y que el código de la aplicación **no se
+  pueda pedir por HTTP**.
+- **`api_test.php`** prueba la API v1 por HTTP contra la instalación de pruebas: firma,
+  horarios, reserva con su evento de Google y su correo, dos reservas simultáneas al mismo
+  horario (gana una sola), consulta con su tarea, duplicados y límites. Se niega a correr fuera
+  de pruebas, y al terminar cancela la reserva y borra todo lo que creó.
 - **`render.sh`** arma una sesión de administrador y **ejecuta cada pantalla de verdad**. Es lo
   que atrapa una función inexistente o una variable que la vista espera y nadie pasó: cosas que
   `php -l` no puede ver. Ya encontró dos defectos antes de que llegaran a producción.
@@ -542,7 +603,7 @@ python test/verificar_unificacion.py # 14 aserciones sobre la base unificada
 - Acceso restringido al dominio de la organización, con cierre de sesión por inactividad
   (10 min) y sesión máxima (8 h) **impuestos por el servidor**, no por el navegador.
 - CSRF en todo formulario; cookies `HttpOnly`, `SameSite=Lax` y `Secure`.
-- La base comercial del cliente no está en el repositorio.
+- La base comercial de la empresa no está en el repositorio.
 - Política completa en [SECURITY.md](SECURITY.md).
 
 ## Licencia

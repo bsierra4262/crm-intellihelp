@@ -4,10 +4,10 @@ declare(strict_types=1);
 // ============================================================
 //  Alertas del sistema.
 //
-//  Sin esto, lo importante pasaba sin que nadie se enterara: un cliente
-//  respondía una campaña, alguien agendaba una reunión, un contacto se
-//  archivaba por rebote definitivo, y todo quedaba adentro de una pantalla que
-//  había que ir a mirar a propósito.
+//  Sin esto, lo importante pasaría sin que nadie se entere: un cliente que
+//  responde una campaña, alguien que agenda una reunión, un contacto que se
+//  archiva por rebote definitivo; todo quedaría adentro de una pantalla que
+//  hay que ir a mirar a propósito.
 //
 //  Son dos avisos distintos y conviene no confundirlos:
 //    · en pantalla — la campana de la barra, que se actualiza sola;
@@ -36,6 +36,10 @@ function notif_tipos(): array
         'campana'   => ['nombre' => 'Campañas terminadas', 'icono' => 'ok',
                         'ajuste' => 'avisar_campana',
                         'ayuda'  => 'Cuando una campaña termina de enviarse.'],
+        'web'       => ['nombre' => 'Consultas desde la web', 'icono' => 'enlace',
+                        'ajuste' => 'avisar_web',
+                        'ayuda'  => 'Cuando alguien deja una consulta en el formulario de intellihelp.tech '
+                                  . 'sin reservar un horario. Le llega a quien atiende las consultas de la web.'],
         'sistema'   => ['nombre' => 'Problemas del sistema', 'icono' => 'alerta',
                         'ajuste' => 'avisar_sistema',
                         'ayuda'  => 'Cuando algo deja de funcionar: Google Calendar sin responder, '

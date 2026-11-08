@@ -6,8 +6,8 @@ declare(strict_types=1);
 //
 //  El linter de PHP encuentra errores de sintaxis, pero no encuentra una
 //  función inexistente ni una variable que la vista espera y nadie pasó.
-//  Este test arma una sesión falsa y **ejecuta de verdad cada pantalla**,
-//  capturando la salida: si algo revienta, se ve acá y no en producción.
+//  Este test arma una sesión falsa y ejecuta cada pantalla capturando la
+//  salida: si algo revienta, se ve acá y no en producción.
 //
 //  Cada pantalla corre en su PROPIO proceso: las páginas que redirigen
 //  terminan con exit y matarían al resto de la batería. El bucle lo hace

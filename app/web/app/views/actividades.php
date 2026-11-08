@@ -100,9 +100,8 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
                                 <button class="act" title="Marcar como completada"><?= icon('ok', 16) ?></button>
                             </form>
                         <?php else: ?>
-                            <?php /* Reabrir ya estaba soportado en el servidor y no
-                                     había ningún botón: una actividad completada por
-                                     error quedaba así para siempre. */ ?>
+                            <?php /* Reabrir: para una actividad marcada como
+                                     completada por error. */ ?>
                             <form class="inline-form" method="post" action="<?= e(url('actividad-completar')) ?>">
                                 <?= csrf_field() ?>
                                 <input type="hidden" name="id" value="<?= (int)$a['id'] ?>">

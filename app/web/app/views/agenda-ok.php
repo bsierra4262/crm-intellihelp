@@ -1,11 +1,17 @@
-<?php /** @var array $r @var array $tipo */ ?>
+<?php /** @var array $r @var array $tipo @var bool $movida */
+$movida = !empty($movida);
+$local  = agenda_local(strtotime((string)$r['inicia_el']), $tipo);
+?>
 <div class="pub-wrap angosta">
     <div class="pub-card">
         <div class="pub-head">
             <img src="<?= e(url('assets/img/ITH-logo-139x75.png')) ?>" alt="INTELLIHELP">
             <div>
-                <h1>¡Listo, quedó agendada!</h1>
-                <p class="muted small m-0">Te mandamos la confirmación por correo</p>
+                <h1><?= $movida ? '¡Listo, cambiamos el horario!' : '¡Listo, quedó agendada!' ?></h1>
+                <p class="muted small m-0">
+                    <?= $movida ? 'Te mandamos la invitación nueva por correo: reemplaza a la anterior'
+                                : 'Te mandamos la confirmación por correo' ?>
+                </p>
             </div>
         </div>
         <div class="pub-pad">
@@ -13,8 +19,9 @@
                 <div><div class="k">Reunión</div><div class="v"><?= e($tipo['nombre']) ?></div></div>
                 <div><div class="k">Con</div><div class="v"><?= e($tipo['usuario']) ?></div></div>
                 <div><div class="k">Cuándo</div><div class="v">
-                    <?= e(ucfirst(fecha_larga((string)$r['inicia_el']))) ?>,
-                    <?= date('H:i', strtotime((string)$r['inicia_el'])) ?> h (Argentina)
+                    <?= e(ucfirst(fecha_larga($local))) ?>,
+                    <?= e(substr($local, 11, 5)) ?> h
+                    <span class="muted small">(<?= e(mb_strtolower(agenda_zona_etiqueta($tipo))) ?>)</span>
                 </div></div>
                 <div><div class="k">Duración</div><div class="v"><?= (int)$tipo['duracion_min'] ?> minutos</div></div>
             </div>
@@ -42,7 +49,8 @@
             <?php endif; ?>
 
             <p class="muted small mt-6">
-                ¿No podés? <a href="<?= e(url_abs('r/cancelar?t=' . $r['token'])) ?>">Cancelá la reunión acá</a>.
+                ¿Necesitás otro horario? <a href="<?= e(url_abs('r/mover?t=' . $r['token'])) ?>">Cambialo acá</a>.
+                ¿No podés? <a href="<?= e(url_abs('r/cancelar?t=' . $r['token'])) ?>">Cancelá la reunión</a>.
             </p>
         </div>
     </div>

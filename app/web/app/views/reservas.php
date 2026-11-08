@@ -1,10 +1,14 @@
-<?php /** @var array $f @var array $rows @var array $data */ ?>
+<?php /** @var array $f @var array $rows @var array $data @var array $llego */
+$llego = $llego ?? [];
+$origenes = ['web' => 'Sitio web', 'publica' => 'Agenda pública', 'crm' => 'Desde el CRM'];
+?>
 <div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Reuniones reservadas</h1>
-        <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> reservas desde la agenda pública</p>
+        <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> reservas desde la agenda pública y la web</p>
     </div>
     <div class="head-actions">
+        <a class="btn btn-ghost" href="<?= e(url('entradas-web')) ?>"><?= icon('enlace', 16) ?>Entradas desde la web</a>
         <a class="btn btn-ghost" href="<?= e(url('agenda')) ?>"><?= icon('agenda', 16) ?>Mis tipos de reunión</a>
     </div>
 </div>
@@ -36,11 +40,11 @@
         <table class="grid">
             <thead>
                 <tr><th>Cuándo</th><th>Invitado</th><th class="prio-2">Empresa</th><th>Tipo</th>
-                    <th class="prio-3">Con</th><th>Estado</th><th class="acts">Acciones</th></tr>
+                    <th class="prio-3">Con</th><th class="prio-2">Llegó por</th><th>Estado</th><th class="acts">Acciones</th></tr>
             </thead>
             <tbody>
             <?php if (!$rows): ?>
-                <tr><td colspan="7" class="empty">Todavía nadie reservó. Las reuniones aparecen acá solas cuando
+                <tr><td colspan="8" class="empty">Todavía nadie reservó. Las reuniones aparecen acá solas cuando
                     alguien entra por el enlace público de un <a href="<?= e(url('agenda')) ?>">tipo de reunión</a>
                     y elige un horario.</td></tr>
             <?php else: foreach ($rows as $r): ?>
@@ -62,6 +66,18 @@
                     <td data-label="Empresa" class="prio-2"><?= e(recortar($r['invitado_empresa'], 28) ?: '—') ?></td>
                     <td data-label="Tipo"><?= e($r['tipo']) ?></td>
                     <td data-label="Con" class="prio-3"><?= e($r['usuario']) ?></td>
+                    <td data-label="Llegó por" class="prio-2">
+                        <?php if (isset($llego[(int)$r['id']])): $ew = $llego[(int)$r['id']]; ?>
+                            <div class="cell-main">
+                                <span><?= e($ew['canal'] ?: '—') ?></span>
+                                <?php if (!empty($ew['origen_pagina'])): ?>
+                                    <small>Desde la página <?= e(recortar(preg_replace('#^crm:#', '', (string)$ew['origen_pagina']), 32)) ?></small>
+                                <?php endif; ?>
+                            </div>
+                        <?php else: ?>
+                            <?= e($origenes[$r['origen'] ?? ''] ?? '—') ?>
+                        <?php endif; ?>
+                    </td>
                     <td data-label="Estado">
                         <span class="badge <?= $r['estado'] === 'confirmada' ? 'badge-ok' : 'badge-neutral' ?>"><?= e(ucfirst($r['estado'])) ?></span>
                         <?php if ($r['estado'] === 'confirmada' && empty($r['gcal_event_id'])): ?>

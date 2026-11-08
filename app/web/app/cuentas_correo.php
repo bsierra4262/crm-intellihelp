@@ -4,15 +4,12 @@ declare(strict_types=1);
 // ============================================================
 //  Cuentas de correo.
 //
-//  Antes había UNA sola casilla en los ajustes y por lo tanto una sola
-//  campaña por vez. Con varias cuentas se pueden correr campañas en
-//  paralelo, y hay dos razones de peso para hacerlo así:
+//  Con varias cuentas se pueden correr campañas en paralelo, por dos motivos:
 //
-//   · **Cada casilla tiene su propio tope diario.** Repartir el envío entre
+//   · Cada casilla tiene su propio tope diario: repartir el envío entre
 //     cuentas multiplica el volumen sin forzar ninguna.
-//   · **La reputación es por remitente.** Si una campaña sale mal y una
-//     casilla se quema, las otras siguen limpias. Mezclar todo en una sola
-//     dirección es poner todos los huevos en la misma canasta.
+//   · La reputación es por remitente: si una campaña sale mal y una casilla
+//     se quema, las otras siguen limpias.
 //
 //  Las contraseñas se guardan cifradas con el secreto de la aplicación:
 //  son contraseñas de aplicación de Google, no hay que verlas nunca más.
@@ -143,9 +140,9 @@ function cuenta_probar(int $id, ?string &$err = null): bool
     if ($fp) {
         smtp_cerrar($fp);
 
-        // También la casilla de entrada. Antes se probaba sólo la salida, así
-        // que una contraseña mal cargada en la parte de entrada daba «cuenta
-        // verificada» y los rebotes no se leían nunca.
+        // También la casilla de entrada: probando sólo la salida, una
+        // contraseña mal cargada en la entrada daría «cuenta verificada» y
+        // los rebotes no se leerían nunca.
         $errIn = null;
         $imap  = cuenta_a_imap($c);
         $entrada = (!empty($imap['user']) && !empty($imap['pass']))

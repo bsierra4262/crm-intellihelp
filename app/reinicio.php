@@ -5,7 +5,7 @@ declare(strict_types=1);
 //  Reinicio de la instalación de pruebas.
 //
 //  Mientras el sistema está en modo prueba conviene poder dejarlo en cero
-//  después de cada tanda: el registro del cron, las campañas de ensayo, los
+//  después de cada prueba: el registro del cron, las campañas de ensayo, los
 //  envíos, las reuniones reservadas. Lo que NO se toca es lo que hace falta
 //  para volver a probar. Lo que cargó una persona usando el sistema —contactos,
 //  empresas, negocios, reuniones, plantillas— NO sobrevive: después de reiniciar
@@ -34,8 +34,8 @@ require $raiz . '/app/bootstrap.php';
 $args     = array_slice($argv, 1);
 $hacerlo  = in_array('--hacerlo', $args, true);
 $sembrar  = in_array('--sembrar', $args, true);
-// Al revés que antes: la base de contactos se borra por defecto. Se conserva
-// sólo si se pide, para cuando adentro hay una importación real de verdad.
+// La base de contactos se borra por defecto. Se conserva sólo si se pide,
+// para cuando adentro hay una importación real.
 $conservarBase = in_array('--conservar-base', $args, true)
               || in_array('--conservar-contactos', $args, true);
 
@@ -47,12 +47,17 @@ if ($entorno !== 'testing') {
 }
 
 /**
- * Lo que se borra: el ruido que genera una tanda de pruebas.
+ * Lo que se borra: el ruido que dejan las pruebas.
  *
  * El orden importa por las claves foráneas: primero lo que depende de otra
  * cosa, después la cosa.
  */
 $tablas = [
+    // Lo que entró desde la web: datos de personas (aunque sean inventados)
+    // y los contadores de límites. Van primero porque apuntan a contactos,
+    // empresas, reuniones y reservas.
+    'entradas_web'       => 'consultas y reservas que llegaron desde la web',
+    'api_limites'        => 'contadores de límites de envíos de la API y de la agenda pública',
     'envio_eventos'      => 'aperturas y clics de los envíos',
     'envios'             => 'cola y resultado de los envíos',
     'campanas'           => 'campañas',
@@ -73,12 +78,10 @@ $tablas = [
 
 // La base de trabajo se borra TAMBIÉN, y por defecto.
 //
-// Antes esto era opcional (`--contactos`) y quedaba afuera, así que después de
-// reiniciar seguían apareciendo el contacto y la empresa que alguien había
-// cargado probando la agenda pública, mezclados con los de prueba. Y peor:
-// seguían las siembras VIEJAS —contactos que se habían sacado del script pero
-// que nadie borraba nunca—, así que la lista de prueba iba creciendo con gente
-// que ya no tenía por qué estar.
+// Si se conservara, después de reiniciar seguirían apareciendo los contactos y
+// las empresas cargados probando la agenda pública, mezclados con los de
+// prueba, y también las siembras viejas que ya no están en el script: la lista
+// de prueba crecería con gente que no tiene por qué estar.
 //
 // Estando en modo prueba, después de reiniciar no puede quedar NADA que haya
 // cargado una persona usando el sistema: sólo los datos de prueba que siembra
@@ -139,7 +142,7 @@ echo $hacerlo ? "== Reinicio de la instalación de pruebas ==\n" : "== Simulacro
 // fila de la base no las saca de ahí: quedaban dando vueltas y avisando de
 // reuniones que ya no existen en ningún lado. Se borran primero, con los avisos
 // de cancelación apagados: no tiene sentido mandar un correo por algo que nunca
-// fue una reunión de verdad.
+// fue una reunión real.
 $conEvento = q("SELECT id, usuario_id, gcal_event_id, invitado_nombre, inicia_el
                 FROM agenda_reservas
                 WHERE gcal_event_id IS NOT NULL AND gcal_event_id <> ''")->fetchAll();
@@ -185,11 +188,10 @@ foreach ($conserva as $t => $desc) { printf("  %-22s %s\n", $t, $desc); }
 // ------------------------------------------------------------
 //  Control: que no se haya olvidado ninguna tabla
 // ------------------------------------------------------------
-// Es lo que ya pasó una vez: se agregó una tabla nueva, nadie se acordó de
-// sumarla acá, y después de reiniciar quedaba dando vueltas lo que había
+// Una tabla nueva que no se suma acá sobrevive al reinicio con lo que haya
 // cargado el usuario. Como esta lista se escribe a mano, el script se controla
 // solo contra la base: cualquier tabla que no esté ni en lo que se borra ni en
-// lo que se conserva es una que alguien olvidó decidir.
+// lo que se conserva es una que quedó sin decidir.
 $todas = q('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
 $decididas = array_merge(array_keys($tablas), array_keys($tablasBase), array_keys($conserva));
 $olvidadas = array_diff($todas, $decididas);
@@ -223,8 +225,9 @@ if ($sembrar || $hacerlo) {
 }
 
 /**
- * Deja cargado lo mínimo para poder probar: la empresa y el contacto de Brian,
- * y una lista con esa dirección para mandarse una campaña a uno mismo.
+ * Deja cargado lo mínimo para poder probar: la empresa, mis dos casillas como
+ * contactos, los de rebote y una lista con todos para mandarse una campaña a
+ * uno mismo.
  * Es idempotente: correrlo dos veces no duplica nada.
  */
 function reinicio_sembrar(): array
@@ -262,8 +265,8 @@ function reinicio_sembrar(): array
         'provincia' => 'Buenos Aires',
         'pais'      => 'Argentina',
     ], $duenio);
-    // Se completa con todo lo que ahora pedimos siempre. `cuenta_asegurar()`
-    // sólo sabe crear a partir de un nombre, así que dejaba la empresa marcada
+    // Se completa con todos los datos obligatorios. `cuenta_asegurar()`
+    // sólo sabe crear a partir de un nombre, así que deja la empresa marcada
     // como pendiente de normalizar: los datos de prueba tienen que ser el
     // ejemplo de una ficha bien cargada, no el primer caso a corregir.
     cuenta_guardar([
@@ -291,7 +294,7 @@ function reinicio_sembrar(): array
     //
     // Los dos ficticios usan alias con «+» de la casilla real. Google los
     // entrega en la misma bandeja, así que son contactos distintos en el CRM
-    // —con su nombre, su empresa y su cargo— pero los correos llegan de verdad
+    // —con su nombre, su empresa y su cargo— pero los correos llegan
     // y se pueden leer. Con direcciones inventadas no llegaría nada y no se
     // podría comprobar nada.
     //
@@ -301,7 +304,7 @@ function reinicio_sembrar(): array
     // sólo lo marca y lo reintenta.
     $gente = [
         [
-            // Va tu correo de afuera a propósito: llegando a otro proveedor se
+            // Va mi correo personal a propósito: llegando a otro proveedor se
             // prueba lo que no se puede probar mandándose correo a uno mismo
             // —que salga bien, que no caiga en spam— y, sobre todo, permite
             // contestar desde una dirección distinta a la que el sistema lee,
@@ -372,7 +375,7 @@ function reinicio_sembrar(): array
     $ids = [];
     foreach ($gente as $g) {
         // Se busca SIN filtrar por archivados. Los tres de rebote quedan
-        // archivados y dados de baja después de cada tanda de pruebas —que es
+        // archivados y dados de baja después de cada prueba —que es
         // justo lo que se quiere comprobar—, así que buscando sólo entre los
         // activos no se encontraban y se creaba un duplicado en cada reinicio.
         $ya = q1('SELECT id FROM contactos WHERE email = ? ORDER BY id LIMIT 1', [$g['email']]);
@@ -402,7 +405,7 @@ function reinicio_sembrar(): array
     $out[] = 'Contactos: ' . count($gente) . ' cargados (2 que llegan, ' . (count($gente) - 2) . ' que rebotan por motivos distintos)';
 
     // ---- Embudo ----
-    // Se vuelve a sembrar porque ahora se borra: si no, la pantalla del Embudo
+    // Se vuelve a sembrar porque el reinicio lo borra: si no, la pantalla del Embudo
     // queda vacía y los negocios no tienen dónde ubicarse.
     if (!qv('SELECT COUNT(*) FROM embudos')) {
         q("INSERT INTO embudos (nombre, predeterminado, activo) VALUES ('Ventas', 1, 1)");
@@ -440,12 +443,36 @@ function reinicio_sembrar(): array
         $out[] = 'Agenda: «Reunión de 30 minutos», de lunes a viernes de 9 a 18 (id ' . $tipoId . ')';
     }
 
+    // ---- Reunión de diagnóstico ----
+    // Es el tipo que usa la landing de la web (/diagnostico/): la web en local
+    // se prueba contra esta instalación pidiendo los horarios de
+    // `<vendedor>/diagnostico`. Sin él, la landing cae siempre al formulario
+    // y no hay forma de probar la reserva de punta a punta.
+    if (!qv("SELECT COUNT(*) FROM agenda_tipos WHERE usuario_id = ? AND slug = 'diagnostico'", [$duenio])) {
+        $tipoId = agenda_tipo_guardar([
+            'usuario_id'   => $duenio,
+            'nombre'       => 'Reunión de diagnóstico',
+            'slug'         => 'diagnostico',
+            'duracion_min' => 30,
+            'margen_min'   => 15,
+            'ventana_dias' => 21,
+            'aviso_min_horas' => 2,
+            'descripcion'  => '30 minutos por videollamada para ver cómo está hoy la tecnología de tu empresa '
+                            . 'y qué conviene resolver primero.',
+            'con_meet'     => 1,
+            'activo'       => 1,
+            'dias'         => [1, 2, 3, 4, 5],
+            'desde'        => array_fill_keys([1, 2, 3, 4, 5], '09:00'),
+            'hasta'        => array_fill_keys([1, 2, 3, 4, 5], '18:00'),
+        ]);
+        $out[] = 'Agenda: «Reunión de diagnóstico» (la de la web), de lunes a viernes de 9 a 18 (id ' . $tipoId . ')';
+    }
+
     // ---- Plantillas ----
     // Se dejan cargadas TODAS las prearmadas: una por cada servicio de la
-    // empresa, más los tres formatos genéricos. Antes esta tabla se conservaba
-    // tal cual, así que quedaban las que alguien había creado probando y seguía
-    // apareciendo la vieja «Outsourcing (la de Pulsemail)» con el nombre viejo:
-    // el molde se había renombrado, pero la fila de la base no.
+    // empresa, más los tres formatos genéricos. Se reescriben desde los moldes
+    // en cada reinicio: si un molde cambia de nombre, la fila de la base lo
+    // sigue y no quedan plantillas creadas probando.
     $nPlantillas = 0;
     $plantillaIds = [];
     foreach (plantillas_preajustes() as $clave => $p) {
@@ -481,7 +508,7 @@ function reinicio_sembrar(): array
     }
     $out[] = 'Lista: «Prueba del circuito» con ' . count($gente) . ' destinatarios (id ' . $listaId . ')';
 
-    // Ya no hay lista de direcciones autorizadas: el modo prueba manda igual
+    // Sin lista de direcciones autorizadas: el modo prueba manda igual
     // que producción. Lo que lo hace seguro es que estos datos son ficticios.
     setting_set('testing_destinatarios', '');
 

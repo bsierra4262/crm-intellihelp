@@ -32,14 +32,19 @@ try {
             : flash('Esa reunión ya no estaba activa.', 'info');
 
     } elseif ($accion === 'reprogramar') {
-        $cuando = trim((string)($_POST['cuando'] ?? ''));
-        $ts     = $cuando !== '' ? strtotime($cuando) : 0;
+        // El horario viaja como marca de tiempo: un texto «Y-m-d H:i» se leía en
+        // la zona de la instalación y no en la del tipo de reunión.
+        $ts = (int)($_POST['inicio'] ?? 0);
+        if ($ts <= 0) {
+            $cuando = trim((string)($_POST['cuando'] ?? ''));
+            $ts     = $cuando !== '' ? (int)strtotime($cuando) : 0;
+        }
         if (!$ts) {
             throw new RuntimeException('Elegí el día y la hora nuevos.');
         }
         agenda_reprogramar((string)$r['token'], $ts);
         flash('Reunión movida al ' . fecha_hora(date('Y-m-d H:i:s', $ts))
-            . '. Le mandamos la confirmación nueva por correo.', 'success');
+            . '. Le mandamos la invitación actualizada por correo.', 'success');
 
     } else {
         flash('Acción desconocida.', 'error');

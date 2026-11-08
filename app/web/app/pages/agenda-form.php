@@ -14,7 +14,8 @@ if ($id && (!$t || ((int)$t['usuario_id'] !== $uid && !auth_is_admin()))) {
 }
 if (!$id) {
     $t = ['duracion_min' => 30, 'margen_min' => 10, 'aviso_min_horas' => 4,
-          'ventana_dias' => 30, 'con_meet' => 1, 'activo' => 1];
+          'ventana_dias' => 30, 'con_meet' => 1, 'activo' => 1,
+          'zona_horaria' => AGENDA_ZONA_DEFECTO];
 }
 
 $horarios = $id ? agenda_horarios_de($id) : [];
@@ -50,9 +51,8 @@ if (is_post()) {
     if (trim((string)($d['nombre'] ?? '')) === '') { $errores['nombre'] = 'Poné un nombre.'; }
     if (empty($d['dias'])) { $errores['dias'] = 'Marcá al menos un día de la semana.'; }
 
-    // El horario de cada día tiene que ir de menor a mayor. Antes, si estaba al
-    // revés, la fila se descartaba sin decir nada y la pantalla avisaba que se
-    // había guardado: ese día quedaba sin horarios y nadie entendía por qué.
+    // El horario de cada día tiene que ir de menor a mayor. Si viene al revés se
+    // rechaza con un error en el campo, en vez de descartar la fila en silencio.
     $diasNombre = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
     foreach ((array)($d['dias'] ?? []) as $dia) {
         $desde = (string)($d['desde'][$dia] ?? '');
@@ -64,13 +64,21 @@ if (is_post()) {
         }
     }
 
+    // La zona tiene que existir: con una inventada, el cálculo de los horarios
+    // caía en la de Argentina sin que nadie se enterara.
+    if (!in_array((string)($d['zona_horaria'] ?? ''), DateTimeZone::listIdentifiers(), true)) {
+        $errores['zona_horaria'] = 'Elegí la zona horaria de la lista.';
+    }
+
     // Dos tipos con el mismo nombre generan el mismo enlace público y chocan
     // contra la restricción de la base: antes eso salía como un error 500.
+    // Se comprueba contra el dueño del calendario elegido, que no siempre es
+    // quien edita: un administrador puede armar el tipo para otra persona.
     if (!isset($errores['nombre'])) {
         $slug = slugificar((string)(($d['slug'] ?? null) ?: $d['nombre'] ?? ''));
         $rep  = qv('SELECT id FROM agenda_tipos WHERE usuario_id = ? AND slug = ?'
                  . ($id ? ' AND id <> ?' : ''),
-                   $id ? [$uid, $slug, $id] : [$uid, $slug]);
+                   $id ? [(int)$d['usuario_id'], $slug, $id] : [(int)$d['usuario_id'], $slug]);
         if ($rep) {
             $errores['nombre'] = 'Ya tenés un tipo de reunión con ese nombre, y el enlace público '
                                . 'sería el mismo. Poné otro nombre.';

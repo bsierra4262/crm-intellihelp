@@ -35,9 +35,7 @@ try {
             campana_preparar($id);
 
             // Si tiene fecha de arranque a futuro, queda PROGRAMADA y el cron
-            // la larga a su hora. Antes ese campo se pedía, se guardaba y no lo
-            // miraba nadie: apretar «Iniciar» mandaba todo al instante, y la
-            // fecha elegida no servía para nada.
+            // la larga a su hora en lugar de mandar todo al apretar «Iniciar».
             $c = campana_get($id);
             $cuando = (string)($c['programada_para'] ?? '');
             if ($cuando !== '' && strtotime($cuando) > time()) {
@@ -46,9 +44,8 @@ try {
                     . '. A esa hora arranca sola; no hace falta que dejes nada abierto.', 'success');
             } else {
                 campana_estado($id, 'enviando');
-                // El primero sale ahora, no cuando pase el cron. Antes había que
-                // esperar hasta cinco minutos mirando una pantalla que decía
-                // «enviando» sin que saliera nada: parecía que se había colgado.
+                // El primero sale ahora, no cuando pase el cron: esperar hasta
+                // cinco minutos con la pantalla en «enviando» parece un cuelgue.
                 $arrancarYa = true;
                 flash('Campaña iniciada. El primer correo sale ahora mismo; después uno cada '
                     . (int)$c['pausa_min_seg'] . '–' . (int)$c['pausa_max_seg']

@@ -30,8 +30,10 @@ if (!$tipo) {
     exit;
 }
 
+// Se le pasa la reserva que se mueve para que su propio horario no cuente
+// como ocupado: si no, los huecos pegados a la reunión actual no aparecían.
 $motivo = null;
-$huecos = agenda_huecos($tipo, 0, $motivo);
+$huecos = agenda_huecos($tipo, 0, $motivo, (int)$r['id']);
 
 render('reserva-mover', [
     'r'      => $r,

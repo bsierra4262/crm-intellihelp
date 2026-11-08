@@ -40,9 +40,9 @@ function db(bool $reabrir = false): PDO
  * Este hosting tiene `wait_timeout = 20 segundos`, y el despachador de campañas
  * espera entre 25 y 45 segundos entre correo y correo para que el ritmo no
  * parezca de máquina. O sea: después de cada pausa la conexión está muerta, sin
- * excepción. Lo que se veía era que la campaña mandaba el primer correo y
- * después no pasaba nada más: fallaba el contador, fallaba la marca del cron y
- * fallaba hasta el registro del error, porque todo usaba la misma conexión.
+ * excepción. Sin reabrirla, la campaña manda el primer correo y después falla
+ * todo lo demás —el contador, la marca del cron y hasta el registro del
+ * error—, porque todo usa la misma conexión.
  *
  * Hay que llamarla después de cualquier espera larga.
  */
@@ -92,7 +92,7 @@ function last_id(): int
  * Los ajustes se cargan una sola vez por proceso: son pocos y se consultan
  * muchas veces. El caché se invalida al escribir, y también a mano con
  * `setting_refrescar()` para los procesos largos —el cron corre varios
- * minutos, y sin eso lee para siempre los valores que había al arrancar.
+ * minutos, y sin eso seguiría leyendo los valores que había al arrancar.
  */
 function setting_get(string $clave, ?string $def = null): ?string
 {

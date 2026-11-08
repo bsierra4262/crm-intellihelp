@@ -42,7 +42,7 @@ const CRON_PRESUPUESTO_SEG = 45;   // lo que se despacha DENTRO de cada vuelta
  *
  * El turno vence solo. Si el proceso se muere a la mitad —tope de tiempo del
  * hosting, reinicio— nadie va a poder liberarlo, y sin vencimiento el cron
- * quedaría trabado para siempre esperando a un proceso que ya no existe.
+ * quedaría trabado indefinidamente esperando a un proceso que ya no existe.
  */
 function cron_tomar_turno(int $venceSeg = 600): bool
 {
@@ -255,8 +255,7 @@ function lista_cargar_contactos(int $listaId, array $filtro): int
  * `lista_miembros` guarda el correo, el nombre y la empresa con los que se
  * agregó a la persona. Cuando el miembro es un contacto del CRM esa copia se
  * queda vieja apenas alguien edita la ficha: la lista sigue mostrando —y, lo
- * que es peor, sigue escribiendo a— el correo anterior. Pasó: se cambió un
- * correo a otro dominio y la lista mostraba el viejo para siempre.
+ * que es peor, sigue escribiendo a— el correo anterior.
  *
  * Así que cuando hay un contacto atrás, manda el contacto. La copia queda como
  * respaldo para los correos sueltos importados, que no tienen ficha detrás y
@@ -355,10 +354,9 @@ function campanas_listar(array $f = []): array
     $where = 'WHERE ' . implode(' AND ', $w);
     $total = (int) qv("SELECT COUNT(*) FROM campanas c $where", $p);
     $pg    = paginar($total, $f['page'] ?? 1);
-    // Los contadores se leen de la cola en el momento, no de las columnas
-    // guardadas en la campaña. Esas columnas se actualizan durante el envío,
-    // pero si el proceso se corta a mitad quedan viejas y la pantalla miente.
-    // Contar sobre `envios` siempre dice la verdad, y es barato: la columna
+    // Los contadores se leen de la cola en el momento, no de las columnas de
+    // la campaña: si el envío se corta a mitad, esas columnas quedan
+    // desactualizadas. Contar sobre `envios` da el valor real y es barato: la columna
     // está indexada y las campañas son pocas.
     $rows  = q("SELECT c.*, l.nombre AS lista, pl.nombre AS plantilla, u.nombre AS propietario,
                        cat.nombre AS categoria, cat.color AS categoria_color,
@@ -609,7 +607,7 @@ function campana_pasos(array $c): array
     // El sistema detecta una respuesta leyendo una casilla concreta. Si el
     // «Responder a» de la campaña apunta a otra dirección, la respuesta le llega
     // a esa persona y el CRM no se entera nunca: no marca el envío como
-    // respondido, no avisa y no queda registrada. Pasó de verdad.
+    // respondido, no avisa y no queda registrada.
     if ($cuentaOk) {
         $leemos = normalizar_email((string)(cuenta_a_imap($cuenta)['user'] ?? ''));
         $vuelveA = normalizar_email((string)(($c['responder_a'] ?? '') ?: ($cuenta['responder_a'] ?? '')))
@@ -679,7 +677,7 @@ function campana_lista_para_enviar(array $c): bool
  * que 500 correos son 41 horas. No: en cada corrida manda todos los que entran
  * en su presupuesto de tiempo, uno cada 25 a 45 segundos.
  *
- * Se tienen en cuenta las tres cosas que de verdad limitan: el ritmo, el tope
+ * Se tienen en cuenta las tres cosas que limitan: el ritmo, el tope
  * diario de la casilla y la franja horaria en la que se permite enviar.
  *
  * @return array{por_hora:int, horas:float, texto:string, freno:?string}
@@ -744,7 +742,7 @@ function campana_en_horario(array $c): bool
     $ahora = date('H:i:s');
     // Una ventana que cruza la medianoche (22:00 a 06:00) se lee al revés: el
     // «desde» es mayor que el «hasta». Con la comparación directa nunca se
-    // cumplían las dos condiciones a la vez y la campaña no salía nunca.
+    // cumplirían las dos condiciones a la vez y la campaña no saldría nunca.
     if ($c['enviar_desde'] > $c['enviar_hasta']) {
         return $ahora >= $c['enviar_desde'] || $ahora <= $c['enviar_hasta'];
     }
@@ -803,11 +801,10 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
         $texto .= "\n\n---\nPara no recibir más correos: " . $baja;
     }
 
-    // Píxel de apertura. Estaba todo construido —la ruta, la página, las
-    // columnas de la base— menos esta línea, así que nadie lo pedía nunca y
-    // «abierto_en» quedaba siempre vacío. Va último y sin borde, para que no
-    // ensucie el diseño; los clientes que bloquean imágenes simplemente no lo
-    // cargan, y esa apertura no se cuenta. Es el comportamiento normal.
+    // Píxel de apertura: es lo que pide la ruta `px` y llena «abierto_en».
+    // Va último y sin borde, para que no ensucie el diseño; los clientes que
+    // bloquean imágenes no lo cargan y esa apertura no se cuenta, que es lo
+    // normal.
     $html .= '<img src="' . e(url_abs('px?t=' . $envio['token'])) . '" width="1" height="1"'
            . ' alt="" style="display:block;width:1px;height:1px;border:0;">';
 
@@ -834,10 +831,10 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
  * la campaña se vuelve eterna.
  *
  * La corrida se corta sola al llegar a $segundos, para terminar antes de que el
- * cron vuelva a dispararse. Antes mandaba UNO por campaña y por corrida y se
- * iba: con el cron cada 5 minutos eso daba 12 correos por hora, mientras la
- * pantalla prometía 80–100. Una campaña de 500 destinatarios tardaba 42 horas
- * en vez de 5.
+ * cron vuelva a dispararse. Mandar uno solo por campaña y por corrida, con el
+ * cron cada 5 minutos, daría 12 correos por hora en vez de los 80–100 que
+ * promete la pantalla: una campaña de 500 destinatarios tardaría 42 horas en
+ * vez de 5.
  *
  * @param int      $segundos     presupuesto de tiempo de esta corrida
  * @param int|null $soloCampana  trabajar sólo sobre esta campaña (el arranque
@@ -852,9 +849,9 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
 
     // Envíos que quedaron a mitad de camino. Se pasan a 'enviando' justo antes
     // de hablar con el servidor, así que si el proceso se corta ahí (tope de
-    // tiempo del hosting, socket colgado, reinicio) la fila quedaba trabada en
-    // ese estado para siempre: nadie la volvía a tomar y, como sólo se contaban
-    // las pendientes, la campaña se daba por completada igual. Quince minutos
+    // tiempo del hosting, socket colgado, reinicio) la fila quedaría trabada en
+    // ese estado indefinidamente: nadie la volvería a tomar y, como sólo se cuentan
+    // las pendientes, la campaña se daría por completada igual. Quince minutos
     // es más que suficiente para cualquier envío real.
     // Al tomar un envío se le pone `proximo_intento_en = NOW()`, que en ese
     // estado significa «lo estoy trabajando ahora». Si esa marca quedó vieja,
@@ -1007,7 +1004,7 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
             // El avance se actualiza acá, después de cada correo, y no al
             // terminar la campaña. Una corrida puede durar varios minutos: en
             // todo ese rato la pantalla mostraba «0 de 6» mientras los correos
-            // salían de verdad, y parecía que el envío no había arrancado.
+            // ya estaban saliendo, y parecía que el envío no había arrancado.
             campana_recontar($cid);
 
             // Pausa aleatoria antes del siguiente de ESTA campaña. Es lo que
@@ -1026,20 +1023,19 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
 
             // Este hosting cierra la conexión a los 20 segundos de inactividad
             // y la pausa mínima es de 25: después de dormir, la conexión SIEMPRE
-            // está muerta. Sin esto, la campaña mandaba el primer correo y todo
-            // lo que venía después fallaba en silencio —el contador, la marca
-            // del cron, hasta el registro del error—, así que en pantalla no
-            // pasaba nada y el avance se quedaba clavado en cero.
+            // está muerta. Sin esto, la campaña mandaría el primer correo y todo
+            // lo que viene después fallaría en silencio —el contador, la marca
+            // del cron, hasta el registro del error—, con el avance clavado en
+            // cero.
             db_reanudar();
 
             // Se mira la casilla en el medio del envío, no al final.
             //
             // Los rebotes vuelven a los pocos segundos de cada correo y las
             // respuestas empiezan a entrar enseguida. Leyendo sólo al terminar,
-            // la campaña mostraba 6 de 6 con cero rebotes, cero respuestas y
-            // cero reuniones —todo en cero mientras las cosas estaban pasando—
-            // y recién después aparecía todo junto. Acá se aprovecha que ya
-            // estamos en una corrida larga: cada minuto se pasa a mirar.
+            // la campaña mostraría todo en cero mientras las cosas están
+            // pasando, y después aparecería todo junto. Acá se aprovecha que
+            // ya estamos en una corrida larga: cada minuto se pasa a mirar.
             if (function_exists('imap_quizas_revisar')) {
                 imap_quizas_revisar(60);
             }
@@ -1047,10 +1043,9 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
 
         campana_recontar($cid);
 
-        // Si no quedó nada por mandar, la campaña se cierra ACÁ mismo. Antes
-        // había que esperar a la corrida siguiente del cron para que pasara de
-        // «Enviando» a «Completada»: con la cola vacía y el avance al 100 %
-        // seguía diciendo que estaba enviando, y no era cierto.
+        // Si no quedó nada por mandar, la campaña se cierra ACÁ mismo, sin
+        // esperar a la corrida siguiente del cron: con la cola vacía y el
+        // avance al 100 % no puede seguir figurando como «Enviando».
         $faltan = (int) qv("SELECT COUNT(*) FROM envios
                             WHERE campana_id = ? AND estado IN ('pendiente','enviando')", [$cid]);
         if ($faltan === 0) {
@@ -1114,8 +1109,8 @@ function desuscribir(string $email, string $motivo = 'baja', ?int $campanaId = n
 /**
  * Marca un correo como rebotado en todo el CRM.
  *
- * Un rebote DURO (la casilla no existe, el dominio no existe) además **archiva
- * el contacto**: no tiene sentido dejar en la base a alguien al que no se le
+ * Un rebote DURO (la casilla no existe, el dominio no existe) además archiva
+ * el contacto: no tiene sentido dejar en la base a alguien al que no se le
  * puede escribir, y hacerlo a mano con miles de contactos no escala.
  *
  * «Archivar» acá significa mandarlo a la papelera, no borrarlo: sigue estando
@@ -1160,7 +1155,7 @@ function marcar_rebote(string $email, string $detalle = '', bool $duro = false):
                    . ($archivados ? ' · ' . $archivados . ' contacto(s) archivado(s)' : '')]);
 }
 
-/** Cuántos días se conserva lo archivado antes de borrarlo de verdad. */
+/** Cuántos días se conserva lo archivado antes de borrarlo definitivamente. */
 function dias_papelera(): int
 {
     return max(1, (int) setting_get('papelera_dias', '60'));
@@ -1169,7 +1164,7 @@ function dias_papelera(): int
 /**
  * Borra definitivamente lo que lleva más de N días en la papelera.
  *
- * Es el único lugar del sistema donde se borra de verdad. Hasta que se cumple
+ * Es el único lugar del sistema que borra físicamente. Hasta que se cumple
  * el plazo, todo sigue recuperable desde la papelera.
  *
  * @return array<string,int> cuántos se borraron de cada módulo
@@ -1216,8 +1211,8 @@ function marcar_respuesta(string $email, string $asunto = ''): void
       [(int)$envio['id'], recortar($asunto, 400)]);
     campana_recontar((int)$envio['campana_id']);
 
-    // Una respuesta es lo más valioso que produce una campaña, y hasta ahora
-    // quedaba enterrada en la ficha: había que ir a mirarla a propósito.
+    // Una respuesta es lo más valioso que produce una campaña: se avisa para
+    // que no quede enterrada en la ficha, esperando que alguien la vaya a mirar.
     $camp = q1('SELECT nombre, propietario_id FROM campanas WHERE id = ?', [(int)$envio['campana_id']]);
     $quien = q1('SELECT id, nombre_completo FROM contactos WHERE email = ? AND eliminado_en IS NULL LIMIT 1', [$email]);
     notificar('respuesta',

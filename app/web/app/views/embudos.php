@@ -52,8 +52,8 @@
 
         <?php /* El formulario de cada fila va FUERA de la tabla y los campos lo
                  referencian con `form="..."`. Un <form> adentro de un <tr> es HTML
-                 invalido: el navegador lo saca de la tabla al interpretarlo, y
-                 por eso esta pantalla se desarmaba y parecia sin estilos. */ ?>
+                 inválido: el navegador lo saca de la tabla al interpretarlo, y
+                 por eso esta pantalla se desarmaba y parecía sin estilos. */ ?>
         <?php foreach ($etapas[$id] ?? [] as $et): $eid = (int)$et['id']; ?>
             <form method="post" id="et<?= $eid ?>" hidden>
                 <?= csrf_field() ?>

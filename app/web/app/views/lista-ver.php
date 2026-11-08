@@ -102,11 +102,8 @@
                     <td data-label="Empresa" class="prio-2"><?= e(recortar($m['empresa'], 30) ?: '—') ?></td>
                     <td data-label="Estado">
                         <?php
-                        // El estado tiene que anticipar lo que va a pasar cuando
-                        // se mande la campaña. Antes sólo miraba las bajas, así
-                        // que un contacto rebotado o marcado «no incluir» decía
-                        // «Habilitado» acá y después la campaña lo salteaba sin
-                        // que nadie entendiera por qué.
+                        // El estado anticipa lo que va a pasar al mandar la
+                        // campaña: considera bajas, rebotes y «no incluir».
                         if ($m['dado_de_baja']) {
                             echo '<span class="badge badge-rej" title="Pidió no recibir más correos">Dado de baja</span>';
                         } elseif (!empty($m['email_rebotado'])) {

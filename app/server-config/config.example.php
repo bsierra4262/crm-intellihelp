@@ -31,6 +31,10 @@ return [
         'secret'      => 'GENERAR_UN_SECRET_ALEATORIO_LARGO',     // cifrado de tokens de Google
         'idle_ttl'    => 600,                                     // cierre por inactividad (seg)
         'abs_ttl'     => 28800,                                   // sesión máxima absoluta (seg)
+        // Proxies propios delante del CRM (IPs o rangos CIDR). Vacío en
+        // Hostinger: el CDN ya deja la IP del visitante en REMOTE_ADDR. Sólo
+        // desde estos se lee X-Forwarded-For (ver ip_confiable()).
+        'proxies_confiables' => [],
         'brand'       => [
             'primary' => '',                                      // ej. '#663399'
             'accent'  => '',                                      // ej. '#9CC930'

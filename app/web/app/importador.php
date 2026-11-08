@@ -6,7 +6,7 @@ declare(strict_types=1);
 //
 //  Lo que hace, y por qué:
 //   · Reconoce las columnas por su nombre en castellano (así salen del
-//     exportador de Zoho) y también por los alias que ya usa el cliente.
+//     exportador de Zoho) y también por los alias que ya usa el equipo.
 //   · Crea las CUENTAS únicas y enlaza los contactos: en la base real hay
 //     12.249 nombres de empresa para 13.573 contactos, así que importar sin
 //     esto duplicaría empresas por todos lados.
@@ -248,8 +248,8 @@ function importar_contactos_zoho(string $ruta, bool $simular = false, ?int $prop
 }
 
 /**
- * Importa una lista de correos suelta (el CSV «csv descargados.csv» del
- * cliente: Nombre, Apellidos, Cuenta y hasta 4 correos por fila).
+ * Importa una lista de correos suelta (el formato de «csv descargados.csv»:
+ * Nombre, Apellidos, Cuenta y hasta 4 correos por fila).
  * Cada correo se agrega como un miembro distinto de la lista.
  */
 function importar_lista_csv(string $ruta, int $listaId): array

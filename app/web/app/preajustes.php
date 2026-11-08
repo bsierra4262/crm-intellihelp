@@ -23,9 +23,8 @@ declare(strict_types=1);
 /**
  * Arma una plantilla de servicio con la estructura común.
  *
- * Existe para que las ocho salgan idénticas de verdad. Escritas a mano, una
- * termina con el botón de otro color o sin el bloque de contacto, y de eso se
- * entera el cliente antes que nosotros.
+ * Existe para que las ocho plantillas salgan idénticas: escritas a mano, alguna
+ * termina con el botón de otro color o sin el bloque de contacto.
  */
 function preajuste_servicio(array $d): array
 {

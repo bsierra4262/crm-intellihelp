@@ -2,8 +2,7 @@
 declare(strict_types=1);
 require_login();
 
-// Borra una nota. La función existía en registros.php desde el principio y no
-// la llamaba ninguna pantalla: una nota escrita por error se quedaba ahí.
+// Borra una nota desde la ficha del registro (usa la función de registros.php).
 
 if (!is_post()) { redirect('dashboard'); }
 verify_csrf();

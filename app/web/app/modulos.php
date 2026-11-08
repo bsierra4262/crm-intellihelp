@@ -4,9 +4,9 @@ declare(strict_types=1);
 // ============================================================
 //  Qué partes del sistema están en marcha.
 //
-//  El CRM se usa de verdad mucho antes de estar terminado, y eso está bien: la
-//  carga de contactos y empresas ya sirve aunque las campañas todavía se estén
-//  puliendo. Lo que NO sirve es que alguien entre a una pantalla a medio hacer
+//  El CRM está en uso mientras se terminan algunos módulos: la carga de
+//  contactos y empresas ya funciona aunque las campañas sigan en desarrollo.
+//  Lo que hay que evitar es que alguien entre a una pantalla a medio hacer
 //  creyendo que está lista, cargue algo ahí y después no aparezca donde
 //  esperaba.
 //
@@ -59,7 +59,8 @@ function modulos(): array
         ],
         'agenda' => [
             'nombre' => 'Agenda de reuniones',
-            'ayuda'  => 'El enlace público para que reserven una reunión, con Google Calendar y Meet.',
+            'ayuda'  => 'El enlace público para que reserven una reunión, con Google Calendar y Meet, '
+                      . 'y las reservas que llegan desde la web.',
             'rutas'  => ['agenda', 'agenda-form', 'reservas', 'reserva-accion', 'reserva-mover',
                          'google-desconectar'],
         ],
@@ -107,10 +108,9 @@ function modulo_de_ruta(string $ruta): ?string
  */
 function ruta_habilitada(string $ruta): bool
 {
-    // Las alertas no son un módulo propio: son el aviso de lo que producen las
-    // campañas y la agenda —una respuesta, una reunión, un rebote—. Con las dos
-    // apagadas no hay de qué avisar, así que la sección tampoco va: una bandeja
-    // que nunca puede recibir nada es una promesa vacía.
+    // Las alertas no son un módulo propio: avisan de lo que producen las
+    // campañas y la agenda (una respuesta, una reunión, un rebote). Con los dos
+    // apagados, la sección no se habilita.
     if ($ruta === 'alertas' || $ruta === 'api-alertas') {
         return modulo_activo('campanas') || modulo_activo('agenda');
     }

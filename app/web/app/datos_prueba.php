@@ -66,7 +66,7 @@ function datos_prueba_resumen(): array
  * mire los números después.
  *
  * Las plantillas NO se borran: son el punto de partida para escribir las
- * campañas de verdad, y volver a armarlas a mano sería trabajo perdido.
+ * campañas reales, y volver a armarlas a mano sería trabajo perdido.
  *
  * @return array<string,int> qué se borró de cada cosa
  */

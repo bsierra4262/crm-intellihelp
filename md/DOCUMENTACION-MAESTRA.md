@@ -1,11 +1,12 @@
 # DOCUMENTACIÓN MAESTRA · CRM INTELLIHELP
 
 > **Fuente única de verdad del proyecto.** Documenta absolutamente todo lo construido y las
-> decisiones tomadas. Se actualiza en **cada** pedido del usuario (ver [Changelog](#15-changelog)).
+> decisiones tomadas. Se actualiza con **cada** cambio (ver [Changelog](#15-changelog)).
 >
 > Documentos complementarios:
 > [ZOHO-CRM-REFERENCIA.md](ZOHO-CRM-REFERENCIA.md) · [REQUERIMIENTOS.md](REQUERIMIENTOS.md) ·
-> [MIGRACION-ZOHO.md](MIGRACION-ZOHO.md) · [CAMPANAS.md](CAMPANAS.md) · [AGENDA.md](AGENDA.md)
+> [MIGRACION-ZOHO.md](MIGRACION-ZOHO.md) · [CAMPANAS.md](CAMPANAS.md) · [AGENDA.md](AGENDA.md) ·
+> [INTEGRACION-WEB.md](INTEGRACION-WEB.md)
 
 ---
 
@@ -21,6 +22,7 @@
 8. [Negocios y embudo](#8-negocios-y-embudo)
 9. [Actividades](#9-actividades)
 10. [Agenda propia de reuniones](#10-agenda-propia-de-reuniones)
+    · [Reservas y consultas desde la web](#101-reservas-y-consultas-desde-la-web)
 11. [Campañas de correo](#11-campañas-de-correo)
 12. [Diseño e interfaz](#12-diseño-e-interfaz)
 13. [Despliegue](#13-despliegue)
@@ -110,26 +112,29 @@ CMR/
 │   │   │   ├── google.php        OAuth 2.0
 │   │   │   ├── gcal.php          Google Calendar + Meet
 │   │   │   ├── actividad.php     auditoría (CRON)
-│   │   │   ├── crm.php           cuentas, contactos, posibles clientes
+│   │   │   ├── crm.php           cuentas, contactos, posibles clientes, entradas de la web
+│   │   │   ├── api.php           API v1 de la web: firma, límites, validación, idempotencia
 │   │   │   ├── negocios.php      embudo
 │   │   │   ├── actividades.php   tareas, llamadas, reuniones
 │   │   │   ├── campanas.php      campañas, plantillas, listas
 │   │   │   ├── envio.php         motor SMTP (cola, reintentos, pausa)
 │   │   │   ├── imap.php          rebotes y respuestas
-│   │   │   ├── agenda.php        reservas públicas
+│   │   │   ├── agenda.php        huecos, reservas, cambio de horario, invitación .ics
 │   │   │   ├── importador.php    CSV de Zoho
 │   │   │   ├── icons.php         iconos SVG en línea
-│   │   │   ├── pages/            un controlador por ruta (incl. api/)
+│   │   │   ├── pages/            un controlador por ruta (incl. api/ y api/v1/)
 │   │   │   └── views/            plantillas (layout + una por pantalla)
 │   │   └── assets/               css, js, img
-│   ├── db/                       schema.sql y migraciones
+│   ├── db/                       schema.sql y migraciones (migracion-NNN-….sql)
 │   ├── cron.php                  tareas periódicas (CLI y cron-URL)
+│   ├── migrar.php                aplica una migración con la config de SU instalación (sólo CLI)
+│   ├── reinicio.php              vacía la instalación de pruebas y siembra los datos de prueba (sólo CLI)
 │   └── server-config/            config.example.php (el real no se versiona)
 ├── bin/                          setup.php, deploy, utilidades
 ├── test/                         batería de regresión + documento maestro de pruebas
 ├── md/                           esta documentación
 ├── docs/                         banner y capturas
-└── Documentacion a consultar/    material que aporta el cliente (CSV de Zoho, etc.)
+└── Documentacion a consultar/    material de referencia (CSV de Zoho, etc.)
 ```
 
 **Cache-busting:** los assets se referencian con `?v=NNN`; al desplegar un cambio se incrementa.
@@ -146,7 +151,8 @@ Esquema completo en [`app/db/schema.sql`](../app/db/schema.sql). Grupos de tabla
 | CRM | `cuentas`, `contactos`, `posibles_clientes`, `etiquetas`, `etiqueta_registro`, `notas`, `adjuntos` |
 | Embudo | `negocios`, `embudos`, `etapas` |
 | Actividades | `tareas`, `llamadas`, `reuniones`, `reunion_invitados` |
-| Agenda | `agenda_tipos`, `agenda_disponibilidad`, `agenda_reservas` |
+| Agenda | `agenda_tipos`, `agenda_horarios`, `agenda_reservas` |
+| Entradas desde la web | `entradas_web` (cada consulta y reserva que llega de intellihelp.tech, con página, canal y consentimiento), `api_limites` (contadores de los límites de envíos) |
 | Campañas | `campanas`, `plantillas`, `listas`, `lista_miembros`, `envios`, `eventos_envio`, `desuscripciones` |
 | Migración | `import_lotes`, `import_filas` |
 
@@ -183,7 +189,14 @@ Igual que en APP Tickets: una tabla `actividad` con dos canales.
 - **`app`** — qué hace cada usuario: navegación, altas, ediciones, borrados, conversiones,
   importaciones, envíos, ingresos y cierres de sesión, y **todos los errores** (PHP y
   JavaScript), cada uno con un código estable `ERR-XXXXXX` por archivo:línea.
-- **`api`** — cada pedido a la API de lectura.
+- **`api`** — cada pedido a la API de lectura y a la API v1 de la web: acción, clave, código
+  de respuesta y, si corresponde, el número de entrada. **Nunca** nombre, correo, teléfono ni
+  mensaje: esos datos viven en `entradas_web`, que se anonimiza.
+
+**La IP de quien no tiene sesión no se guarda en claro** (Ley 25.326). Los visitantes de las
+páginas públicas —agenda, baja de suscripción— y los pedidos de la web quedan con `h:` y el
+hash de la IP con el secreto de la instalación: alcanza para ver que diez pedidos vinieron del
+mismo lugar, sin saber de cuál. Con sesión (el equipo) se guarda como siempre.
 
 La sección **CRON** (solo admin) muestra la bitácora con filtros por canal, tipo, texto y
 fechas, tarjetas de resumen y paginación. **El histórico nunca se borra**; en pantalla se
@@ -207,7 +220,7 @@ formulario), para que aprender uno sea aprender los tres.
 **Decisiones:**
 
 - Los campos «extra» (conmutador, teléfono directo, LinkedIn, tercer correo) **no son
-  invento nuestro**: son los campos personalizados que el cliente ya usa en Zoho, y sin ellos
+  invento nuestro**: son los campos personalizados que el equipo ya usa en Zoho, y sin ellos
   se perdería el 77 % de los teléfonos de la base.
 - **Alta de empresa al vuelo** desde el formulario de contacto: escribir el nombre alcanza,
   no hay que salir a crearla aparte.
@@ -262,12 +275,15 @@ Reemplazo de Calendly. Detalle del diseño en
 | Pieza | Implementación |
 |---|---|
 | Tipos de reunión | `agenda_tipos` + `agenda_horarios` (horario laboral por día de la semana) |
-| Disponibilidad | `agenda_huecos()` — horario laboral **menos** `freeBusy` de Google Calendar **menos** lo ya reservado, con colchón entre reuniones y antelación mínima |
-| Página pública | `/r/<usuario>/<tipo>` — sin login, elige día y hora y completa sus datos |
-| Alta del evento | `gcal_crear_evento()` con `conferenceData.createRequest` y `conferenceSolutionKey.type = hangoutsMeet`, `conferenceDataVersion=1` |
-| Vuelta al CRM | Crea o enlaza el contacto, deja la reunión en Actividades y registra la reserva |
-| Avisos | Confirmación al reservar y recordatorio 24 h antes (por el cron) |
-| Cancelación | `/r/cancelar?t=<token>` — borra el evento en Google y da de baja la actividad |
+| Disponibilidad | `agenda_huecos_rango()` — horario laboral **menos** `freeBusy` de Google Calendar **menos** lo ya reservado, con colchón entre reuniones y antelación mínima, en la zona horaria del tipo. La consulta a Google cubre hasta el **final** del último día ofrecido |
+| Página pública | `/r/<usuario>/<tipo>` — sin login, elige día y hora y completa sus datos. Se apaga con el módulo Agenda |
+| Reserva | `agenda_reservar()` — bloquea el calendario del vendedor (`GET_LOCK` con el nombre de la base), comprueba que el inicio sea un hueco ofrecido y siga libre, y guarda reserva, contacto, empresa y reunión en una transacción. Es todo base de datos: responde en menos de un segundo |
+| Alta del evento | `agenda_reserva_completar()` → `gcal_crear_evento()` con Meet y `sendUpdates=none`; después el correo con la invitación `.ics`. Si el proceso se corta, el cron la completa (`avisada_en` vacío) |
+| Vuelta al CRM | Contacto por cualquiera de sus tres correos, empresa sin duplicar («ACME S.A.» = «Acme SA», dominio corporativo) y la reunión en Actividades **con la empresa** |
+| Avisos | Una sola invitación, la del CRM, con el `iCalUID` de Google. Confirmación, recordatorio 24 h antes (cron) y cancelación, siempre con el mismo `UID` y la secuencia siguiente |
+| Cambio de horario | `/r/mover?t=<token>` — el invitado elige otro hueco; el evento de Google se mueve y la invitación nueva reemplaza a la anterior |
+| Cancelación | `/r/cancelar?t=<token>` — sirve aunque sea el enlace de un correo viejo (sigue la cadena hasta la reserva vigente); borra el evento en Google y da de baja la actividad |
+| Protección | Campo trampa, token de formulario firmado (mínimo 3 s, máximo 2 h; hace de CSRF), consentimiento obligatorio y 3 envíos por hora / 6 por día por hash de IP |
 
 **Detalles que costaron:**
 
@@ -276,9 +292,62 @@ Reemplazo de Calendly. Detalle del diseño en
 - Se pide **acceso offline** (`prompt=consent` la primera vez) porque quien reserva es un
   cliente de afuera, no el vendedor: hace falta el `refresh_token` para poder crear el evento
   sin que el vendedor tenga sesión abierta.
-- Antes de guardar se **revalida el horario**: entre que el visitante elige y confirma, otro
-  pudo haber tomado el mismo hueco.
+- Antes de guardar se **revalida el horario** con el calendario del vendedor bloqueado: entre
+  que el visitante elige y confirma, otro pudo haber tomado el mismo hueco. Sin el bloqueo, dos
+  pedidos simultáneos se quedaban con el mismo horario.
 - Si Google falla, la reserva **no se pierde**: queda en el CRM con el error registrado.
+- **Una sola invitación.** Antes salían dos —la de Google y la del CRM, con identificadores
+  distintos— y el cliente quedaba con dos eventos para la misma reunión. Google ya no avisa a
+  nadie; la `.ics` del CRM usa el `iCalUID` del evento, así que para Gmail son el mismo. Si en
+  algún caso duplicara, `agenda_invitado_en_google = 0` saca al cliente de los invitados de
+  Google (entra a la Meet pidiendo permiso).
+- **El evento de Google sólo lleva el nombre y la empresa**, en el título. Ni el comentario, ni
+  el teléfono, ni de dónde llegó: el evento lo ven todos los invitados. La reserva queda
+  enlazada en `extendedProperties.private.crm_reserva_id`, que sólo ve el dueño del calendario.
+
+### 10.1 Reservas y consultas desde la web
+
+La landing `intellihelp.tech/diagnostico/` y el formulario «Agendá una reunión» entran al CRM
+por la **API v1**, servidor a servidor. Contrato completo y decisiones en
+[INTEGRACION-WEB.md](INTEGRACION-WEB.md).
+
+| Recurso | Qué hace |
+|---|---|
+| `GET api/v1/disponibilidad` | Los horarios libres de un tipo de reunión (hasta 31 días). Sin calendario responde `503` y la web muestra el formulario |
+| `POST api/v1/reserva` | Toma el horario y responde `201`; el evento con Meet y el correo salen después de responder |
+| `POST api/v1/entrada` | Consulta sin reunión: contacto, empresa, nota con el mensaje, tarea «Responder consulta web» para el responsable y alerta |
+
+**Seguridad.** Clave con el permiso «Escritura (web)» y un secreto que nunca viaja: cada pedido
+va firmado con HMAC-SHA256 sobre la hora, el método, la ruta completa (con la carpeta de la
+instalación: una firma de pruebas no sirve en producción) y el cuerpo. Se aceptan 5 minutos de
+diferencia de reloj. El secreto se guarda cifrado y se muestra una sola vez. La API exige que
+la instalación tenga su `app.secret` propio, de 32 caracteres o más.
+
+**Reintentos sin duplicados.** Cada escritura trae una clave de idempotencia y se guarda en
+`entradas_web` **antes** de tocar la agenda. El mismo pedido otra vez recibe la respuesta
+original; la misma clave con otro pedido, `409`. Si el horario ya estaba tomado, la web puede
+volver a mandar con la misma clave y otro horario. Una consulta igual (mismo correo, servicio y
+mensaje) dentro de los 30 minutos queda descartada: es un doble clic o el botón «atrás».
+
+**Límites.** 120 consultas de horarios y 30 escrituras por minuto por clave; por visitante
+(hash de la IP que calcula la web), 3 reservas por hora y 6 por día, 5 consultas por hora y 10
+por día. Al pasarse responde `429` con `Retry-After`.
+
+**De dónde llegó.** Cada entrada guarda la página, el canal, las UTM, `gclid` y `li_fat_id`, el
+referrer, la landing y las visitas. La pantalla **Entradas desde la web** muestra el listado
+con filtros y exportación, y arriba las tarjetas por canal con consultas, reuniones agendadas,
+realizadas y canceladas: son las métricas que la consultora mira cada mes. Ahí también se elige
+quién atiende las consultas (`web_dueno_id`; si no hay nadie elegido, el vendedor del tipo
+`diagnostico`, y si tampoco, el primer administrador).
+
+**Datos personales (Ley 25.326).** Consentimiento expreso con fecha, versión y huella del
+texto. Los contactos nuevos que entran por la web quedan con «No incluir en campañas» salvo que
+pidan novedades; a uno que ya existía no se le cambia nada (ni dueño, ni fuente, ni bajas). La
+IP nunca se guarda: sólo su hash. El cron borra los datos personales de las entradas viejas
+sin contacto o con error, y conserva el canal y la página para las métricas.
+
+**Sin posibles clientes ni negocios.** Una consulta todavía no es una oportunidad: el negocio lo
+abre quien califique la reunión.
 
 ---
 
@@ -344,15 +413,23 @@ Reglas que se auditan de raíz (no se parchan):
 - **Configuración:** `/home/uXXXXXXXXX/crm_config/config.php` (fuera del webroot, `chmod 600`).
 - **Base:** `uXXXXXXXXX_crm` en `localhost`.
 - **Cron:** `app/cron.php` cada 5 minutos desde el hPanel (despacho de campañas, IMAP,
-  recordatorios de agenda).
+  reservas que quedaron sin evento o sin correo, recordatorios de agenda y, una vez por día,
+  la anonimización de las entradas de la web y la purga de los contadores de límites).
+- **Migraciones:** `python bin/deploy.py migrar app/db/migracion-NNN-….sql [--pruebas]`. Sube el
+  `.sql` fuera del webroot y lo aplica `migrar.php` con la configuración de esa instalación: no
+  pide credenciales de base y no puede equivocarse de base. Con `--simular` sólo lista las
+  sentencias. En producción, siempre con un respaldo previo de la base.
+- **Pruebas:** `python bin/deploy.py test [--pruebas]` corre la lógica (`run_tests.php`), la
+  interfaz (`ui_test.php`) y el HTTP (`smoke.sh`); contra pruebas suma `api_test.php`, que
+  prueba la API v1 de punta a punta y borra lo que creó.
 - **Subida:** SFTP/SSH con `bin/deploy.py`. Los assets llevan `?v=NNN`; se incrementa al cambiar.
 
 ---
 
 ## 14. Reglas del proyecto
 
-1. **Investigar a fondo antes de implementar.** Nada se inventa; lo que no se pudo verificar se
-   dice explícitamente.
+1. **Relevar antes de implementar.** Los supuestos que no se pudieron confirmar quedan
+   documentados.
 2. **Documentación siempre al día** — este documento maestro, el README, el changelog y los
    `.md` de cada módulo, en el mismo cambio que el código.
 3. **Un test de regresión por cada defecto** encontrado: falla con el bug, pasa con el arreglo.
@@ -362,8 +439,8 @@ Reglas que se auditan de raíz (no se parchan):
 6. **Nada de datos de prueba en producción.** La base arranca vacía; los datos los carga el equipo.
 7. **El trabajo del usuario nunca se pierde:** la campaña retoma donde quedó, los formularios
    guardan borrador.
-8. **Sin rastros de IA.** Código de producción, comentarios en castellano rioplatense que
-   explican el *porqué*, no el *qué*.
+8. **Código de producción, sin restos de prueba ni código muerto.** Comentarios en castellano
+   que explican el *porqué*, no el *qué*.
 9. **Cada cambio se aplica en todo por igual:** si algo mejora en un módulo, se replica en los
    equivalentes.
 
@@ -371,21 +448,34 @@ Reglas que se auditan de raíz (no se parchan):
 
 ## 15. Changelog
 
-> Cada pedido del usuario se registra acá, del más nuevo al más viejo.
+> Cada cambio se registra acá, del más nuevo al más viejo.
 
-- **2026-07-30** — Primera versión completa en producción sobre `crm.intellihelp.tech`:
-  núcleo CRM (empresas, contactos, posibles clientes con conversión), embudo con Kanban y
-  pronóstico, actividades unificadas, campañas de correo con cola + cron + IMAP,
-  agenda propia con Google Calendar y Meet, importador del CSV de Zoho, papelera, auditoría,
-  API de lectura y reportes. Batería de 85 pruebas unitarias y 48 comprobaciones HTTP, todas
-  en verde. Repositorio publicado en GitHub.
-- **2026-07-30** — Arranque del proyecto. Investigación a fondo de Zoho CRM y del CSV real del
-  cliente (13.573 contactos, 71 columnas): se documenta el mapa 1:1 en
-  [ZOHO-CRM-REFERENCIA.md](ZOHO-CRM-REFERENCIA.md) con marcas de uso real para que el cliente
-  indique qué sobra. Se crean este documento maestro, los requerimientos permanentes y la
-  estructura del repositorio. Decisiones cerradas con el cliente: login 100 % Google Workspace,
-  campañas por cola + cron + IMAP completo, SMTP de Gmail/Workspace, agenda propia con Google
-  Calendar y Meet automático en reemplazo de Calendly.
+- **2026-10-30** — Integración con la web (landing `/diagnostico/` y formulario de contacto),
+  sólo en la parte de reuniones. API v1 firmada (`disponibilidad`, `reserva`, `entrada`) con
+  idempotencia, límites y auditoría sin datos personales; tabla `entradas_web` con la página y
+  el canal de cada consulta y reserva, y pantalla «Entradas desde la web» con las métricas por
+  canal. Agenda corregida: el inicio tiene que ser un hueco ofrecido y libre, bloqueo por
+  vendedor contra la doble reserva, la consulta a Google cubre el último día, una sola
+  invitación con el identificador de Google, el evento sin el comentario del cliente, la
+  reunión con su empresa, cambio de horario desde el correo (`/r/mover`), cancelación desde
+  cualquier correo de la cadena, campo trampa, token de formulario, límite por IP,
+  consentimiento y apagado real de `/r/` con el módulo Agenda. La auditoría guarda la IP de los
+  visitantes como hash. Migración 008 con `migrar.php`; `deploy.py schema --pruebas` ya no
+  apunta a la base de producción. Pruebas nuevas: firma, validación, idempotencia, duplicados,
+  límites, ventana y huecos de la agenda, invitación `.ics`, y `api_test.php` de punta a punta
+  contra pruebas.
+
+- **2026-07-30** — Primera versión en producción sobre `crm.intellihelp.tech`: núcleo CRM
+  (empresas, contactos, posibles clientes con conversión), embudo con Kanban y pronóstico,
+  actividades unificadas, campañas de correo con cola + cron + IMAP, agenda propia con Google
+  Calendar y Meet, importador del CSV de Zoho, papelera, auditoría, API de lectura y reportes.
+  Batería de 85 pruebas unitarias y 48 comprobaciones HTTP. Repositorio publicado en GitHub.
+  Base del diseño: el análisis de Zoho CRM y del CSV real de la empresa (13.573 contactos,
+  71 columnas), con el mapa 1:1 en [ZOHO-CRM-REFERENCIA.md](ZOHO-CRM-REFERENCIA.md) y marcas
+  de uso real para que el equipo comercial indique qué sobra; este documento maestro y los
+  requerimientos permanentes. Decisiones cerradas con la dirección comercial: login 100 %
+  Google Workspace, campañas por cola + cron + IMAP completo, SMTP de Gmail/Workspace, agenda
+  propia con Google Calendar y Meet automático en reemplazo de Calendly.
 
 ---
 

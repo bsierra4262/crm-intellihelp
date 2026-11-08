@@ -11,8 +11,12 @@ if ($clave === '' && preg_match('/Bearer\s+(\S+)/i', (string)($_SERVER['HTTP_AUT
     $clave = $m[1];
 }
 
+// Sólo las claves de lectura (y la root). La de la web es de escritura y no
+// sirve sin su secreto: si se filtrara sola, con ella no se tiene que poder
+// leer nada, tampoco estos contadores.
 $token = $clave !== ''
-    ? q1('SELECT * FROM api_tokens WHERE token_hash = ? AND activo = 1', [hash('sha256', $clave)])
+    ? q1("SELECT * FROM api_tokens WHERE token_hash = ? AND activo = 1 AND scope IN ('lectura', 'root')",
+         [hash('sha256', $clave)])
     : null;
 
 if (!$token) {

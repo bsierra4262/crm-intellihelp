@@ -2,9 +2,8 @@
 declare(strict_types=1);
 require_login();
 
-// Corta el acceso a Google Calendar. La función de revocación ya existía en
-// google.php pero no había ninguna pantalla que la llamara: para desconectar
-// había que entrar a la base de datos.
+// Desconecta la cuenta de Google Calendar del usuario actual
+// (google_desconectar() en google.php revoca el acceso).
 
 if (!is_post()) { redirect('agenda'); }
 verify_csrf();

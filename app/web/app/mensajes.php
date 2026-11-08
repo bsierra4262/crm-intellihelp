@@ -4,14 +4,10 @@ declare(strict_types=1);
 // ============================================================
 //  Conversaciones: leer y contestar sin salir del CRM.
 //
-//  Antes, cuando alguien respondía una campaña, lo único que se podía hacer
-//  era marcar la alerta como leída. El sistema te avisaba de algo que después
-//  no te podía mostrar: para leer qué había dicho la persona había que irse al
-//  correo, y para contestarle también. Ahí se pierde el hilo: el que atiende
-//  mañana no sabe qué se habló, porque quedó en la bandeja de alguien.
-//
-//  Con esto el mensaje se guarda, se lee acá y se contesta desde acá, y la
-//  conversación queda pegada al contacto.
+//  Las respuestas a las campañas se guardan, se leen y se contestan desde
+//  acá, y la conversación queda pegada al contacto. Si para leer y contestar
+//  hubiera que irse al correo, se perdería el hilo: el que atiende mañana no
+//  sabría qué se habló, porque quedó en la bandeja de alguien.
 // ============================================================
 
 /**
@@ -170,10 +166,8 @@ function mensaje_responder(int $mensajeId, string $texto, ?int $usuarioId = null
 
     $messageId = nuevo_message_id();
 
-    // La firma de la casilla, si tiene. Es lo que hace que la respuesta salga
-    // igual que desde Gmail: con el nombre, el cargo y el teléfono, siempre los
-    // mismos. Un correo comercial sin firma se nota, y se nota justo cuando
-    // del otro lado están decidiendo si trabajar con nosotros.
+    // La firma de la casilla, si tiene: la respuesta sale con nombre, cargo y
+    // teléfono, igual que desde Gmail.
     $firma = trim((string)($cfg['firma'] ?? ''));
     $textoFinal = $firma !== '' ? $texto . "
 
@@ -218,13 +212,12 @@ function mensaje_responder(int $mensajeId, string $texto, ?int $usuarioId = null
        $messageId, (string)$orig['message_id'], $refs, $usuarioId ?: current_user_id()]);
 
     // El id se toma ACÁ. Más abajo hay otra escritura —la auditoría— y
-    // `last_id()` devuelve la última de la conexión, no la de esta tabla: leído
-    // al final, el id que volvía era el del registro de auditoría y quien
-    // llamaba se quedaba con un mensaje que no existía.
+    // `last_id()` devuelve la última de la conexión, no la de esta tabla:
+    // leído al final, devolvería el id del registro de auditoría.
     $nuevo = (int) last_id();
 
     // Contestada es leída: si no, la conversación queda marcada como pendiente
-    // para siempre después de haberla atendido.
+    // aunque ya se haya atendido.
     conversacion_marcar_leida($para);
 
     log_app('mensaje.responder', ['entidad' => 'contacto', 'entidad_id' => (int)($orig['contacto_id'] ?? 0),

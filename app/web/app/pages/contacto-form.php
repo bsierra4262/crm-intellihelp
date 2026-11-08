@@ -26,9 +26,8 @@ if (is_post()) {
         }
     }
 
-    // El teléfono se comprueba en el SERVIDOR. `type="tel"` no valida nada: es
-    // sólo una pista para que el celular abra el teclado numérico, y con ese
-    // atributo puesto se pueden escribir letras igual. Antes se guardaban.
+    // El teléfono se valida en el servidor: `type="tel"` solo cambia el teclado
+    // del celular y deja escribir letras.
     foreach (['telefono' => 'Teléfono directo', 'movil' => 'Móvil', 'conmutador' => 'Conmutador'] as $k => $et) {
         if (trim((string)($d[$k] ?? '')) !== '' && !telefono_valido($d[$k])) {
             $errores[$k] = "$et: sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.";

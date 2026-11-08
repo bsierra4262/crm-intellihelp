@@ -275,7 +275,7 @@
     //
     //  Normalizar una base importada es repasar cientos de fichas. Abriendo una
     //  por una nadie lo termina: se filtra por pendientes, se repasa la pantalla
-    //  y se aprueba de a tandas. La barra aparece recién cuando hay algo
+    //  y se aprueba de a varias juntas. La barra aparece recién cuando hay algo
     //  marcado, porque fija ocuparía lugar todo el tiempo.
     // --------------------------------------------------------
     function casillas() {

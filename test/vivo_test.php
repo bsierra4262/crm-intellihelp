@@ -4,13 +4,12 @@ declare(strict_types=1);
 // ============================================================
 //  Test del refresco automático — CRM INTELLIHELP
 //
-//  Esto se prueba por HTTP de verdad, con una sesión real, porque lo que hay
-//  que demostrar no se puede demostrar de otra forma:
+//  Se prueba por HTTP, con una sesión real:
 //
 //   1. que el refresco traiga sólo el cuerpo (si trajera el layout, cada
 //      vuelta metería un menú entero adentro de la tabla);
 //   2. que cuando no cambió nada la respuesta vuelva vacía, sin repintar la
-//      pantalla ni hacerte perder el lugar donde estabas;
+//      pantalla ni perder la posición de scroll;
 //   3. que cuando cambia un dato, el refresco lo traiga;
 //   4. que el refresco NO cuente como actividad. Esto es lo importante: el
 //      navegador pide solo cada pocos segundos, con la pantalla abierta y

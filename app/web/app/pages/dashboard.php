@@ -21,10 +21,8 @@ if (isset($_GET['vista']) && in_array($_GET['vista'], ['separado', 'unificado'],
     redirect('dashboard' . (($_GET['ambito'] ?? '') === 'mio' ? '?ambito=mio' : ''));
 }
 $separado = $vista === 'separado';
-// Por defecto se ve TODO. Arrancaba filtrando por «lo mío» y, con los
-// contactos importados sin propietario asignado, el panel mostraba cero:
-// parecía que la importación no había pasado. Lo general es lo que responde
-// «cómo viene el sistema»; lo personal es un recorte que se pide.
+// Por defecto se ve todo el sistema; «lo mío» es un filtro que se pide. Los
+// contactos importados no tienen propietario y no aparecerían en la vista personal.
 $mio = ($_GET['ambito'] ?? 'todos') === 'mio';
 
 // Filtro de propietario reutilizado en todas las consultas del panel.
