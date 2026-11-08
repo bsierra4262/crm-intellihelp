@@ -69,7 +69,7 @@ if ($resto === 'cancelar') {
             $r  = q1('SELECT * FROM agenda_reservas WHERE id = ?', [(int)$r['id']]) ?? $r;
         }
     }
-    $tipo = $r ? agenda_tipo_get((int)$r['tipo_id']) : null;
+    $tipo = $r ? agenda_tipo_de_reserva($r) : null;
     render('agenda-cancelar', [
         'r'         => $r,
         'tipo'      => $tipo,
@@ -86,7 +86,7 @@ if ($resto === 'cancelar') {
 // que escribir y esperar a que alguien la moviera desde el CRM.
 if ($resto === 'mover') {
     $r     = agenda_reserva_vigente((string)($_GET['t'] ?? ''));
-    $tipo  = $r ? agenda_tipo_get((int)$r['tipo_id']) : null;
+    $tipo  = $r ? agenda_tipo_de_reserva($r) : null;
     $error = null;
 
     if ($r && $tipo && $r['estado'] === 'confirmada' && is_post()) {

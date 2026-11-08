@@ -129,7 +129,8 @@ try {
     entrada_web_actualizar($entradaId, [
         'estado'         => 'ok',
         'error'          => null,
-        'propietario_id' => (int)$tipo['usuario_id'],
+        // Quien atiende la reunión: el dueño del tipo o quien lo cubre ese día.
+        'propietario_id' => (int)$reserva['usuario_id'],
         'contacto_id'    => $reserva['contacto_id'] ?? null,
         'cuenta_id'      => $reserva['cuenta_id'] ?? null,
         'actividad_id'   => $reserva['actividad_id'] ?? null,

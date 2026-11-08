@@ -8,6 +8,12 @@ y el versionado, [SemVer](https://semver.org/lang/es/).
 
 ### Added
 
+- **Cobertura de la agenda por vacaciones** (ajuste `agenda_coberturas`). Entre dos fechas,
+  otra persona atiende un tipo de reunión: los horarios salen de su calendario y la reunión,
+  el evento con Meet y la confirmación quedan a su nombre. La web no cambia nada y al terminar
+  el período vuelve sola al dueño. La confirmación, el recordatorio, el cambio de horario y la
+  cancelación usan siempre a quien tiene la reserva, no al dueño del tipo.
+
 - **API v1 para la web** (`api/v1/disponibilidad`, `api/v1/reserva`, `api/v1/entrada`). La
   landing `/diagnostico/` muestra los horarios libres reales del vendedor y reserva en la
   agenda del CRM; el formulario de contacto deja la consulta en el CRM además del correo. Cada

@@ -284,6 +284,7 @@ Reemplazo de Calendly. Detalle del diseño en
 | Cambio de horario | `/r/mover?t=<token>` — el invitado elige otro hueco; el evento de Google se mueve y la invitación nueva reemplaza a la anterior |
 | Cancelación | `/r/cancelar?t=<token>` — sirve aunque sea el enlace de un correo viejo (sigue la cadena hasta la reserva vigente); borra el evento en Google y da de baja la actividad |
 | Protección | Campo trampa, token de formulario firmado (mínimo 3 s, máximo 2 h; hace de CSRF), consentimiento obligatorio y 3 envíos por hora / 6 por día por hash de IP |
+| Cobertura (vacaciones) | Ajuste `agenda_coberturas`: quién atiende un tipo de reunión entre dos fechas. Esos días los horarios salen del calendario de quien cubre y la reunión queda a su nombre (evento, Meet, confirmación y «responder a»). Terminado el período vuelve sola al dueño. Ver abajo |
 
 **Detalles que costaron:**
 
@@ -304,6 +305,28 @@ Reemplazo de Calendly. Detalle del diseño en
 - **El evento de Google sólo lleva el nombre y la empresa**, en el título. Ni el comentario, ni
   el teléfono, ni de dónde llegó: el evento lo ven todos los invitados. La reserva queda
   enlazada en `extendedProperties.private.crm_reserva_id`, que sólo ve el dueño del calendario.
+
+**Cobertura por vacaciones.** La web y el enlace público piden siempre el mismo tipo
+(`cbaldelli/diagnostico`); lo que cambia es quién lo atiende cada día. Se carga en el ajuste
+`agenda_coberturas` (tabla `app_settings`), una lista JSON:
+
+```json
+[{"tipo_id": 4, "usuario_id": 4, "desde": "2026-11-09", "hasta": "2026-11-24"}]
+```
+
+- Las fechas van **incluidas** y se leen en la zona horaria del tipo.
+- Los días cubiertos, `agenda_huecos_rango()` calcula con el Google Calendar y las reservas de
+  quien cubre; el resto de los días, con los del dueño. Si el calendario de uno no se puede
+  leer, sólo sus días quedan sin horarios.
+- `agenda_reservar()` decide el anfitrión por la fecha del inicio (`agenda_tipo_para()`): la
+  reserva, la reunión, el contacto nuevo y la entrada de la web quedan a su nombre.
+- Lo que viene después (evento con Meet, confirmación, recordatorio, cambio de horario,
+  cancelación) usa siempre a quien tiene la reserva (`agenda_tipo_de_reserva()`). Una reunión
+  ya tomada no cambia de manos: si el invitado la mueve, se le ofrecen los horarios de esa
+  misma persona.
+- Quien cubre tiene que tener su Google conectado en el CRM; si no, sus días no muestran
+  horarios (nunca se publica sin ver el calendario).
+- Si quien cubre deja de estar activo, esos días vuelven al dueño.
 
 ### 10.1 Reservas y consultas desde la web
 

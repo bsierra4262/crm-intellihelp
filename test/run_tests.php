@@ -678,6 +678,23 @@ $otroNonce = $tokenCon(7, time() - 10, 'reservar', 'fedcba9876543210');
 $cambiado  = implode('.', array_replace(explode('.', $otroNonce), [2 => '0123456789abcdef']));
 ok('cambiar el número al azar invalida la firma', !agenda_form_token_valido($cambiado, 7, $m) && $m === 'invalido');
 
+echo "== Agenda: cobertura por vacaciones ==\n";
+$cobJson = json_encode([
+    ['tipo_id' => 4, 'usuario_id' => 4, 'desde' => '2026-11-09', 'hasta' => '2026-11-24'],
+    ['tipo_id' => 9, 'usuario_id' => 5, 'desde' => '2026-11-01', 'hasta' => '2026-11-30'],
+    ['tipo_id' => 4, 'usuario_id' => 0, 'desde' => '2026-12-01', 'hasta' => '2026-12-05'],
+    ['tipo_id' => 4, 'usuario_id' => 6, 'desde' => '2026-12-10', 'hasta' => '2026-12-01'],
+    ['tipo_id' => 4, 'usuario_id' => 6, 'desde' => '10/12/2026', 'hasta' => '2026-12-20'],
+    'basura',
+]);
+$cob = agenda_coberturas_leer($cobJson, 4);
+eq('sólo las coberturas válidas de ese tipo', $cob, [['usuario_id' => 4, 'desde' => '2026-11-09', 'hasta' => '2026-11-24']]);
+eq('ajuste vacío o roto: ninguna cobertura', [agenda_coberturas_leer('', 4), agenda_coberturas_leer('{x', 4)], [[], []]);
+eq('el día antes de las vacaciones atiende el dueño', agenda_cobertura_del_dia($cob, '2026-11-08'), null);
+eq('el primer día cubre otro', agenda_cobertura_del_dia($cob, '2026-11-09'), 4);
+eq('el último día también (las fechas van incluidas)', agenda_cobertura_del_dia($cob, '2026-11-24'), 4);
+eq('el día después vuelve solo al dueño', agenda_cobertura_del_dia($cob, '2026-11-25'), null);
+
 // ------------------------------------------------------------
 //  Lo que depende de la base: idempotencia, duplicados y límites.
 //

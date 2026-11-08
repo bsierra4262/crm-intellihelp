@@ -22,7 +22,7 @@ if ((int)$r['usuario_id'] !== current_user_id() && !auth_is_admin()) {
     exit;
 }
 
-$tipo = agenda_tipo_get((int)$r['tipo_id']);
+$tipo = agenda_tipo_de_reserva($r);
 if (!$tipo) {
     http_response_code(404);
     render('error', ['codigo' => 404, 'titulo' => 'El tipo de reunión ya no existe',

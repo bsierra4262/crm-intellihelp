@@ -193,4 +193,6 @@ try {
 // Evento de Google con Meet y correo de confirmación. Acá se espera, porque
 // la pantalla de confirmación muestra el botón de la Meet.
 $reserva = agenda_reserva_completar((int)$reserva['id']) ?: $reserva;
+// «Con» dice quién la atiende de verdad: el dueño o quien lo cubre ese día.
+$tipo = agenda_tipo_de_reserva($reserva) ?? $tipo;
 render('agenda-ok', ['r' => $reserva, 'tipo' => $tipo, 'bodyClass' => $bodyClass], 'Reunión confirmada');

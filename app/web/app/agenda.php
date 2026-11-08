@@ -228,6 +228,136 @@ function agenda_tipo_publico(string $slug, ?string $usuario = null, ?string &$mo
 }
 
 // ------------------------------------------------------------
+//  Cobertura: otra persona atiende un tipo de reunión por unos días
+//
+//  Vacaciones, una licencia, un viaje. La web y el enlace público siguen
+//  pidiendo el tipo de siempre (cbaldelli/diagnostico), pero los días
+//  cubiertos los horarios salen del calendario de quien cubre, y la reunión
+//  queda a su nombre: evento y Meet en su Google, la confirmación firmada por
+//  él y las respuestas a su correo. Pasado el período vuelve sola al dueño
+//  del tipo, sin que nadie tenga que acordarse de cambiar nada.
+//
+//  Ajuste `agenda_coberturas`: una lista JSON de
+//      {"tipo_id": 4, "usuario_id": 4, "desde": "2026-11-09", "hasta": "2026-11-24"}
+//  con las dos fechas incluidas, en la zona horaria del tipo.
+//
+//  Una reunión ya tomada no cambia de manos: si quien la reservó le cambia el
+//  horario, la sigue atendiendo la misma persona y los horarios que se le
+//  ofrecen son los de su calendario.
+// ------------------------------------------------------------
+
+/**
+ * Las coberturas válidas de un tipo, leídas del JSON del ajuste. Pura.
+ *
+ * @return array<int,array{usuario_id:int,desde:string,hasta:string}>
+ */
+function agenda_coberturas_leer(string $json, int $tipoId): array
+{
+    $todas  = json_decode($json, true);
+    $fecha  = static fn($v): bool => is_string($v) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) === 1;
+    $salida = [];
+    foreach (is_array($todas) ? $todas : [] as $c) {
+        if (!is_array($c) || (int)($c['tipo_id'] ?? 0) !== $tipoId || (int)($c['usuario_id'] ?? 0) <= 0) { continue; }
+        if (!$fecha($c['desde'] ?? null) || !$fecha($c['hasta'] ?? null) || $c['hasta'] < $c['desde']) { continue; }
+        $salida[] = ['usuario_id' => (int)$c['usuario_id'], 'desde' => $c['desde'], 'hasta' => $c['hasta']];
+    }
+    return $salida;
+}
+
+/** Quién cubre ese día (Y-m-d), o null si lo atiende el dueño del tipo. Pura. */
+function agenda_cobertura_del_dia(array $coberturas, string $fecha): ?int
+{
+    foreach ($coberturas as $c) {
+        if ($fecha >= $c['desde'] && $fecha <= $c['hasta']) { return (int)$c['usuario_id']; }
+    }
+    return null;
+}
+
+function agenda_coberturas(int $tipoId): array
+{
+    return agenda_coberturas_leer((string) setting_get('agenda_coberturas', ''), $tipoId);
+}
+
+/** Quién atiende el tipo ese día (Y-m-d en la zona del tipo). */
+function agenda_anfitrion_id(array $tipo, string $fecha): int
+{
+    $cubre = agenda_cobertura_del_dia(agenda_coberturas((int)$tipo['id']), $fecha);
+    // Si quien cubre ya no está activo, la reunión vuelve al dueño: que al
+    // menos le llegue a alguien que la ve.
+    if ($cubre && $cubre !== (int)$tipo['usuario_id']
+        && qv('SELECT 1 FROM usuarios WHERE id = ? AND activo = 1', [$cubre])) {
+        return $cubre;
+    }
+    return (int)$tipo['usuario_id'];
+}
+
+/**
+ * El tipo con esa persona como anfitrión, ya fijo: no se le vuelve a aplicar
+ * ninguna cobertura. Cambian el usuario, su nombre y su correo, que es lo que
+ * usan el calendario, la confirmación y el «responder a».
+ */
+function agenda_tipo_con_anfitrion(array $tipo, int $usuarioId): array
+{
+    if ($usuarioId > 0 && $usuarioId !== (int)$tipo['usuario_id']) {
+        $u = q1('SELECT nombre, email FROM usuarios WHERE id = ?', [$usuarioId]);
+        if ($u) {
+            $tipo['usuario_id']    = $usuarioId;
+            $tipo['usuario']       = $u['nombre'];
+            $tipo['usuario_email'] = $u['email'];
+        }
+    }
+    $tipo['anfitrion_fijo'] = true;
+    return $tipo;
+}
+
+/** El tipo como queda para una reunión que empieza en $inicio (con la cobertura de ese día). */
+function agenda_tipo_para(array $tipo, int $inicio): array
+{
+    if (!empty($tipo['anfitrion_fijo'])) { return $tipo; }
+    return agenda_tipo_con_anfitrion($tipo, agenda_anfitrion_id($tipo, agenda_local($inicio, $tipo, 'Y-m-d')));
+}
+
+/** El tipo de una reserva ya tomada, con quien la atiende (que puede no ser el dueño del tipo). */
+function agenda_tipo_de_reserva(array $r): ?array
+{
+    $tipo = agenda_tipo_get((int)$r['tipo_id']);
+    return $tipo ? agenda_tipo_con_anfitrion($tipo, (int)$r['usuario_id']) : null;
+}
+
+/**
+ * Huecos de un tipo con coberturas: cada tramo de días seguidos con el mismo
+ * anfitrión se calcula con el calendario de quien atiende esos días.
+ *
+ * Un tramo cuyo calendario no se pudo leer no publica sus días (el mismo
+ * criterio de siempre: sin ver el calendario no se ofrece nada), pero no
+ * apaga los demás. Si no quedó ningún horario, el motivo es ese.
+ */
+function agenda_huecos_por_anfitrion(array $tipo, string $desde, string $hasta, ?string &$motivo,
+                                     ?int $ignorarReservaId, array $op): array
+{
+    $motivo = null;
+    [, , $fechas] = agenda_ventana($tipo, $desde, $hasta, time());
+    $tramos = [];
+    foreach ($fechas as $f) {
+        $u = agenda_anfitrion_id($tipo, $f);
+        $n = count($tramos);
+        if ($n && $tramos[$n - 1][0] === $u) { $tramos[$n - 1][2] = $f; }
+        else { $tramos[] = [$u, $f, $f]; }
+    }
+    $huecos = [];
+    $sinCalendario = false;
+    foreach ($tramos as [$u, $d1, $d2]) {
+        $m = null;
+        $huecos += agenda_huecos_rango(agenda_tipo_con_anfitrion($tipo, $u), $d1, $d2, $m, $ignorarReservaId, $op);
+        if ($m === 'sin_calendario') { $sinCalendario = true; }
+        elseif ($m !== null && $motivo === null) { $motivo = $m; }
+    }
+    if ($sinCalendario && !$huecos) { $motivo = 'sin_calendario'; }
+    ksort($huecos);
+    return $huecos;
+}
+
+// ------------------------------------------------------------
 //  Cálculo de huecos
 // ------------------------------------------------------------
 
@@ -357,6 +487,9 @@ function agenda_huecos_rango(array $tipo, string $desde, string $hasta,
                              array $op = []): array
 {
     $motivo = null;
+    if (empty($tipo['anfitrion_fijo']) && agenda_coberturas((int)$tipo['id'])) {
+        return agenda_huecos_por_anfitrion($tipo, $desde, $hasta, $motivo, $ignorarReservaId, $op);
+    }
     $porDia = agenda_franjas($tipo);
     if (!$porDia) { $motivo = 'sin_horario'; return []; }
 
@@ -569,6 +702,8 @@ function agenda_reservar(array $tipo, array $d, array $o = []): array
 {
     $origen       = in_array($o['origen'] ?? '', ['web', 'publica', 'crm'], true) ? (string)$o['origen'] : 'publica';
     $validarHueco = (bool)($o['validar_hueco'] ?? true);
+    // Quien atiende ese día: el dueño del tipo o quien lo cubre (vacaciones).
+    $tipo         = agenda_tipo_para($tipo, (int)($d['inicio'] ?? 0));
     $usuarioId    = (int)$tipo['usuario_id'];
 
     $inicio     = (int)($d['inicio'] ?? 0);
@@ -811,7 +946,7 @@ function agenda_reserva_completar(int $reservaId): array
     try {
         $r = q1('SELECT * FROM agenda_reservas WHERE id = ?', [$reservaId]);
         if (!$r || $r['estado'] !== 'confirmada') { return $r ?? []; }
-        $tipo = agenda_tipo_get((int)$r['tipo_id']);
+        $tipo = agenda_tipo_de_reserva($r);
         if (!$tipo) { return $r; }
 
         // Si la está completando otro proceso (la respuesta de la web y el
@@ -1008,7 +1143,7 @@ function agenda_reprogramar(string $token, int $nuevoInicio, bool $validarHueco 
         throw new AgendaExcepcion('La reunión ya está en ese horario.', 'horario_invalido', 'inicio');
     }
 
-    $tipo = agenda_tipo_get((int)$r['tipo_id']);
+    $tipo = agenda_tipo_de_reserva($r);
     if (!$tipo) { throw new AgendaExcepcion('El tipo de reunión ya no existe.', 'datos_invalidos'); }
     $fin       = $nuevoInicio + ((int)$tipo['duracion_min'] * 60);
     $usuarioId = (int)$r['usuario_id'];
@@ -1132,7 +1267,7 @@ function agenda_cancelar(string $token, string $motivo = ''): bool
 
     // Aviso de la baja con la invitación de cancelación: sin esto, a quien ya
     // la había aceptado le quedaría la reunión en el calendario.
-    $tipo = agenda_tipo_get((int)$r['tipo_id']);
+    $tipo = agenda_tipo_de_reserva($r);
     if ($tipo) {
         $r['estado'] = 'cancelada';
         $r['ics_secuencia'] = $secuencia;
