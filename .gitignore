@@ -1,7 +1,7 @@
 # ============================================================
 #  .gitignore — CRM INTELLIHELP
 #  Solo se versiona: app/ (código), bin/, test/, md/, docs/.
-#  NUNCA se versiona: secretos reales ni la base comercial del cliente.
+#  NUNCA se versiona: secretos reales ni la base comercial de la empresa.
 # ============================================================
 
 # --- Ignorar TODO el root por defecto... ---
@@ -29,7 +29,7 @@ app/web/app/config.local.php
 bin/deploy.local.json
 /.env
 
-# --- Datos reales del cliente: la base comercial no va al repositorio ---
+# --- Datos reales de la empresa: la base comercial no va al repositorio ---
 Documentacion a consultar/
 **/CSV/
 *.csv

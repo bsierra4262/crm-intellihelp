@@ -1,23 +1,23 @@
 # REQUERIMIENTOS PERMANENTES — INTELLIHELP · CRM
 
-> Checklist de reglas fijas del cliente. **Se revisa en CADA iteración** para no saltear
-> ninguna. Si el cliente pide algo nuevo permanente, se agrega acá.
+> Checklist de reglas fijas del proyecto, acordadas con la empresa. **Se repasa antes de cada
+> despliegue.** Si aparece una regla permanente nueva, se agrega acá.
 > Última actualización: 2026-07-30.
 
 ---
 
-## 🔴 Antes y después de CADA prueba (modo testing) — OBLIGATORIO
+## Antes y después de cada prueba (modo testing)
 
-- [ ] **Vaciar la base de testing SIEMPRE** antes de entregar para probar:
+- [ ] **Vaciar la base de testing** antes de cada prueba:
   - Contactos / Cuentas / Posibles clientes / Negocios → borrar los de prueba.
   - **CRON vacío** (tabla `actividad` truncada) para registrar las pruebas nuevas.
   - **Campañas y envíos** de prueba borrados; ningún correo real encolado.
   - Adjuntos subidos borrados del disco, aparte de la base.
 - [ ] **Ninguna campaña de prueba puede salir a un destinatario real.** En modo testing el
       motor sólo despacha a una lista blanca de correos internos.
-- [ ] Esto se hace **hasta que el cliente diga que pasamos a producción 100 %**.
+- [ ] Esto se hace **hasta que se pase a producción 100 %**.
 
-## 🟢 Base / plataforma
+## Base / plataforma
 
 - [ ] **100 % gratis:** sin APIs pagas, sin registro, sin límites de consulta. Nada de Calendly,
       nada de servicios de envío pagos.
@@ -28,15 +28,16 @@
 - [ ] **Una sola dirección: `intellihelp.tech/crm`.** El subdominio `crm.intellihelp.tech`
       redirige ahí con un 301 y no se usa: es más profesional una sola URL bajo el dominio.
 
-## 🎨 Diseño / UI — profesional y CONSISTENTE (auditar, no parchar)
+## Diseño / UI: profesional y consistente
 
-> Se audita **de raíz**, no sólo lo que el cliente señala. El módulo **Contactos** es el patrón
-> de referencia; todo lo nuevo lo copia. Guardado por tests (sección «diseño/UI»).
+> Una corrección de diseño se aplica a todo el módulo, no sólo a la pantalla donde apareció. El
+> módulo **Contactos** es el patrón de referencia; todo lo nuevo lo copia. Guardado por tests
+> (sección «diseño/UI»).
 
-- [ ] **REPLICAR la sección ya bien diseñada.** Misma estructura: `page-head` con `<h1>` +
+- [ ] **Replicar la sección ya bien diseñada.** Misma estructura: `page-head` con `<h1>` +
       `.head-actions`, filtros `.filters/.filter-grid` con Filtrar + Limpiar, tabla
       `card table-card`, formulario con `.sec`. Sólo cambian campos y lógica.
-- [ ] **Responsive sin scroll horizontal en NINGÚN ancho.** El menú colapsa a drawer.
+- [ ] **Responsive sin scroll horizontal en ningún ancho.** El menú colapsa a drawer.
 - [ ] **Sin controles nativos crudos:** on/off con toggle `.switch`, selects con combobox,
       fechas con datepicker. Nunca `style=` en línea.
 - [ ] **Badges** siempre con variante (`badge-ok` / `badge-info` / …), nunca `.badge` pelado.
@@ -45,10 +46,10 @@
 - [ ] **Colores y espaciados por variables CSS** (`var(--…)`), nunca hex crudo ni px a ojo.
 - [ ] Tablas en `.table-scroll` con `data-label` + `prio-*` (modo tarjeta en ≤768 px).
 
-## 📇 CRM
+## CRM
 
 - [ ] **Copia 1:1 de Zoho CRM adaptada a INTELLIHELP.** El mapa está en
-      [ZOHO-CRM-REFERENCIA.md](ZOHO-CRM-REFERENCIA.md); el cliente marca ahí qué sobra.
+      [ZOHO-CRM-REFERENCIA.md](ZOHO-CRM-REFERENCIA.md); ahí se marca qué sobra.
 - [ ] La migración desde el CSV de Zoho **no duplica** cuentas ni contactos y **normaliza**
       provincia, país y localidad.
 - [ ] **Nada se borra de golpe:** borrado lógico + papelera de **60 días**; recién ahí se
@@ -59,7 +60,7 @@
       (buzón lleno, greylisting) NO archiva nada.
 - [ ] Toda pantalla de listado tiene búsqueda, filtros, orden, paginación y exportación.
 
-## ✉️ Campañas
+## Campañas
 
 - [ ] El motor **corre en el servidor** (cola + cron): la campaña sigue con el navegador cerrado.
 - [ ] **Pausa aleatoria 25–45 s** entre correos (fuera de ese rango Gmail marca spam).
@@ -69,7 +70,7 @@
 - [ ] **Desuscripción obligatoria** en todo correo, y respetada en todo envío posterior.
 - [ ] Nunca se le escribe dos veces al mismo contacto en la misma campaña.
 
-## 📅 Agenda
+## Agenda
 
 - [ ] **Herramienta propia**, sin Calendly ni Cal.com.
 - [ ] **El cliente NO se loguea con nada.** Entra por el enlace público que viene en el correo
@@ -81,10 +82,11 @@
 - [ ] Al reservar se crea el evento en Google Calendar **con Google Meet automático**.
 - [ ] Confirmación y recordatorio por correo, con enlaces propios para reprogramar y cancelar.
 
-## ✅ Proceso de trabajo (dev)
+## Proceso de trabajo (dev)
 
 - [ ] Mantener **[DOCUMENTACION-MAESTRA.md](DOCUMENTACION-MAESTRA.md)** actualizada en cada cambio.
 - [ ] **Un test de regresión por bug** (batería en `test/`).
 - [ ] Validar PHP (`php -l`) y JS antes de desplegar.
-- [ ] Primero **investigar a fondo**, después aplicar. Ser honesto con lo que se puede y lo que no.
+- [ ] Cada cambio parte de un relevamiento; los supuestos sin confirmar se registran en el
+      changelog.
 - [ ] **Sin secretos en el repositorio.** `config.php` fuera del webroot y fuera de git.

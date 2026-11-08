@@ -15,7 +15,7 @@ y una posible mitigación. El reporte recibirá respuesta a la brevedad.
   producción, `config.php` se ubica **fuera del web root** con permisos `600`.
 - El `refresh_token` de Google de cada usuario se guarda **cifrado** (AES-256-GCM) con el
   secreto de la aplicación.
-- El repositorio **no contiene la base comercial** del cliente: las exportaciones de Zoho y
+- El repositorio **no contiene la base comercial** de la empresa: las exportaciones de Zoho y
   cualquier `.csv` están excluidos por `.gitignore`.
 - El código de la aplicación no se sirve por HTTP: `app/` está bloqueado por `.htaccess`, y el
   front controller es el único punto de entrada.
