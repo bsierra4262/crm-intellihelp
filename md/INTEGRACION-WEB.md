@@ -328,7 +328,7 @@ Siempre JSON UTF-8, con `Cache-Control: no-store` y `X-Content-Type-Options: nos
 | 403 | `sin_permiso` | la clave no tiene alcance `escritura` o no tiene secreto |
 | 404 | `tipo_inexistente` | no hay un tipo de reunión activo con ese slug |
 | 405 | `metodo_no_permitido` | método equivocado (con `Allow`) |
-| 409 | `horario_tomado` · `tipo_ambiguo` · `en_proceso` · `idempotencia_reusada` | ver cada endpoint |
+| 409 | `horario_tomado` · `feriado` · `tipo_ambiguo` · `en_proceso` · `idempotencia_reusada` | ver cada endpoint |
 | 413 | `cuerpo_demasiado_grande` | más de 16 KB |
 | 415 | `tipo_de_contenido` | POST sin `application/json` |
 | 422 | `datos_invalidos` · `falta_consentimiento` | con `"campos": {"email": "…"}` |
@@ -369,12 +369,25 @@ el calendario (mismo criterio que `agenda_huecos()`).
       "horarios": [ { "inicio": "2026-11-03T09:30:00-03:00", "ts": 1793709000 },
                     { "inicio": "2026-11-03T10:00:00-03:00", "ts": 1793710800 } ] }
   ],
+  "feriados": [
+    { "fecha": "2026-11-09", "nombre": "Visita del papa León XIV", "tipo": "inamovible",
+      "nacional": true, "jurisdiccion": "nacional" }
+  ],
   "generado": "2026-11-01T10:00:00-03:00"
 }
 ```
 
 Días sin horarios no aparecen. `ts` es el inicio en segundos Unix; `inicio`, el mismo momento
 en hora de Argentina.
+
+`feriados` trae **todos** los feriados del rango pedido (`desde`–`hasta`), los nacionales y los
+de la jurisdicción configurada en el CRM, caigan o no en un día del horario laboral. Un feriado
+**nunca** tiene horarios, así que nunca figura en `dias`. Para que la web muestre «Feriado» en el
+calendario: un día que está en `feriados` se dibuja deshabilitado con la palabra «Feriado» y
+`nombre` como aclaración (por ejemplo en el `title`); un día que no está en `dias` ni en
+`feriados` es un día sin lugar. `tipo` es `inamovible`, `trasladable`, `puente` o
+`no_laborable`; `jurisdiccion` es `nacional` o el código de la provincia (`CABA`, `BA`, `CB`…).
+La lista se mantiene sola (ver [DOCUMENTACION-MAESTRA §10.2](DOCUMENTACION-MAESTRA.md#102-feriados)).
 
 ### 5.6 `POST api/v1/reserva`
 
@@ -419,6 +432,10 @@ en hora de Argentina.
   `409 en_proceso`; con otro cuerpo → `409 idempotencia_reusada`.
 - `409 horario_tomado` cuando el hueco ya no está libre (otro lo tomó, o Carlos agregó algo en
   su calendario). La web vuelve a pedir los horarios.
+- `409 feriado` cuando el inicio cae en un feriado (por ejemplo, uno decretado después de que la
+  web pidió los horarios). Trae el feriado para mostrarlo:
+  `{"ok":false,"error":"feriado","mensaje":"El martes 8 de diciembre de 2026 es feriado (Día de la Inmaculada Concepción de María) y ese día no tomamos reuniones. Elegí otro día, por favor.","feriado":{"fecha":"2026-12-08","nombre":"Día de la Inmaculada Concepción de María"}}`.
+  La web muestra el `mensaje` y vuelve a pedir los horarios, igual que con `horario_tomado`.
 - Requiere el módulo Agenda en marcha.
 
 Respuesta `201`:

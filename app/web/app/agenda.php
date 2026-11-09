@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/gcal.php';
+require_once __DIR__ . '/feriados.php';
 
 // ============================================================
 //  Agenda propia de reuniones — nuestro reemplazo de Calendly.
@@ -22,6 +23,9 @@ require_once __DIR__ . '/gcal.php';
 //  Una sola invitación por reunión, la del CRM: Google crea el evento sin
 //  avisarle a nadie y la invitación del correo usa el mismo identificador que
 //  el evento de Google, así el cliente no queda con dos reuniones iguales.
+//
+//  Los feriados (feriados.php) no tienen turnos: ni en la web, ni en el
+//  enlace público, ni al mover una reunión, ni en los días de una cobertura.
 //
 //  No dependemos de ningún servicio externo ni de ninguna cuenta paga.
 // ============================================================
@@ -190,8 +194,9 @@ final class AgendaExcepcion extends RuntimeException
     public function __construct(
         string $mensaje,                          // texto para el visitante, en castellano
         public readonly string $motivo = 'datos_invalidos',
-        // horario_tomado | horario_invalido | datos_invalidos | sin_calendario | ocupado | limite
+        // horario_tomado | horario_invalido | datos_invalidos | sin_calendario | ocupado | limite | feriado
         public readonly ?string $campo = null,    // nombre, email, telefono, inicio…
+        public readonly array $datos = [],        // lo que la API devuelve además del mensaje (el feriado)
     ) { parent::__construct($mensaje); }
 }
 
@@ -497,6 +502,14 @@ function agenda_huecos_rango(array $tipo, string $desde, string $hasta,
     [$tMin, $tMax, $fechas] = agenda_ventana($tipo, $desde, $hasta, $ahora);
     if (!$fechas) { return []; }
 
+    // Los feriados no tienen turnos. Se sacan antes de consultar a Google: un
+    // rango que es todo feriado no necesita mirar el calendario.
+    $feriados = feriados_del_rango($fechas[0], $fechas[count($fechas) - 1]);
+    if ($feriados) {
+        $fechas = array_values(array_filter($fechas, static fn(string $f): bool => !isset($feriados[$f])));
+        if (!$fechas) { return []; }
+    }
+
     $tz       = agenda_zona($tipo);
     $usuario  = (int)$tipo['usuario_id'];
     $duracion = (int)$tipo['duracion_min'] * 60;
@@ -581,6 +594,9 @@ function agenda_hueco_libre(array $tipo, int $inicio, ?int $ignorarReservaId = n
     $tz     = agenda_zona($tipo);
     $fecha  = (new DateTimeImmutable('@' . $inicio))->setTimezone($tz)->format('Y-m-d');
 
+    // 0) Un feriado no tiene turnos, aunque el horario laboral diga que sí.
+    if (feriado_del_dia($fecha)) { $motivo = 'feriado'; return false; }
+
     // 1) ¿Es un horario que el tipo ofrece, sin mirar lo ocupado?
     [, , $fechas] = agenda_ventana($tipo, $fecha, $fecha, time());
     $dow  = (int) agenda_fecha($fecha, $tz)->format('w');
@@ -611,9 +627,35 @@ function agenda_excepcion_hueco(?string $motivo): AgendaExcepcion
                                 . 'Probá de nuevo en unos minutos.', 'sin_calendario', 'inicio'),
         'horario_invalido' => new AgendaExcepcion('Ese horario no está disponible para reservar. '
                                 . 'Elegí uno de la lista, por favor.', 'horario_invalido', 'inicio'),
+        'feriado'          => new AgendaExcepcion('Ese día es feriado y no tomamos reuniones. '
+                                . 'Elegí otro día, por favor.', 'feriado', 'inicio'),
         default            => new AgendaExcepcion('Justo tomaron ese horario. Elegí otro, por favor.',
                                 'horario_tomado', 'inicio'),
     };
+}
+
+/** El feriado del día en que empezaría la reunión (en la zona del tipo), o null. */
+function agenda_feriado_de_inicio(array $tipo, int $inicio): ?array
+{
+    $fecha = agenda_local($inicio, $tipo, 'Y-m-d');
+    $f = feriado_del_dia($fecha);
+    return $f ? $f + ['fecha' => $fecha] : null;
+}
+
+/**
+ * La excepción de una reserva en un feriado, con el nombre del feriado.
+ *
+ * Sale antes que cualquier otro control del horario: el visitante tiene que
+ * leer que ese día es feriado, no que «justo lo tomaron».
+ */
+function agenda_excepcion_feriado(array $f): AgendaExcepcion
+{
+    return new AgendaExcepcion(
+        'El ' . fecha_larga((string)$f['fecha']) . ' es feriado (' . feriado_etiqueta($f) . ') '
+            . 'y ese día no tomamos reuniones. Elegí otro día, por favor.',
+        'feriado', 'inicio',
+        ['feriado' => ['fecha' => (string)$f['fecha'], 'nombre' => (string)$f['nombre']]]
+    );
 }
 
 // ------------------------------------------------------------
@@ -751,6 +793,12 @@ function agenda_reservar(array $tipo, array $d, array $o = []): array
     }
     if ($inicio <= time()) {
         throw new AgendaExcepcion('Ese horario ya pasó.', 'horario_invalido', 'inicio');
+    }
+    // En un feriado no se reserva por ningún camino, tampoco desde el CRM. Se
+    // controla antes de bloquear el calendario: si hiciera falta actualizar los
+    // feriados, la consulta no tiene que demorar a nadie más.
+    if ($feriado = agenda_feriado_de_inicio($tipo, $inicio)) {
+        throw agenda_excepcion_feriado($feriado);
     }
 
     // Lo que se guarda como comentario de la reserva: el servicio que eligió
@@ -1145,6 +1193,10 @@ function agenda_reprogramar(string $token, int $nuevoInicio, bool $validarHueco 
 
     $tipo = agenda_tipo_de_reserva($r);
     if (!$tipo) { throw new AgendaExcepcion('El tipo de reunión ya no existe.', 'datos_invalidos'); }
+    // Tampoco se mueve a un feriado, ni el invitado ni el equipo.
+    if ($feriado = agenda_feriado_de_inicio($tipo, $nuevoInicio)) {
+        throw agenda_excepcion_feriado($feriado);
+    }
     $fin       = $nuevoInicio + ((int)$tipo['duracion_min'] * 60);
     $usuarioId = (int)$r['usuario_id'];
 

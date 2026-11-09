@@ -62,7 +62,7 @@ function modulos(): array
             'ayuda'  => 'El enlace público para que reserven una reunión, con Google Calendar y Meet, '
                       . 'y las reservas que llegan desde la web.',
             'rutas'  => ['agenda', 'agenda-form', 'reservas', 'reserva-accion', 'reserva-mover',
-                         'google-desconectar'],
+                         'google-desconectar', 'feriados'],
         ],
         'adjuntos' => [
             'nombre' => 'Archivos adjuntos',

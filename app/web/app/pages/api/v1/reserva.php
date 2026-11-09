@@ -89,6 +89,9 @@ try {
     } catch (AgendaExcepcion $e) {
         [$codigo, $error] = match ($e->motivo) {
             'horario_tomado', 'horario_invalido' => [409, 'horario_tomado'],
+            // Un feriado: la web muestra el mensaje (trae el nombre del
+            // feriado) y vuelve a pedir los horarios, que ya no lo ofrecen.
+            'feriado'                            => [409, 'feriado'],
             'sin_calendario'                     => [503, 'sin_calendario'],
             'ocupado'                            => [409, 'en_proceso'],
             // Topes por correo o del día (agenda_controlar_topes): la web
@@ -97,6 +100,7 @@ try {
             default                              => [422, 'datos_invalidos'],
         };
         $datos = ['ok' => false, 'error' => $error, 'mensaje' => $e->getMessage()]
+               + $e->datos
                + (in_array($error, ['datos_invalidos', 'limite_reservas'], true) && $e->campo
                   ? ['campos' => [$e->campo => $e->getMessage()]] : []);
         // Queda el motivo para la pantalla de entradas. Con la misma clave la

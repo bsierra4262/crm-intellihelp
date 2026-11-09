@@ -9,6 +9,10 @@ declare(strict_types=1);
 //  horario laboral MENOS lo ocupado en el Google Calendar del vendedor MENOS lo
 //  ya reservado en el CRM, con el margen entre reuniones.
 //
+//  Los feriados (nacionales y de la jurisdicción configurada) no tienen
+//  horarios, y además vienen en `feriados` con la fecha y el nombre, para que
+//  la web los muestre marcados en vez de como un día sin lugar.
+//
 //  Si no se pudo leer el calendario de Google no se publica nada (503): sin
 //  ver el calendario no hay forma de saber qué está ocupado, y la web muestra
 //  el formulario de siempre.
@@ -101,6 +105,9 @@ try {
         'desde'    => $desde->format('Y-m-d'),
         'hasta'    => $hasta->format('Y-m-d'),
         'dias'     => $dias,
+        // Los feriados del rango pedido, con o sin horario laboral ese día:
+        // [{fecha, nombre, tipo, nacional, jurisdiccion}]. Nunca traen horarios.
+        'feriados' => feriados_para_api($desde->format('Y-m-d'), $hasta->format('Y-m-d')),
         'generado' => (new DateTimeImmutable('now', $zona))->format('c'),
     ]);
 } catch (\Throwable $e) {

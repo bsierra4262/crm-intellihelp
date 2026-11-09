@@ -390,6 +390,11 @@ flowchart LR
   dos enlaces sirven aunque sean de un correo viejo.
 - **Protegida contra bots**: campo trampa, token de formulario firmado, límite de envíos por
   visitante y consentimiento obligatorio para el uso de los datos.
+- **Feriados automáticos.** Los nacionales se sincronizan solos todos los días con el
+  calendario oficial (decretados, puentes y trasladables reubicados), más los regionales de la
+  jurisdicción configurada (CABA por defecto). Esos días no hay turnos ni se puede reservar, y
+  si un feriado nuevo cae sobre una reunión ya agendada, quien la atiende recibe una alerta. Si
+  la fuente no responde, la agenda sigue con lo que tenía. Se administran en Más → Feriados.
 - La landing de la web reserva **en la misma agenda** por la API v1 (ver [API](#api)).
 
 ## Migración desde Zoho CRM
@@ -470,8 +475,8 @@ servidor: el navegador nunca ve la clave. Contrato completo en
 
 | Recurso | Para qué |
 | --- | --- |
-| `GET api/v1/disponibilidad?tipo=&vendedor=&desde=&hasta=` | Horarios libres del vendedor (hasta 31 días), sobre su Google Calendar real |
-| `POST api/v1/reserva` | Reserva un horario: contacto, empresa, reunión con Meet y confirmación por correo |
+| `GET api/v1/disponibilidad?tipo=&vendedor=&desde=&hasta=` | Horarios libres del vendedor (hasta 31 días), sobre su Google Calendar real, y los feriados del rango (`feriados`: fecha y nombre) |
+| `POST api/v1/reserva` | Reserva un horario: contacto, empresa, reunión con Meet y confirmación por correo. En un feriado, `409 feriado` |
 | `POST api/v1/entrada` | Consulta sin reunión: contacto, empresa, nota y tarea de contestar para el responsable |
 
 ```mermaid
@@ -575,7 +580,9 @@ python test/verificar_unificacion.py # 14 aserciones sobre la base unificada
   de la agenda, el vencimiento de actividades y el cifrado de los tokens de Google. Para la API
   v1: la firma (válida, vencida, alterada, de otra instalación), la validación de cada campo,
   la idempotencia, las consultas duplicadas, los límites de envíos, la ventana y los huecos de
-  la agenda, el token del formulario y la invitación `.ics`. Lo que necesita base corre contra
+  la agenda, el token del formulario y la invitación `.ics`. Para los feriados: la lectura del
+  calendario oficial, el feriado nacional y el regional, el trasladable que se mueve, el puente,
+  la fuente caída o incompleta, la reserva rechazada y el aviso al responsable. Lo que necesita base corre contra
   una SQLite en memoria; en local hace falta cargar `mbstring`, `openssl` y `pdo_sqlite`.
 - **`smoke.sh`** verifica que **toda ruta privada exija sesión**, que las públicas respondan,
   que la API rechace sin clave, que la API v1 **rechace lo que no viene firmado**, que la agenda

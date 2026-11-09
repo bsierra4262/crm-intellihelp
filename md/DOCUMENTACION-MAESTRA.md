@@ -23,6 +23,7 @@
 9. [Actividades](#9-actividades)
 10. [Agenda propia de reuniones](#10-agenda-propia-de-reuniones)
     · [Reservas y consultas desde la web](#101-reservas-y-consultas-desde-la-web)
+    · [Feriados](#102-feriados)
 11. [Campañas de correo](#11-campañas-de-correo)
 12. [Diseño e interfaz](#12-diseño-e-interfaz)
 13. [Despliegue](#13-despliegue)
@@ -120,6 +121,7 @@ CMR/
 │   │   │   ├── envio.php         motor SMTP (cola, reintentos, pausa)
 │   │   │   ├── imap.php          rebotes y respuestas
 │   │   │   ├── agenda.php        huecos, reservas, cambio de horario, invitación .ics
+│   │   │   ├── feriados.php      feriados: sincronización con el calendario oficial y consultas de la agenda
 │   │   │   ├── importador.php    CSV de Zoho
 │   │   │   ├── icons.php         iconos SVG en línea
 │   │   │   ├── pages/            un controlador por ruta (incl. api/ y api/v1/)
@@ -151,7 +153,7 @@ Esquema completo en [`app/db/schema.sql`](../app/db/schema.sql). Grupos de tabla
 | CRM | `cuentas`, `contactos`, `posibles_clientes`, `etiquetas`, `etiqueta_registro`, `notas`, `adjuntos` |
 | Embudo | `negocios`, `embudos`, `etapas` |
 | Actividades | `tareas`, `llamadas`, `reuniones`, `reunion_invitados` |
-| Agenda | `agenda_tipos`, `agenda_horarios`, `agenda_reservas` |
+| Agenda | `agenda_tipos`, `agenda_horarios`, `agenda_reservas`, `feriados` (los días sin turnos; migración 009) |
 | Entradas desde la web | `entradas_web` (cada consulta y reserva que llega de intellihelp.tech, con página, canal y consentimiento), `api_limites` (contadores de los límites de envíos) |
 | Campañas | `campanas`, `plantillas`, `listas`, `lista_miembros`, `envios`, `eventos_envio`, `desuscripciones` |
 | Migración | `import_lotes`, `import_filas` |
@@ -284,6 +286,7 @@ Reemplazo de Calendly. Detalle del diseño en
 | Cambio de horario | `/r/mover?t=<token>` — el invitado elige otro hueco; el evento de Google se mueve y la invitación nueva reemplaza a la anterior |
 | Cancelación | `/r/cancelar?t=<token>` — sirve aunque sea el enlace de un correo viejo (sigue la cadena hasta la reserva vigente); borra el evento en Google y da de baja la actividad |
 | Protección | Campo trampa, token de formulario firmado (mínimo 3 s, máximo 2 h; hace de CSRF), consentimiento obligatorio y 3 envíos por hora / 6 por día por hash de IP |
+| Feriados | Nacionales sincronizados solos con el calendario oficial, más los de la jurisdicción configurada (CABA por defecto). Ningún feriado tiene turnos: ni en la web, ni en `/r/`, ni al mover una reunión, ni en los días de una cobertura. Ver [§10.2](#102-feriados) |
 | Cobertura (vacaciones) | Ajuste `agenda_coberturas`: quién atiende un tipo de reunión entre dos fechas. Esos días los horarios salen del calendario de quien cubre y la reunión queda a su nombre (evento, Meet, confirmación y «responder a»). Terminado el período vuelve sola al dueño. Ver abajo |
 
 **Detalles que costaron:**
@@ -336,8 +339,8 @@ por la **API v1**, servidor a servidor. Contrato completo y decisiones en
 
 | Recurso | Qué hace |
 |---|---|
-| `GET api/v1/disponibilidad` | Los horarios libres de un tipo de reunión (hasta 31 días). Sin calendario responde `503` y la web muestra el formulario |
-| `POST api/v1/reserva` | Toma el horario y responde `201`; el evento con Meet y el correo salen después de responder |
+| `GET api/v1/disponibilidad` | Los horarios libres de un tipo de reunión (hasta 31 días) y los **feriados del rango** (`feriados`: fecha y nombre). Sin calendario responde `503` y la web muestra el formulario |
+| `POST api/v1/reserva` | Toma el horario y responde `201`; el evento con Meet y el correo salen después de responder. En un feriado, `409 feriado` con el nombre del feriado |
 | `POST api/v1/entrada` | Consulta sin reunión: contacto, empresa, nota con el mensaje, tarea «Responder consulta web» para el responsable y alerta |
 
 **Seguridad.** Clave con el permiso «Escritura (web)» y un secreto que nunca viaja: cada pedido
@@ -371,6 +374,61 @@ sin contacto o con error, y conserva el canal y la página para las métricas.
 
 **Sin posibles clientes ni negocios.** Una consulta todavía no es una oportunidad: el negocio lo
 abre quien califique la reunión.
+
+### 10.2 Feriados
+
+En un feriado no hay turnos ni se puede reservar, sin que nadie tenga que cargarlos. Código en
+`app/feriados.php`; tabla `feriados` (migración 009).
+
+**De dónde salen.** Del calendario oficial de feriados nacionales que publica
+[ArgentinaDatos](https://api.argentinadatos.com/v1/feriados/2026) (el del Ministerio del
+Interior), el mismo que usa el portal de RRHH. Se consulta el año en curso y el siguiente:
+
+- se **agregan** los que se decretan durante el año (días puente, feriados por decreto);
+- los **trasladables** se reubican: cuando se fija la fecha, la vieja deja de figurar y aparece
+  la nueva;
+- se **quitan** los que dejan de figurar (un puente que se deja sin efecto);
+- lo **cargado a mano** (`origen = 'manual'`) no se toca nunca;
+- lo marcado **«se trabaja»** (`ignorado = 1`) queda en la tabla para que no vuelva a aparecer.
+
+Un año para el que la fuente no responde, o responde con menos de diez feriados, **no se
+modifica**: se sigue con lo que había.
+
+**Cuándo.** Una vez por día desde el cron (la primera corrida del día) y **al vuelo** antes de
+calcular horarios si nunca se sincronizó, si no hay datos del año o si lo sincronizado tiene más
+de 24 h. La consulta al vuelo espera 3 segundos como mucho; si falla, no se vuelve a probar
+hasta 15 minutos después, así una fuente caída no demora a ningún visitante. Una sola
+sincronización a la vez (`GET_LOCK`). **Nada de esto puede trabar la agenda**: sin respuesta, o
+sin la tabla todavía, la agenda sigue con lo que tiene.
+
+**Regionales.** El calendario oficial trae sólo los nacionales. Los de una provincia se cargan
+a mano con su jurisdicción. Rigen los nacionales **más** los de la jurisdicción del ajuste
+`feriados_jurisdiccion` (por defecto `CABA`, donde está la oficina); los de otras provincias se
+ven en la lista pero no quitan turnos.
+
+**Dónde se aplica.**
+
+| Lugar | Qué pasa en un feriado |
+|---|---|
+| `agenda_huecos_rango()` | El día no tiene horarios. Se saca **antes** de consultar a Google: un rango que es todo feriado no mira el calendario. Cubre la API, `/r/`, `/r/mover` y las coberturas (cada tramo pasa por acá) |
+| `agenda_hueco_libre()` | Motivo `feriado` |
+| `agenda_reservar()` | `AgendaExcepcion` motivo `feriado` con el nombre, **por cualquier camino** (web, `/r/`, CRM, con o sin validar el hueco), antes de bloquear el calendario |
+| `agenda_reprogramar()` | Igual: ni el invitado ni el equipo mueven una reunión a un feriado |
+| `GET api/v1/disponibilidad` | `feriados: [{fecha, nombre, tipo, nacional, jurisdiccion}]` del rango pedido |
+| `POST api/v1/reserva` | `409 {"error":"feriado","mensaje":"El martes 8 de diciembre de 2026 es feriado (…)…","feriado":{"fecha","nombre"}}` |
+| Agenda interna | «Próximos feriados» (60 días) en Agenda y la marca «Feriado» en las reuniones reservadas que caen en uno |
+
+**Aviso al responsable.** Si un feriado nuevo (sincronizado, cargado a mano o restituido) cae
+sobre reuniones confirmadas, quien atiende cada una recibe una alerta —y su correo, con el resto
+de las alertas del cron— para que coordine con el invitado. La reunión **no se cancela sola**.
+
+**Pantalla** Más → **Feriados** (sólo administración, se apaga con el módulo Agenda): la lista
+del año con origen y si rige, «Actualizar ahora», agregar uno a mano (fecha, nombre, dónde
+rige, tipo), «Se trabaja» / «Volver a feriado», la jurisdicción, el interruptor general
+(`feriados_activo`) y la lista de reuniones agendadas en feriados.
+
+**Ajustes:** `feriados_activo` (1), `feriados_jurisdiccion` (`CABA`), `feriados_sincronizado_en`,
+`feriados_intento_en`, `feriados_ultimo_error`.
 
 ---
 
@@ -437,7 +495,8 @@ Reglas que se auditan de raíz (no se parchan):
 - **Base:** `uXXXXXXXXX_crm` en `localhost`.
 - **Cron:** `app/cron.php` cada 5 minutos desde el hPanel (despacho de campañas, IMAP,
   reservas que quedaron sin evento o sin correo, recordatorios de agenda y, una vez por día,
-  la anonimización de las entradas de la web y la purga de los contadores de límites).
+  la sincronización de los feriados, la anonimización de las entradas de la web y la purga de
+  los contadores de límites).
 - **Migraciones:** `python bin/deploy.py migrar app/db/migracion-NNN-….sql [--pruebas]`. Sube el
   `.sql` fuera del webroot y lo aplica `migrar.php` con la configuración de esa instalación: no
   pide credenciales de base y no puede equivocarse de base. Con `--simular` sólo lista las
@@ -472,6 +531,17 @@ Reglas que se auditan de raíz (no se parchan):
 ## 15. Changelog
 
 > Cada cambio se registra acá, del más nuevo al más viejo.
+
+- **2026-11-08** — Feriados automáticos en la agenda. Tabla `feriados` (migración 009) que se
+  sincroniza sola una vez por día, y al vuelo si faltan datos o tienen más de 24 h, con el
+  calendario oficial de ArgentinaDatos: agrega los decretados, reubica los trasladables, quita
+  los que dejan de figurar y respeta los cargados a mano y los marcados «se trabaja». Con la
+  fuente caída la agenda sigue con lo que tenía. Ningún feriado nacional ni de la jurisdicción
+  configurada (CABA por defecto) tiene turnos, en la web, en `/r/`, al mover y en las
+  coberturas; reservar o mover a un feriado se rechaza con su nombre (`409 feriado` en la API) y
+  `disponibilidad` devuelve los feriados del rango. Pantalla Más → Feriados y alerta al
+  responsable cuando un feriado nuevo cae sobre una reunión agendada. Pruebas de nacional,
+  regional, trasladable movido, puente, fuente caída y reserva rechazada.
 
 - **2026-10-30** — Integración con la web (landing `/diagnostico/` y formulario de contacto),
   sólo en la parte de reuniones. API v1 firmada (`disponibilidad`, `reserva`, `entrada`) con

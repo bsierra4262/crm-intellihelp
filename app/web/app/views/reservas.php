@@ -1,5 +1,6 @@
-<?php /** @var array $f @var array $rows @var array $data @var array $llego */
+<?php /** @var array $f @var array $rows @var array $data @var array $llego @var array $feriados */
 $llego = $llego ?? [];
+$feriados = $feriados ?? [];
 $origenes = ['web' => 'Sitio web', 'publica' => 'Agenda pública', 'crm' => 'Desde el CRM'];
 ?>
 <div class="page-head" data-vivo="cabecera">
@@ -53,6 +54,9 @@ $origenes = ['web' => 'Sitio web', 'publica' => 'Agenda pública', 'crm' => 'Des
                         <div class="cell-main">
                             <strong><?= fecha_hora($r['inicia_el']) ?></strong>
                             <small><?= e(tiempo_relativo($r['inicia_el'])) ?></small>
+                            <?php if ($fe = ($feriados[substr((string)$r['inicia_el'], 0, 10)] ?? null)): ?>
+                                <span class="badge badge-pend" title="<?= e(feriado_etiqueta($fe)) ?>">Feriado</span>
+                            <?php endif; ?>
                         </div>
                     </td>
                     <td data-label="Invitado">

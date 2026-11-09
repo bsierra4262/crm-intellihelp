@@ -209,6 +209,25 @@ try {
     ok('el inicio ISO y los segundos dicen lo mismo', $okIso);
     [$c, $j] = api('GET', 'disponibilidad?tipo=no-existe');
     ok('tipo inexistente: 404', $c === 404 && ($j['error'] ?? '') === 'tipo_inexistente', "código $c");
+    echo "== Feriados ==\n";
+    // Diciembre del año en curso (o del siguiente, si ya pasó el 8): el 8 y el
+    // 25 son feriados nacionales inamovibles, siempre.
+    $anioF = date('m-d') > '12-08' ? (int)date('Y') + 1 : (int)date('Y');
+    [$c, $jf] = api('GET', "disponibilidad?tipo=diagnostico&vendedor=$vendedor&desde=$anioF-12-01&hasta=$anioF-12-31");
+    $fechasF = array_column((array)($jf['feriados'] ?? []), 'nombre', 'fecha');
+    ok('la API de horarios trae los feriados del rango', $c === 200 && is_array($jf['feriados'] ?? null),
+       "código $c " . ($jf['error'] ?? ''));
+    ok('el 8/12 y el 25/12 vienen marcados, con su nombre',
+       !empty($fechasF["$anioF-12-08"]) && !empty($fechasF["$anioF-12-25"]), json_encode($fechasF, JSON_UNESCAPED_UNICODE));
+    $conHorario = array_intersect(array_column((array)($jf['dias'] ?? []), 'fecha'), array_keys($fechasF));
+    ok('ningún feriado tiene horarios', $conHorario === [], implode(', ', $conHorario));
+    $ochoDic = (new DateTimeImmutable("$anioF-12-08 10:00:00", new DateTimeZone('America/Argentina/Buenos_Aires')))->getTimestamp();
+    [$c, $jr] = api('POST', 'reserva', cuerpo($ochoDic));
+    ok('reservar el 8/12: 409 feriado, con un mensaje que lo nombra',
+       $c === 409 && ($jr['error'] ?? '') === 'feriado' && str_contains((string)($jr['mensaje'] ?? ''), 'es feriado'),
+       "código $c " . json_encode($jr, JSON_UNESCAPED_UNICODE));
+    ok('y la respuesta trae la fecha y el nombre del feriado',
+       ($jr['feriado']['fecha'] ?? '') === "$anioF-12-08" && ($jr['feriado']['nombre'] ?? '') !== '');
     if (count($slots) < 3) { throw new RuntimeException('Sin horarios no se puede seguir con la reserva.'); }
 
     echo "== Reserva ==\n";
