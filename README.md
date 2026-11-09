@@ -616,6 +616,6 @@ reconocimiento de autoría (Ley 11.723 art. 52; Convenio de Berna art. 6 bis). V
 
 ## Autor
 
-**Brian Sierra** — diseño, desarrollo e implementación completos: modelo de datos, backend,
-motor de envío SMTP/IMAP, integración con Google Calendar y Meet, migración desde Zoho,
-front-end y despliegue.
+**Brian Sierra** — Administrador de sistemas (SysAdmin) en Intellihelp · [LinkedIn](https://www.linkedin.com/in/brian-gabriel-sierra/) · [GitHub](https://github.com/bsierra4262)
+
+Diseño, desarrollo e implementación completos: modelo de datos, backend, motor de envío SMTP/IMAP, integración con Google Calendar y Meet, migración desde Zoho, front-end y despliegue.
