@@ -138,6 +138,8 @@ sola.
   </tr>
 </table>
 
+<p align="center"><b>Feriados del año</b> (calendario oficial, nacionales y regionales: esos días la agenda no ofrece horarios)<br><img src="docs/screenshots/feriados.png" alt="Feriados" width="100%"></p>
+
 ### Administración
 
 <table>
