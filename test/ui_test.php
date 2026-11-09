@@ -1239,6 +1239,32 @@ $reinicio = (string) @file_get_contents(dirname($WEB) . '/reinicio.php') . (stri
 ok('el reinicio vacía las entradas de la web y los contadores',
    str_contains($reinicio, "'entradas_web'") && str_contains($reinicio, "'api_limites'"));
 ok('y siembra el tipo «diagnostico» que usa la landing', str_contains($reinicio, "'slug'         => 'diagnostico'"));
+echo "== Feriados en la agenda ==\n";
+$feriadosSrc = $leer('app/feriados.php');
+$cronSrc     = (string) @file_get_contents(dirname($WEB) . '/cron.php') . (string) @file_get_contents($WEB . '/cron.php');
+ok('feriados.php se carga con la agenda', str_contains($agendaSrc, "require_once __DIR__ . '/feriados.php';"));
+ok('la pantalla de feriados es de administración', (bool) preg_match("#'feriados'\s*=>\s*\['public'\s*=>\s*false,\s*'admin'\s*=>\s*true\]#", $indexSrc));
+ok('está en el menú «Más» y se apaga con el módulo Agenda',
+   str_contains($layout, "'feriados'") && str_contains($leer('app/modulos.php'), "'google-desconectar', 'feriados'"));
+ok('y tiene su controlador y su vista', is_file($WEB . '/app/pages/feriados.php') && is_file($WEB . '/app/views/feriados.php'));
+ok('el cálculo de horarios saca los feriados antes de consultar a Google',
+   strpos($cuerpoFn($agendaSrc, 'agenda_huecos_rango'), 'feriados_del_rango(') < strpos($cuerpoFn($agendaSrc, 'agenda_huecos_rango'), 'gcal_ocupado('));
+ok('la verificación final de un horario rechaza los feriados', str_contains($cuerpoFn($agendaSrc, 'agenda_hueco_libre'), "'feriado'"));
+ok('reservar en un feriado se rechaza por cualquier camino (antes de bloquear el calendario)',
+   strpos($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_feriado_de_inicio(') < strpos($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_bloquear('));
+ok('mover una reunión a un feriado también', str_contains($cuerpoFn($agendaSrc, 'agenda_reprogramar'), 'agenda_feriado_de_inicio('));
+ok('la API de reserva responde 409 «feriado» con la fecha y el nombre',
+   str_contains($leer('app/pages/api/v1/reserva.php'), "'feriado'                            => [409, 'feriado']")
+   && str_contains($leer('app/pages/api/v1/reserva.php'), '+ $e->datos'));
+ok('la API de horarios devuelve los feriados del rango', str_contains($leer('app/pages/api/v1/disponibilidad.php'), "'feriados' => feriados_para_api("));
+ok('la sincronización nunca rompe la agenda (todo dentro de try)', str_contains($cuerpoFn($feriadosSrc, 'feriados_asegurar'), 'catch (\Throwable $e)'));
+ok('la fuente tiene un tiempo de espera', str_contains($cuerpoFn($feriadosSrc, 'feriados_descargar'), 'CURLOPT_TIMEOUT'));
+ok('un calendario incompleto no borra nada', str_contains($cuerpoFn($feriadosSrc, 'feriados_sincronizar'), 'FERIADOS_MINIMO_ANIO'));
+ok('el cron sincroniza los feriados una vez por día', str_contains($cronSrc, 'feriados_asegurar(true)'));
+ok('las reuniones agendadas en un feriado se marcan en la lista', str_contains($leer('app/views/reservas.php'), '>Feriado</span>'));
+ok('la migración 009 crea la tabla y los ajustes',
+   str_contains((string) @file_get_contents(dirname($WEB) . '/db/migracion-009-feriados.sql'), 'CREATE TABLE IF NOT EXISTS `feriados`')
+   || !is_dir(dirname($WEB) . '/db'));
 echo "\n" . str_repeat('=', 60) . "\n";
 printf("  %d comprobaciones de interfaz · %d correctas · %d fallidas\n", $T, $T - $F, $F);
 if ($fallos) {

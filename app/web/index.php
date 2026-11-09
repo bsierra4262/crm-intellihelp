@@ -68,6 +68,7 @@ $rutas = [
     'reservas'        => ['public' => false],
     'reserva-accion'  => ['public' => false],
     'reserva-mover'   => ['public' => false],
+    'feriados'        => ['public' => false, 'admin' => true],
     'google-desconectar' => ['public' => false],
 
     'reportes'        => ['public' => false],
@@ -162,7 +163,7 @@ if (!empty($def['admin']) && !auth_is_admin()) {
 // para no ensuciar la bitácora.
 $rutasNav = ['dashboard', 'contactos', 'cuentas', 'posibles', 'negocios', 'embudo', 'actividades',
              'campanas', 'plantillas', 'listas', 'agenda', 'reservas', 'reportes', 'importar',
-             'usuarios', 'papelera', 'ajustes', 'api-keys'];
+             'usuarios', 'papelera', 'ajustes', 'api-keys', 'feriados'];
 // El refresco automático se excluye: son varias visitas por minuto por pantalla
 // abierta, y llenarían la bitácora de ruido hasta tapar los movimientos reales.
 if (method() === 'GET' && !vivo_pedido() && in_array($rutaBase, $rutasNav, true) && auth_user()) {

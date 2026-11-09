@@ -614,6 +614,26 @@ CREATE TABLE IF NOT EXISTS `api_limites` (
   KEY `ix_al_vence` (`vence_en`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Feriados (migracion 009): los dias en que la agenda no ofrece horarios.
+-- Los nacionales los mantiene la sincronizacion diaria con el calendario
+-- oficial (origen 'auto'); los regionales y los dias que la empresa no trabaja
+-- se cargan a mano. `ignorado` = figura en el oficial pero se trabaja.
+CREATE TABLE IF NOT EXISTS `feriados` (
+  `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `fecha`          DATE         NOT NULL,
+  `nombre`         VARCHAR(160) NOT NULL,
+  `tipo`           VARCHAR(20)  NOT NULL DEFAULT 'inamovible', -- inamovible | trasladable | puente | no_laborable
+  `jurisdiccion`   VARCHAR(20)  NOT NULL DEFAULT 'nacional',   -- 'nacional' o 'CABA', 'BA', ...
+  `origen`         ENUM('auto','manual') NOT NULL DEFAULT 'auto',
+  `ignorado`       TINYINT(1)   NOT NULL DEFAULT 0,
+  `creado_por`     BIGINT UNSIGNED DEFAULT NULL,
+  `creado_en`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `actualizado_en` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ux_feriado_dia` (`fecha`, `jurisdiccion`),
+  KEY `ix_feriado_vigente` (`ignorado`, `fecha`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Credenciales OAuth de Google por usuario (refresh token cifrado en la app).
 CREATE TABLE IF NOT EXISTS `google_tokens` (
   `usuario_id`     BIGINT UNSIGNED NOT NULL,
@@ -831,7 +851,14 @@ INSERT INTO `app_settings` (`clave`, `valor`) VALUES
   -- invitado va tambien como invitado del evento de Google.
   ('web_dueno_id', ''),
   ('avisar_web', '1'),
-  ('agenda_invitado_en_google', '1')
+  ('agenda_invitado_en_google', '1'),
+  -- Feriados (migracion 009): si la agenda los respeta, que jurisdiccion
+  -- rige ademas de los nacionales y el estado de la sincronizacion.
+  ('feriados_activo', '1'),
+  ('feriados_jurisdiccion', 'CABA'),
+  ('feriados_sincronizado_en', ''),
+  ('feriados_intento_en', ''),
+  ('feriados_ultimo_error', '')
 ON DUPLICATE KEY UPDATE `valor` = `valor`;
 
 -- Embudo por defecto. Las probabilidades salen de la propuesta de

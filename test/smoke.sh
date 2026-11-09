@@ -84,7 +84,7 @@ for r in dashboard contactos cuentas posibles negocios embudo actividades campan
          contacto-form cuenta-form posible-form negocio-form actividad-form \
          campana-form plantilla-form lista-form agenda-form \
          usuarios papelera ajustes cron api-keys importar cuentas-correo imagenes plantilla-vista \
-         entradas-web; do
+         entradas-web feriados; do
     probar "«$r» exige sesión"              "$BASE/$r"               "302"
 done
 

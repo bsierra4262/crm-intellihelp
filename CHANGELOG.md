@@ -8,6 +8,25 @@ y el versionado, [SemVer](https://semver.org/lang/es/).
 
 ### Added
 
+- **Feriados automáticos en la agenda** (migración 009, tabla `feriados`). Una vez por día, y al
+  vuelo si faltan datos o tienen más de 24 h, el CRM trae el calendario oficial de feriados
+  nacionales del año y del siguiente (ArgentinaDatos): agrega los que se decretan, reubica los
+  trasladables, quita los que dejan de figurar y respeta los cargados a mano y los marcados
+  «se trabaja». Si la fuente no responde, la agenda sigue con lo que tenía y se vuelve a probar
+  a los 15 minutos; la consulta al vuelo espera 3 segundos como mucho.
+- En un feriado nacional o de la jurisdicción configurada (`feriados_jurisdiccion`, CABA por
+  defecto) **no hay turnos**: ni en la web, ni en el enlace público, ni al mover una reunión, ni
+  en los días de una cobertura. Reservar o mover a un feriado se rechaza por cualquier camino
+  con un mensaje que nombra el feriado; la API responde `409 feriado` con su fecha y nombre.
+- `GET api/v1/disponibilidad` devuelve `feriados` (fecha, nombre, tipo, nacional, jurisdicción)
+  del rango pedido, para que la web los muestre marcados.
+- **Pantalla Más → Feriados** (administración): la lista del año, «Actualizar ahora», alta
+  manual con jurisdicción (regionales), «Se trabaja» / «Volver a feriado», la jurisdicción y el
+  interruptor general. Avisa qué reuniones confirmadas caen en un feriado.
+- **Alerta al responsable** cuando un feriado nuevo cae sobre una reunión ya agendada, para que
+  coordine con el invitado (la reunión no se cancela sola).
+- «Próximos feriados» en Agenda y la marca «Feriado» en las reuniones reservadas.
+
 - **Cobertura de la agenda por vacaciones** (ajuste `agenda_coberturas`). Entre dos fechas,
   otra persona atiende un tipo de reunión: los horarios salen de su calendario y la reunión,
   el evento con Meet y la confirmación quedan a su nombre. La web no cambia nada y al terminar

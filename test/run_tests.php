@@ -695,6 +695,90 @@ eq('el primer día cubre otro', agenda_cobertura_del_dia($cob, '2026-11-09'), 4)
 eq('el último día también (las fechas van incluidas)', agenda_cobertura_del_dia($cob, '2026-11-24'), 4);
 eq('el día después vuelve solo al dueño', agenda_cobertura_del_dia($cob, '2026-11-25'), null);
 
+echo "== Feriados: calendario oficial, trasladables, regionales y fuente caída ==\n";
+// El formato es el de https://api.argentinadatos.com/v1/feriados/<año>.
+$calendario = static function (int $a, array $cambios = []): array {
+    $base = [
+        "$a-01-01" => ['Año nuevo', 'inamovible'],          "$a-02-16" => ['Carnaval', 'inamovible'],
+        "$a-02-17" => ['Carnaval', 'inamovible'],           "$a-03-24" => ['Día Nacional de la Memoria por la Verdad y la Justicia', 'inamovible'],
+        "$a-04-02" => ['Día del Veterano y de los Caídos en la Guerra de Malvinas', 'inamovible'],
+        "$a-04-03" => ['Viernes Santo', 'inamovible'],      "$a-05-01" => ['Día del Trabajador', 'inamovible'],
+        "$a-05-25" => ['Día de la Revolución de Mayo', 'inamovible'],
+        "$a-06-20" => ['Paso a la Inmortalidad del General Manuel Belgrano', 'inamovible'],
+        "$a-07-09" => ['Día de la Independencia', 'inamovible'],
+        "$a-11-20" => ['Día de la Soberanía Nacional', 'trasladable'],
+        "$a-12-07" => ['Puente turístico no laborable', 'puente'],
+        "$a-12-08" => ['Día de la Inmaculada Concepción de María', 'inamovible'],
+        "$a-12-25" => ['Navidad', 'inamovible'],
+    ];
+    foreach ($cambios as $f => $v) { if ($v === null) { unset($base[$f]); } else { $base[$f] = $v; } }
+    $lista = [];
+    foreach ($base as $f => [$n, $t]) { $lista[] = ['fecha' => $f, 'tipo' => $t, 'nombre' => $n]; }
+    return $lista;
+};
+$of26 = feriados_parsear(json_encode($calendario(2026)), 2026);
+eq('la respuesta de la fuente se lee por fecha', [count($of26), $of26['2026-12-08']['nombre'], $of26['2026-12-07']['tipo']],
+   [14, 'Día de la Inmaculada Concepción de María', 'puente']);
+eq('una respuesta que no es un calendario: null', [feriados_parsear('<html>Mantenimiento</html>', 2026), feriados_parsear('{"error":"x"}', 2026)], [null, null]);
+eq('fechas de otro año, inválidas o sin nombre se descartan',
+   array_keys(feriados_parsear(json_encode([['fecha' => '2027-01-01', 'nombre' => 'Año nuevo'], ['fecha' => '2026-02-30', 'nombre' => 'X'],
+       ['fecha' => '2026-05-01', 'nombre' => ' '], ['fecha' => '2026-05-25', 'nombre' => 'Revolución', 'tipo' => 'raro']]), 2026)),
+   ['2026-05-25']);
+eq('un tipo desconocido queda como inamovible',
+   feriados_parsear(json_encode([['fecha' => '2026-05-25', 'nombre' => 'Revolución', 'tipo' => 'raro']]), 2026)['2026-05-25']['tipo'], 'inamovible');
+eq('dos feriados el mismo día: un solo día, con los dos nombres',
+   feriados_parsear(json_encode([['fecha' => '2026-04-02', 'nombre' => 'Malvinas'], ['fecha' => '2026-04-02', 'nombre' => 'Jueves Santo']]), 2026)['2026-04-02']['nombre'],
+   'Malvinas · Jueves Santo');
+
+$filaF = static fn(int $id, string $f, string $n, string $t = 'inamovible', string $o = 'auto', int $ig = 0): array
+    => ['id' => $id, 'fecha' => $f, 'nombre' => $n, 'tipo' => $t, 'origen' => $o, 'ignorado' => $ig];
+$plan = feriados_planificar($of26, []);
+eq('base vacía: se agrega todo el calendario', count($plan['insertar']), 14);
+$actuales = [$filaF(1, '2026-11-20', 'Día de la Soberanía Nacional', 'trasladable'), $filaF(2, '2026-12-25', 'Navidad')];
+$movido = feriados_parsear(json_encode($calendario(2026, ['2026-11-20' => null, '2026-11-23' => ['Día de la Soberanía Nacional (20/11)', 'trasladable']])), 2026);
+$plan = feriados_planificar($movido, $actuales);
+ok('trasladable que se movió: la fecha nueva se agrega', isset($plan['insertar']['2026-11-23']));
+eq('y la vieja se borra', array_keys($plan['borrar']), [1]);
+ok('lo que no cambió no se toca', !isset($plan['actualizar'][2]) && !isset($plan['insertar']['2026-12-25']));
+$plan = feriados_planificar(feriados_parsear(json_encode($calendario(2026, ['2026-12-25' => ['Navidad (Natividad del Señor)', 'inamovible']])), 2026), $actuales);
+eq('si cambia el nombre, se actualiza', $plan['actualizar'][2]['nombre'] ?? null, 'Navidad (Natividad del Señor)');
+$decreto = feriados_parsear(json_encode($calendario(2026, ['2026-11-09' => ['Visita del papa León XIV', 'inamovible']])), 2026);
+ok('un feriado decretado en el año se agrega solo', isset(feriados_planificar($decreto, $actuales)['insertar']['2026-11-09']));
+$plan = feriados_planificar($of26, [$filaF(5, '2026-12-08', 'Inmaculada', 'inamovible', 'manual'), $filaF(6, '2026-03-15', 'Aniversario', 'no_laborable', 'manual')]);
+ok('uno cargado a mano no se pisa con el oficial', !isset($plan['actualizar'][5]) && !isset($plan['insertar']['2026-12-08']));
+ok('ni se borra aunque no figure en el oficial', !isset($plan['borrar'][6]));
+$plan = feriados_planificar($of26, [$filaF(7, '2026-12-07', 'Puente turístico no laborable', 'puente', 'auto', 1)]);
+ok('un puente marcado «se trabaja» no vuelve a agregarse', !isset($plan['insertar']['2026-12-07']) && !isset($plan['borrar'][7]));
+$plan = feriados_planificar(feriados_parsear(json_encode($calendario(2026, ['2026-12-07' => null])), 2026),
+                            [$filaF(8, '2026-12-07', 'Puente turístico no laborable', 'puente')]);
+eq('un puente que se deja sin efecto se quita', array_keys($plan['borrar']), [8]);
+
+$filasJ = [
+    ['fecha' => '2026-11-09', 'nombre' => 'Visita del papa', 'tipo' => 'no_laborable', 'jurisdiccion' => 'CABA', 'origen' => 'manual', 'ignorado' => 0],
+    ['fecha' => '2026-07-06', 'nombre' => 'Día del Patrono', 'tipo' => 'no_laborable', 'jurisdiccion' => 'CB', 'origen' => 'manual', 'ignorado' => 0],
+    ['fecha' => '2026-12-08', 'nombre' => 'Inmaculada (CABA)', 'tipo' => 'inamovible', 'jurisdiccion' => 'CABA', 'origen' => 'manual', 'ignorado' => 0],
+    ['fecha' => '2026-12-08', 'nombre' => 'Inmaculada', 'tipo' => 'inamovible', 'jurisdiccion' => 'nacional', 'origen' => 'auto', 'ignorado' => 0],
+    ['fecha' => '2026-12-07', 'nombre' => 'Puente', 'tipo' => 'puente', 'jurisdiccion' => 'nacional', 'origen' => 'auto', 'ignorado' => 1],
+];
+$rigen = feriados_aplicables($filasJ, 'CABA');
+eq('en CABA rigen los nacionales y los de CABA, no los de Córdoba', array_keys($rigen), ['2026-11-09', '2026-12-08']);
+eq('el mismo día nacional y regional: queda el nacional', $rigen['2026-12-08']['jurisdiccion'], 'nacional');
+eq('con la oficina en Córdoba, el de Córdoba sí y el de CABA no', array_keys(feriados_aplicables($filasJ, 'CB')), ['2026-07-06', '2026-12-08']);
+eq('la etiqueta de un regional dice dónde rige', feriado_etiqueta($rigen['2026-11-09']), 'Visita del papa (sólo Ciudad de Buenos Aires)');
+eq('la de un nacional, sólo el nombre', feriado_etiqueta($rigen['2026-12-08']), 'Inmaculada');
+
+$ah = strtotime('2026-11-08 10:00:00');
+$hace = static fn(int $s): string => date('Y-m-d H:i:s', $ah - $s);
+ok('nunca sincronizado: toca', feriados_toca($ah, '', '', false, false));
+ok('sin datos del año: toca aunque se haya sincronizado', feriados_toca($ah, $hace(3600), $hace(3600), false, false));
+ok('sincronizado hace una hora: no toca al vuelo', !feriados_toca($ah, $hace(3600), $hace(3600), true, false));
+ok('con más de 24 h: toca', feriados_toca($ah, $hace(86400), $hace(86400), true, false));
+ok('fuente caída hace 5 min: no se vuelve a probar (no se hace esperar a nadie)', !feriados_toca($ah, $hace(90000), $hace(300), true, false));
+ok('ni aunque falten datos', !feriados_toca($ah, '', $hace(300), false, false));
+ok('pasados 15 min se vuelve a probar', feriados_toca($ah, $hace(90000), $hace(901), true, false));
+ok('el cron sincroniza una vez por día calendario', feriados_toca($ah, '2026-11-07 23:30:00', '2026-11-07 23:30:00', true, true)
+   && !feriados_toca($ah, '2026-11-08 00:05:00', '2026-11-08 00:05:00', true, true));
+
 // ------------------------------------------------------------
 //  Lo que depende de la base: idempotencia, duplicados y límites.
 //
@@ -766,8 +850,13 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     function q1(string $sql, array $params = []): ?array { $f = q($sql, $params)->fetch(); return $f === false ? null : $f; }
     function qv(string $sql, array $params = []) { return q($sql, $params)->fetchColumn(); }
     function last_id(): int { return (int) db()->lastInsertId(); }
+    // Los ajustes viven en memoria: las pruebas de feriados los cambian.
+    $GLOBALS['__ajustes'] = [];
     if (!function_exists('setting_get')) {
-        function setting_get(string $clave, ?string $def = null): ?string { return $def; }
+        function setting_get(string $clave, ?string $def = null): ?string { return $GLOBALS['__ajustes'][$clave] ?? $def; }
+    }
+    if (!function_exists('setting_set')) {
+        function setting_set(string $clave, ?string $valor): void { $GLOBALS['__ajustes'][$clave] = $valor; }
     }
 
     $fila = static fn(array $extra = []): array => $extra + [
@@ -893,6 +982,132 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     $firmaX = hash('sha256', random_bytes(16));
     ok('una firma nueva no figura como usada', !api_firma_usada($firmaX));
     ok('la misma firma repetida sí', api_firma_usada($firmaX));
+
+    // ---- Feriados contra la base ----
+    echo "== Feriados: sincronización, agenda y reservas ==\n";
+    db()->exec("CREATE TABLE feriados (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT NOT NULL, nombre TEXT NOT NULL,
+                    tipo TEXT NOT NULL DEFAULT 'inamovible', jurisdiccion TEXT NOT NULL DEFAULT 'nacional',
+                    origen TEXT NOT NULL DEFAULT 'auto', ignorado INTEGER NOT NULL DEFAULT 0, creado_por INTEGER,
+                    creado_en TEXT, actualizado_en TEXT, UNIQUE (fecha, jurisdiccion))");
+    db()->exec("CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY, nombre TEXT, email TEXT, activo INTEGER DEFAULT 1)");
+    db()->exec("CREATE TABLE IF NOT EXISTS agenda_tipos (id INTEGER PRIMARY KEY, usuario_id INTEGER, slug TEXT, nombre TEXT, duracion_min INTEGER,
+                    margen_min INTEGER, aviso_min_horas INTEGER, ventana_dias INTEGER, zona_horaria TEXT, con_meet INTEGER, activo INTEGER)");
+    db()->exec("CREATE TABLE IF NOT EXISTS agenda_horarios (id INTEGER PRIMARY KEY AUTOINCREMENT, tipo_id INTEGER, dia INTEGER, desde TEXT, hasta TEXT)");
+    db()->exec("CREATE TABLE IF NOT EXISTS agenda_reservas (id INTEGER PRIMARY KEY AUTOINCREMENT, tipo_id INTEGER, usuario_id INTEGER, inicia_el TEXT,
+                    termina_el TEXT, estado TEXT, invitado_nombre TEXT, invitado_empresa TEXT, invitado_email TEXT)");
+    if (!function_exists('notificar')) {
+        function notificar(string $tipo, string $titulo, array $d = []): void { $GLOBALS['__avisos'][] = $d + ['titulo' => $titulo]; }
+    }
+    $GLOBALS['__avisos'] = [];
+
+    // Un año que viene, para que las reservas de prueba siempre estén en el futuro.
+    $A  = (int)date('Y') + 1;
+    $A2 = $A + 1;
+    $caida = static fn(int $anio): ?array => null;
+    $fuenteDe = static function (array $porAnio) use ($calendario): callable {
+        return static function (int $anio) use ($porAnio, $calendario): ?array {
+            if (!array_key_exists($anio, $porAnio)) { return feriados_parsear(json_encode($calendario($anio)), $anio); }
+            return $porAnio[$anio] === null ? null : feriados_parsear(json_encode($porAnio[$anio]), $anio);
+        };
+    };
+
+    // La primera sincronización trae el año en curso y el siguiente. Con la
+    // fuente simulada: las pruebas no salen a internet.
+    $r = feriados_asegurar(false, true, $fuenteDe([]));
+    eq('la primera sincronización trae los dos años', [count($r['agregados'] ?? []), $r['anios'] ?? null], [28, [(int)date('Y'), $A]]);
+    ok('y queda la hora de la sincronización', ($GLOBALS['__ajustes']['feriados_sincronizado_en'] ?? '') !== '');
+    eq('al vuelo no se repite en el mismo pedido', feriados_asegurar(), null);
+
+    q("INSERT INTO usuarios (id, nombre, email, activo) VALUES (1, 'Carlos', 'cbaldelli@intellihelp.tech', 1), (2, 'Brian', 'bsierra@intellihelp.tech', 1)");
+    q("INSERT INTO agenda_tipos VALUES (4, 1, 'diagnostico', 'Diagnóstico', 30, 10, 0, 800, 'America/Argentina/Buenos_Aires', 1, 1)");
+    for ($dia = 0; $dia <= 6; $dia++) { q("INSERT INTO agenda_horarios (tipo_id, dia, desde, hasta) VALUES (4, ?, '09:00:00', '18:00:00')", [$dia]); }
+    $tipoF = q1('SELECT t.*, u.nombre AS usuario, u.email AS usuario_email FROM agenda_tipos t JOIN usuarios u ON u.id = t.usuario_id WHERE t.id = 4');
+    $zAR   = new DateTimeZone('America/Argentina/Buenos_Aires');
+    $a10   = static fn(string $f): int => (new DateTimeImmutable($f . ' 10:00:00', $zAR))->getTimestamp();
+    // Una reunión ya tomada el día al que después se traslada el feriado.
+    q("INSERT INTO agenda_reservas (tipo_id, usuario_id, inicia_el, termina_el, estado, invitado_nombre, invitado_empresa, invitado_email)
+       VALUES (4, 1, ?, ?, 'confirmada', 'Juana Prueba', 'ACME', 'juana@empresa-prueba.com.ar')",
+      ["$A-11-23 10:00:00", "$A-11-23 10:30:00"]);
+    $reservaJuana = last_id();
+
+    // ---- Nacional ----
+    eq('nacional: el 8/12 es feriado', feriado_del_dia("$A-12-08")['nombre'] ?? null, 'Día de la Inmaculada Concepción de María');
+    eq('el 25/12 también', feriado_del_dia("$A-12-25")['nombre'] ?? null, 'Navidad');
+    eq('un día común no', feriado_del_dia("$A-12-09"), null);
+    $api = feriados_para_api("$A-12-01", "$A-12-31");
+    eq('la API devuelve los feriados del rango con fecha y nombre',
+       array_map(fn($f) => [$f['fecha'], $f['nombre'], $f['nacional']], $api),
+       [["$A-12-07", 'Puente turístico no laborable', true], ["$A-12-08", 'Día de la Inmaculada Concepción de María', true], ["$A-12-25", 'Navidad', true]]);
+
+    // ---- Puente: el 7 y el 8 seguidos, sin turnos; ni se consulta Google ----
+    $mot = 'x';
+    eq('puente + feriado: ningún horario esos dos días', agenda_huecos_rango($tipoF, "$A-12-07", "$A-12-08", $mot), []);
+    eq('y no es «sin calendario»: es que son feriados', $mot, null);
+    $mot = null;
+    ok('el puente no es un hueco válido', !agenda_hueco_libre($tipoF, $a10("$A-12-07"), null, $mot) && $mot === 'feriado');
+
+    // ---- Cobertura: los días cubiertos también respetan los feriados ----
+    $GLOBALS['__ajustes']['agenda_coberturas'] = json_encode([['tipo_id' => 4, 'usuario_id' => 2, 'desde' => "$A-12-20", 'hasta' => "$A-12-31"]]);
+    $mot = 'x';
+    eq('con cobertura, el 25/12 de quien cubre tampoco tiene turnos', agenda_huecos_rango($tipoF, "$A-12-25", "$A-12-25", $mot), []);
+    unset($GLOBALS['__ajustes']['agenda_coberturas']);
+
+    // ---- Reserva rechazada ----
+    $datosR = ['inicio' => $a10("$A-12-08"), 'nombre' => 'Juana Prueba', 'email' => 'juana@empresa-prueba.com.ar', 'empresa' => 'ACME'];
+    $exc = null;
+    try { agenda_reservar($tipoF, $datosR, ['origen' => 'web']); } catch (AgendaExcepcion $e) { $exc = $e; }
+    eq('reservar en un feriado: rechazada con motivo «feriado»', $exc?->motivo, 'feriado');
+    contiene('con un mensaje claro que nombra el feriado', (string)$exc?->getMessage(), 'es feriado (Día de la Inmaculada Concepción de María)');
+    eq('y la API recibe la fecha y el nombre', $exc?->datos, ['feriado' => ['fecha' => "$A-12-08", 'nombre' => 'Día de la Inmaculada Concepción de María']]);
+    $exc = null;
+    try { agenda_reservar($tipoF, $datosR, ['origen' => 'crm', 'validar_hueco' => false]); } catch (AgendaExcepcion $e) { $exc = $e; }
+    eq('tampoco desde el CRM, sin validar el hueco', $exc?->motivo, 'feriado');
+    eq('el motivo genérico también existe', agenda_excepcion_hueco('feriado')->motivo, 'feriado');
+
+    // ---- Trasladable movido + aviso al responsable ----
+    $r = feriados_sincronizar([$A], $fuenteDe([$A => $calendario($A, ["$A-11-20" => null,
+                                   "$A-11-23" => ['Día de la Soberanía Nacional (20/11)', 'trasladable']])]));
+    eq('el trasladable se mueve: uno nuevo y uno quitado', [array_column($r['agregados'], 'fecha'), array_column($r['quitados'], 'fecha')],
+       [["$A-11-23"], ["$A-11-20"]]);
+    eq('el 20/11 vuelve a tener turnos', feriado_del_dia("$A-11-20"), null);
+    eq('el 23/11 ya no', feriado_del_dia("$A-11-23")['nombre'] ?? null, 'Día de la Soberanía Nacional (20/11)');
+    eq('se le avisa a quien atiende la reunión que quedó en el feriado',
+       array_map(fn($a) => [$a['usuario_id'], $a['entidad_id'], $a['titulo']], $GLOBALS['__avisos']),
+       [[1, $reservaJuana, 'Un feriado nuevo cae sobre una reunión agendada']]);
+    contiene('el aviso dice qué día, qué feriado y con quién', (string)($GLOBALS['__avisos'][0]['detalle'] ?? ''),
+             '23/11/' . $A . ' pasó a ser feriado (Día de la Soberanía Nacional (20/11)). Tenés «Diagnóstico» con Juana Prueba (ACME) a las 10:00');
+
+    // ---- Ignorado y manual ----
+    q("UPDATE feriados SET ignorado = 1 WHERE fecha = ? AND jurisdiccion = 'nacional'", ["$A-12-07"]);
+    eq('el puente marcado «se trabaja» vuelve a tener turnos', feriado_del_dia("$A-12-07"), null);
+    q("INSERT INTO feriados (fecha, nombre, tipo, jurisdiccion, origen) VALUES (?, 'Aniversario de la empresa', 'no_laborable', 'nacional', 'manual')", ["$A-03-15"]);
+    $r = feriados_sincronizar([$A], $fuenteDe([$A => $calendario($A, ["$A-11-20" => null,
+                                   "$A-11-23" => ['Día de la Soberanía Nacional (20/11)', 'trasladable']])]));
+    eq('otra sincronización no trae de vuelta el ignorado ni borra el manual', [$r['agregados'], $r['quitados']], [[], []]);
+    eq('el manual sigue rigiendo', feriado_del_dia("$A-03-15")['nombre'] ?? null, 'Aniversario de la empresa');
+
+    // ---- Regional ----
+    q("INSERT INTO feriados (fecha, nombre, tipo, jurisdiccion, origen) VALUES (?, 'Día del Patrono', 'no_laborable', 'CB', 'manual')", ["$A-07-06"]);
+    q("INSERT INTO feriados (fecha, nombre, tipo, jurisdiccion, origen) VALUES (?, 'Día no laborable en la Ciudad', 'no_laborable', 'CABA', 'manual')", ["$A-11-10"]);
+    eq('regional de otra provincia: no quita turnos en CABA', feriado_del_dia("$A-07-06"), null);
+    eq('regional de CABA (la jurisdicción por defecto): sí', feriado_del_dia("$A-11-10")['jurisdiccion'] ?? null, 'CABA');
+    $GLOBALS['__ajustes']['feriados_jurisdiccion'] = 'CB';
+    eq('con la oficina en Córdoba se invierte', [feriado_del_dia("$A-07-06")['nombre'] ?? null, feriado_del_dia("$A-11-10")], ['Día del Patrono', null]);
+    unset($GLOBALS['__ajustes']['feriados_jurisdiccion']);
+
+    // ---- Fuente caída o con datos rotos: no se toca nada ----
+    $antes = (int) qv('SELECT COUNT(*) FROM feriados');
+    $r = feriados_sincronizar([(int)date('Y'), $A], $caida);
+    eq('fuente caída: ningún cambio', [$r['agregados'], $r['quitados'], (int) qv('SELECT COUNT(*) FROM feriados')], [[], [], $antes]);
+    ok('queda anotado el error, para la pantalla', $r['error'] !== null && ($GLOBALS['__ajustes']['feriados_ultimo_error'] ?? '') !== '');
+    eq('y la agenda sigue con lo que tenía', feriado_del_dia("$A-12-25")['nombre'] ?? null, 'Navidad');
+    $r = feriados_sincronizar([$A], $fuenteDe([$A => [['fecha' => "$A-01-01", 'tipo' => 'inamovible', 'nombre' => 'Año nuevo']]]));
+    eq('un calendario incompleto no borra nada', [$r['quitados'], $r['fallidos']], [[], [$A]]);
+    $r = feriados_sincronizar([$A2], static function (int $a): ?array { throw new RuntimeException('se cortó la conexión'); });
+    ok('una excepción de la fuente tampoco rompe nada', $r['fallidos'] === [$A2] && $r['error'] !== null);
+    $GLOBALS['__ajustes']['feriados_activo'] = '0';
+    eq('con los feriados apagados, la agenda los ignora', feriado_del_dia("$A-12-25"), null);
+    unset($GLOBALS['__ajustes']['feriados_activo']);
 }
 
 // ---- Exportación CSV: nada que la planilla tome como fórmula ----

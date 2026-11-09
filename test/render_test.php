@@ -68,6 +68,7 @@ function rutas_a_probar(): array
         'api-keys'        => [],
         'embudos'         => [],
         'cuotas'          => [],
+        'feriados'        => [],
         'alertas'         => [],
         'reserva-mover'   => ['_id_de' => 'agenda_reservas'],
 

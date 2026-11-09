@@ -55,6 +55,7 @@ if ($u && ($u['rol'] ?? '') === 'admin') {
         'ajustes'  => ['Ajustes',        'ajustes'],
         'api-keys' => ['API',            'clave'],
         'entradas-web' => ['Entradas desde la web', 'enlace'],
+        'feriados' => ['Feriados',       'agenda'],
         'cron'     => ['CRON',           'cron'],
     ];
 }

@@ -1,5 +1,5 @@
 <?php
-/** @var array $tipos @var bool $conectado @var array $proximas */
+/** @var array $tipos @var bool $conectado @var array $proximas @var array $feriados */
 $u = auth_user();
 $usuarioSlug = explode('@', (string)$u['email'])[0];
 ?>
@@ -83,12 +83,32 @@ $usuarioSlug = explode('@', (string)$u['email'])[0];
         <div class="timeline">
             <?php foreach ($proximas as $r): ?>
                 <div class="tl-item">
-                    <div class="tl-when"><?= fecha_hora($r['inicia_el']) ?> · <?= e($r['tipo']) ?></div>
+                    <div class="tl-when"><?= fecha_hora($r['inicia_el']) ?> · <?= e($r['tipo']) ?>
+                        <?php if (isset($feriados[substr((string)$r['inicia_el'], 0, 10)])): ?><span class="badge badge-pend">Feriado</span><?php endif; ?></div>
                     <div class="tl-title"><?= e($r['invitado_nombre']) ?><?= $r['invitado_empresa'] ? ' · ' . e($r['invitado_empresa']) : '' ?></div>
                     <div class="tl-detail">
                         <?= e($r['invitado_email']) ?>
                         <?php if ($r['meet_url']): ?> · <a href="<?= e($r['meet_url']) ?>" target="_blank" rel="noopener">Entrar por Meet</a><?php endif; ?>
                     </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+</div>
+
+<div class="card mt-4">
+    <div class="card-head"><h2>Próximos feriados</h2>
+        <?php if (auth_is_admin()): ?><a class="btn btn-ghost btn-sm" href="<?= e(url('feriados')) ?>">Administrar</a><?php endif; ?>
+    </div>
+    <?php if (!$feriados): ?>
+        <p class="muted small">No hay feriados en los próximos dos meses.</p>
+    <?php else: ?>
+        <p class="muted small">Esos días la agenda no ofrece horarios, ni en la web ni en tu enlace público. Se actualizan solos con el calendario oficial.</p>
+        <div class="timeline">
+            <?php foreach ($feriados as $f): ?>
+                <div class="tl-item">
+                    <div class="tl-when"><?= e(ucfirst(fecha_larga($f['fecha']))) ?></div>
+                    <div class="tl-title"><?= e(feriado_etiqueta($f)) ?></div>
                 </div>
             <?php endforeach; ?>
         </div>

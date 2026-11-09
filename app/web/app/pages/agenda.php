@@ -11,4 +11,6 @@ render('agenda', [
                       FROM agenda_reservas r JOIN agenda_tipos t ON t.id = r.tipo_id
                       WHERE r.usuario_id = ? AND r.estado = 'confirmada' AND r.inicia_el >= NOW()
                       ORDER BY r.inicia_el LIMIT 10", [$uid])->fetchAll(),
+    // Los feriados de los próximos dos meses: esos días la agenda no ofrece horarios.
+    'feriados'  => feriados_del_rango(date('Y-m-d'), date('Y-m-d', strtotime('+60 days'))),
 ], 'Agenda');

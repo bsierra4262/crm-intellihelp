@@ -60,5 +60,14 @@ try {
     $llego = [];
 }
 
-render('reservas', ['f' => $f, 'rows' => $rows, 'llego' => $llego, 'data' => $pg + ['total' => $total]],
+// Las reuniones que caen en un feriado (porque se tomaron antes de que se
+// declarara) se marcan, para que quien la atiende coordine con el invitado.
+$feriados = [];
+if ($rows) {
+    $fechas   = array_map(static fn(array $r): string => substr((string)$r['inicia_el'], 0, 10), $rows);
+    $feriados = feriados_del_rango(min($fechas), max($fechas));
+}
+
+render('reservas', ['f' => $f, 'rows' => $rows, 'llego' => $llego, 'feriados' => $feriados,
+                    'data' => $pg + ['total' => $total]],
        'Reuniones reservadas');

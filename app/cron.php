@@ -13,6 +13,8 @@ declare(strict_types=1);
 //       el contacto, porque ya no se le puede escribir)
 //    3. completa las reservas que quedaron sin evento o sin correo, y manda
 //       los recordatorios de las reuniones de las próximas 24 h
+//    3c. una vez por día, actualiza los feriados desde el calendario oficial
+//       y avisa si un feriado nuevo cae sobre reuniones ya agendadas
 //    4. purga lo que lleva más de 60 días en la papelera, borra los datos
 //       personales de las entradas de la web que ya no tienen contacto y
 //       limpia los contadores de límites vencidos
@@ -212,6 +214,27 @@ try {
 } catch (\Throwable $e) {
     $lineas[] = 'agenda ERROR: ' . $e->getMessage();
     log_app('cron.agenda_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
+}
+
+// ---- 3c. Feriados ----
+// Una vez por día (la primera corrida del día, o cuando lo sincronizado tiene
+// más de 24 h) se trae el calendario oficial del año y del siguiente. Va antes
+// de las alertas: si un feriado nuevo cae sobre una reunión, el aviso sale por
+// correo en esta misma corrida. Si la fuente no responde, la agenda sigue con
+// lo que ya tenía y se vuelve a probar en un rato.
+try {
+    if (function_exists('feriados_asegurar')) {
+        $r = feriados_asegurar(true);
+        if ($r !== null) {
+            $lineas[] = $r['error'] && !$r['anios']
+                ? 'feriados: sin actualizar (' . $r['error'] . ')'
+                : sprintf('feriados: %s al día, %d nuevos, %d quitados', implode(' y ', $r['anios']),
+                          count($r['agregados']), count($r['quitados']));
+        }
+    }
+} catch (\Throwable $e) {
+    $lineas[] = 'feriados ERROR: ' . $e->getMessage();
+    log_app('cron.feriados_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
 }
 
 // ---- 4. Alertas por correo ----
