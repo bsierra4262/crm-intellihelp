@@ -14,8 +14,9 @@ declare(strict_types=1);
 //
 //  Uso (desde la raíz del repo; la web es otro repositorio, NEW-PAGE-ITH,
 //  que se espera al lado de este):
-//      WEB_SRC=../NEW-PAGE-ITH/WEB/public/api php test/web_contrato_test.php
-//  Sin WEB_SRC busca ../../NEW-PAGE-ITH/WEB/public/api relativo a test/ (la
+//      WEB_SRC=../NEW-PAGE-ITH/TEMPLATE-NICO/api php test/web_contrato_test.php
+//  La web en vivo es TEMPLATE-NICO (la vieja WEB/public/api ya no existe).
+//  Sin WEB_SRC busca ../../NEW-PAGE-ITH/TEMPLATE-NICO/api relativo a test/ (la
 //  misma carpeta). CRM_SRC permite apuntar a otra copia de app/web/app.
 //  Si no encuentra _crm.php de la web sale con código 2.
 //
@@ -25,7 +26,7 @@ declare(strict_types=1);
 //  No lo lanza `deploy.py test`: se corre a mano antes de publicar la web.
 //  Salida: 0 todo bien, 1 alguna falla.
 
-$WEB = rtrim((string)(getenv('WEB_SRC') ?: (__DIR__ . '/../../NEW-PAGE-ITH/WEB/public/api')), '/\\');
+$WEB = rtrim((string)(getenv('WEB_SRC') ?: (__DIR__ . '/../../NEW-PAGE-ITH/TEMPLATE-NICO/api')), '/\\');
 $SRC = rtrim((string)(getenv('CRM_SRC') ?: (__DIR__ . '/../app/web/app')), '/\\');
 if (!is_file($WEB . '/_crm.php')) {
     fwrite(STDERR, "No encuentro la web en $WEB (WEB_SRC).\n");
@@ -144,7 +145,11 @@ array_map('unlink', array_filter(array_merge(glob($tmp . '/lim/{,.}*', GLOB_BRAC
 // contact.php y agenda.php; _crm.php queda negado ----
 echo "== Publicación ==\n";
 $ht = (string) file_get_contents($WEB . '/.htaccess');
-ok('el .htaccess de /api deja pasar agenda.php', (bool) preg_match('/FilesMatch "\^\(contact\|agenda\)\\\\\.php\$"/', $ht));
+// La lista de permitidos puede crecer (busquedas.php, postulaciones): alcanza
+// con que contact y agenda estén entre los que se dejan pasar.
+$permitidos = preg_match('/FilesMatch "\^\(([a-z|]+)\)\\\\\.php\$"/', $ht, $mPerm) ? explode('|', $mPerm[1]) : [];
+ok('el .htaccess de /api deja pasar contact.php y agenda.php',
+   in_array('contact', $permitidos, true) && in_array('agenda', $permitidos, true));
 ok('y sigue negando todo lo demás (_crm.php incluido)', str_contains($ht, 'Require all denied')
    && !preg_match('/_crm/', preg_replace('/^#.*$/m', '', $ht)));
 

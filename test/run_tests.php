@@ -1282,6 +1282,16 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     $GLOBALS['__ajustes']['feriados_activo'] = '0';
     eq('con los feriados apagados, la agenda los ignora', feriado_del_dia("$A-12-25"), null);
     unset($GLOBALS['__ajustes']['feriados_activo']);
+
+    // Casos con base que agrega cada área en test/casos_db/<area>.php (uno por
+    // archivo para que se puedan escribir en paralelo sin pisarse). Cada uno
+    // crea sus propias tablas en esta base SQLite en memoria.
+    foreach (glob(__DIR__ . '/casos_db/*.php') ?: [] as $__caso) {
+        echo "
+== Casos con base: " . basename($__caso, '.php') . " ==
+";
+        require $__caso;
+    }
 }
 
 // csv_celda() (helpers.php): una celda que empieza con = + - @ se antepone
@@ -1333,6 +1343,14 @@ $htmlSin = bloques_render([['tipo' => 'texto', 'texto' => 'Hola https://evil.tld
 no_contiene('un texto marcado sin_enlaces no se enlaza', $htmlSin, 'href="https://evil.tld');
 $htmlCon = bloques_render([['tipo' => 'texto', 'texto' => 'Cambialo acá: https://intellihelp.tech/crm/r/mover']], [], []);
 contiene('el resto de los textos sigue enlazando', $htmlCon, 'href="https://intellihelp.tech/crm/r/mover"');
+
+// Casos sin base que agrega cada área en test/casos/<area>.php.
+foreach (glob(__DIR__ . '/casos/*.php') ?: [] as $__caso) {
+    echo "
+== Casos: " . basename($__caso, '.php') . " ==
+";
+    require $__caso;
+}
 
 // ---- Resumen y código de salida (0 = todo bien, 1 = alguna falla) ----
 echo "\n";

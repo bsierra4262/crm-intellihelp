@@ -1,0 +1,3 @@
+<?php
+// Marcador para que git guarde la carpeta. Los casos de cada área van en
+// archivos <area>.php al lado de este; run_tests.php los carga solos.
