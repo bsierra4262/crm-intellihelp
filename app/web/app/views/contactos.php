@@ -15,9 +15,10 @@
 //    $usuarios  array  usuarios activos, para el filtro de propietario
 //
 //  `data-vivo` marca los bloques que el refresco automático reemplaza.
-//  Trampa: la columna «Estado» y el aviso «Falta …» miran sólo
-//  `pendiente_norm`, no `aprobado_en`; una ficha aprobada sin completar
-//  sigue saliendo «Pendiente» aunque el filtro ya no la cuente.
+//  La columna «Estado» y el aviso «Falta …» usan ficha_pendiente(): una
+//  ficha incompleta que alguien aprobó sale «Aprobado», igual que en el filtro.
+//  «Exportar» sólo lo ve un administrador y la papelera de cada fila sólo el
+//  propietario o un administrador.
 // ============================================================
 ?>
 <?php /** @var array $f @var array $data @var array $usuarios */ ?>
@@ -28,7 +29,10 @@
     </div>
     <div class="head-actions">
         <?php // Exportar repite los filtros que están aplicados: baja lo que se ve, sin paginar. ?>
-        <a class="btn btn-ghost" href="<?= e(url('contactos' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
+        <?php // Exportar a CSV es sólo de administradores (la página lo corta igual). ?>
+        <?php if (auth_is_admin()): ?>
+            <a class="btn btn-ghost" href="<?= e(url('contactos' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
+        <?php endif; ?>
         <a class="btn btn-primary" href="<?= e(url('contacto-form')) ?>"><?= icon('mas', 16) ?>Nuevo contacto</a>
     </div>
 </div>
@@ -137,8 +141,7 @@
             </thead>
             <tbody>
             <?php if (!$data['rows']): ?>
-                <?php // La tabla tiene 10 columnas; el colspan quedó en 8. ?>
-                <tr><td colspan="8" class="empty">No hay contactos que coincidan con el filtro.</td></tr>
+                <tr><td colspan="10" class="empty">No hay contactos que coincidan con el filtro.</td></tr>
             <?php else: foreach ($data['rows'] as $c): ?>
                 <tr>
                     <td class="w-check" data-label="">
@@ -151,7 +154,7 @@
                                 <a href="<?= e(url('contacto-ver?id=' . (int)$c['id'])) ?>"><strong><?= e($c['nombre_completo']) ?></strong></a>
                                 <?php if ($c['no_email']): ?><small>Dado de baja de las campañas</small>
                                 <?php elseif ($c['email_rebotado']): ?><small>El correo rebotó</small><?php endif; ?>
-                                <?php if (!empty($c['pendiente_norm'])): ?>
+                                <?php if (ficha_pendiente($c)): ?>
                                     <small class="pend">Falta <?= e(implode(', ', contacto_falta($c))) ?></small>
                                 <?php endif; ?>
                             </div>
@@ -174,8 +177,11 @@
                              de un vistazo se ve cuáles están listas y cuáles no,
                              y se puede ordenar la cabeza en torno a eso. */ ?>
                     <td data-label="Estado" class="w-estado">
-                        <?php if (!empty($c['pendiente_norm'])): ?>
+                        <?php if (ficha_pendiente($c)): ?>
                             <span class="badge badge-pend" title="Falta <?= e(implode(', ', contacto_falta($c))) ?>">Pendiente</span>
+                        <?php elseif (!empty($c['pendiente_norm'])): ?>
+                            <?php // Aprobada a mano aunque le falte algo: se dice qué, en el título. ?>
+                            <span class="badge badge-ok" title="Aprobada aunque falte <?= e(implode(', ', contacto_falta($c))) ?>">Aprobado</span>
                         <?php else: ?>
                             <span class="badge badge-ok">Aprobado</span>
                         <?php endif; ?>
@@ -183,6 +189,8 @@
                     <?php // Cada fila lleva su propio formulario de borrado, con su token CSRF. ?>
                     <td class="acts" data-label="Acciones">
                         <a class="act" href="<?= e(url('contacto-form?id=' . (int)$c['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
+                        <?php // Sólo el propietario o un administrador (papelera_permitida()). ?>
+                        <?php if (puede_mandar_papelera($c)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="contacto">
@@ -193,6 +201,7 @@
                                     data-confirmar="El contacto «<?= e($c['nombre_completo']) ?>» se va a la papelera. Un administrador puede restaurarlo."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>

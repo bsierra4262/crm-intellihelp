@@ -16,12 +16,15 @@
 //  Trampas:
 //    · el `required` de los campos es una comodidad del navegador; la regla
 //      real la aplica la página con contacto_falta().
-//    · el selector de empresa es `required`, así que el navegador no deja
-//      mandar el formulario con la empresa vacía aunque se haya escrito una
-//      nueva en «crear una empresa nueva» (ver el reporte de auditoría).
-//    · la casilla «No incluirlo en campañas» no va acompañada de un campo
-//      oculto: desmarcada no viaja en el POST, y contacto_guardar() sólo toca
-//      `no_email` cuando la clave viene. Desmarcarla no la limpia.
+//    · el selector de empresa es `required`; el script del final le saca el
+//      `required` mientras haya algo escrito en «crear una empresa nueva»,
+//      para que el alta al vuelo se pueda mandar.
+//    · la casilla «No incluirlo en campañas» va precedida de un oculto
+//      no_email=0: desmarcada, viaja el 0 y contacto_guardar() la limpia.
+//      Una baja pedida por la persona (tabla `desuscripciones`) sigue
+//      mandando igual: eso sólo lo levanta «Volver a habilitar» en la ficha.
+//    · el propietario se preselecciona con quien carga sólo en un alta; en
+//      una edición sin propietario queda «Sin asignar».
 //    · todo lo que sale de la ficha pasa por e() (directo o con $v).
 // ============================================================
 
@@ -108,16 +111,17 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
             </label>
             <?php // La página crea la empresa con cuenta_asegurar() sólo si el selector de arriba llega vacío. ?>
             <label class="fld wide"><span>…o crear una empresa nueva</span>
-                <input name="cuenta_nueva" placeholder="Escribí el nombre y se crea sola al guardar" maxlength="200">
+                <input name="cuenta_nueva" value="<?= $v('cuenta_nueva') ?>" placeholder="Escribí el nombre y se crea sola al guardar" maxlength="200" data-libera-requerido="cuenta_id">
                 <i class="hint">Se crea la empresa al guardar, sin tener que salir de esta pantalla.</i>
             </label>
 
             <label class="fld"><span>Propietario</span>
-                <?php // Sin propietario cargado se preselecciona a quien edita: guardar sin tocarlo le asigna la ficha. ?>
+                <?php // Quien carga se preselecciona sólo en un alta: editar una ficha sin dueño no se la asigna a quien edita. ?>
                 <select name="propietario_id">
                     <option value="">— Sin asignar —</option>
+                    <?php $propSel = (string)($id ? ($c['propietario_id'] ?? '') : ($c['propietario_id'] ?? current_user_id())); ?>
                     <?php foreach ($usuarios as $u): ?>
-                        <option value="<?= (int)$u['id'] ?>" <?= (string)($c['propietario_id'] ?? current_user_id()) === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
+                        <option value="<?= (int)$u['id'] ?>" <?= $propSel === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Quién lo atiende. Es lo que separa «Lo mío» de «Todo el equipo» en el panel.</i>
@@ -163,15 +167,16 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <i class="hint">La central de la empresa, cuando hay que pedir por interno.</i>
             </label>
             <label class="fld"><span>LinkedIn</span>
-                <input type="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255" placeholder="https://linkedin.com/in/…">
+                <input type="text" inputmode="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255" placeholder="linkedin.com/in/…">
                 <i class="hint">El perfil de la persona. Ayuda a preparar la llamada antes de levantar el teléfono.</i>
             </label>
             <label class="fld wide"><span>Sitio web</span>
-                <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="empresa.com">
+                <input type="text" inputmode="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="empresa.com">
                 <i class="hint">El sitio personal, si tiene. El de la empresa va en la ficha de la empresa.</i>
             </label>
-            <?php // Desmarcada no viaja en el POST: ver la trampa del encabezado. ?>
+            <?php // El oculto va antes: desmarcada, la casilla no viaja y llega este 0. ?>
             <div class="fld wide abajo">
+                <input type="hidden" name="no_email" value="0">
                 <label class="switch">
                     <input type="checkbox" name="no_email" value="1" <?= !empty($c['no_email']) ? 'checked' : '' ?>>
                     <span class="track"></span>
@@ -216,3 +221,19 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
         <a class="btn btn-ghost" href="<?= e(url($id ? 'contacto-ver?id=' . $id : 'contactos')) ?>">Cancelar</a>
     </div>
 </form>
+
+<script>
+// Con un nombre en «crear una empresa nueva» el selector de empresa deja de
+// ser obligatorio: si no, el navegador no dejaba mandar el alta al vuelo. Se
+// busca el campo por nombre, sea un selector o el buscador que lo reemplace.
+(function () {
+    document.querySelectorAll('[data-libera-requerido]').forEach(function (inp) {
+        var campo = inp.form && inp.form.elements[inp.getAttribute('data-libera-requerido')];
+        if (!campo || !('required' in campo)) { return; }
+        var original = campo.required;
+        function aplicar() { campo.required = original && inp.value.trim() === ''; }
+        inp.addEventListener('input', aplicar);
+        aplicar();
+    });
+})();
+</script>

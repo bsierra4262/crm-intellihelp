@@ -33,7 +33,10 @@ $colorEstado = [
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> <?= $f['convertidos'] === '1' ? 'registros (incluye convertidos)' : 'sin convertir' ?></p>
     </div>
     <div class="head-actions">
-        <a class="btn btn-ghost" href="<?= e(url('posibles' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
+        <?php // Exportar a CSV es sólo de administradores (la página lo corta igual). ?>
+        <?php if (auth_is_admin()): ?>
+            <a class="btn btn-ghost" href="<?= e(url('posibles' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
+        <?php endif; ?>
         <a class="btn btn-primary" href="<?= e(url('posible-form')) ?>"><?= icon('mas', 16) ?>Nuevo posible cliente</a>
     </div>
 </div>
@@ -103,7 +106,7 @@ $colorEstado = [
             </thead>
             <tbody>
             <?php if (!$data['rows']): ?>
-                <tr><td colspan="8" class="empty">No hay posibles clientes que coincidan con el filtro.</td></tr>
+                <tr><td colspan="7" class="empty">No hay posibles clientes que coincidan con el filtro.</td></tr>
             <?php else: foreach ($data['rows'] as $p):
                 $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
             ?>
@@ -134,6 +137,8 @@ $colorEstado = [
                             <a class="act" href="<?= e(url('posible-convertir?id=' . (int)$p['id'])) ?>" title="Convertir en cliente"><?= icon('convertir', 16) ?></a>
                         <?php endif; ?>
                         <a class="act" href="<?= e(url('posible-form?id=' . (int)$p['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
+                        <?php // Sólo el propietario o un administrador (papelera_permitida()). ?>
+                        <?php if (puede_mandar_papelera($p)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="posible_cliente">
@@ -144,6 +149,7 @@ $colorEstado = [
                                     data-confirmar="«<?= e($nombre) ?>» se va a la papelera."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>

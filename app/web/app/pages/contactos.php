@@ -13,8 +13,9 @@ declare(strict_types=1);
 //  Tablas: lee `contactos`, `cuentas`, `usuarios`; el POST escribe
 //  `contactos.aprobado_en/aprobado_por`.
 //  Módulo: núcleo (Contactos).
-//  Permisos: cualquier usuario con sesión puede aprobar y exportar la base
-//  entera; no hay control por rol ni por propietario.
+//  Permisos: cualquier usuario con sesión aprueba en masa; exportar a CSV es
+//  sólo de administradores (la vista esconde el botón y acá se corta igual).
+//  El botón de papelera de cada fila sólo sale al propietario o a un admin.
 // ============================================================
 
 require_login();
@@ -60,6 +61,7 @@ $f = [
 // Sin límite de filas: con la base entera (más de 13.000 contactos) todo se
 // arma en memoria con fetchAll(). exportar_csv() termina la ejecución.
 if (($_GET['exportar'] ?? '') === '1') {
+    require_admin();
     [$where, $p] = contactos_where($f);
     $rows = q("SELECT ct.*, cu.nombre AS cuenta, u.nombre AS propietario
                FROM contactos ct

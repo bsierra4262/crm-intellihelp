@@ -98,16 +98,16 @@ function log_api(string $accion, array $o = []): void { log_evento('api', $accio
  * Registra un error con un CÓDIGO estable por ubicación (mismo archivo:línea →
  * mismo código), para poder buscarlo y arreglar la causa.
  *
- * El código sale del md5 de la ruta completa del archivo más la línea: si
- * cambia la ruta de instalación (crm/ y crm-pruebas/) o se mueve la línea, el
- * mismo error cambia de código.
+ * El código sale del md5 del NOMBRE del archivo (no de la ruta completa) más
+ * la línea: el mismo error da el mismo código en crm/ y en crm-pruebas/. Si
+ * se mueve la línea, cambia.
  *
  * @param string $severidad opcional, se antepone al mensaje (ej. 'warning')
  */
 function log_error(string $accion, string $mensaje, string $file, int $line, string $severidad = ''): void
 {
     $loc     = basename($file) . ':' . $line;
-    $codigo  = 'ERR-' . strtoupper(substr(md5($file . ':' . $line), 0, 6));
+    $codigo  = 'ERR-' . strtoupper(substr(md5($loc), 0, 6));
     $detalle = $codigo . ' · ' . ($severidad !== '' ? $severidad . ' · ' : '') . $mensaje . ' · ' . $loc;
     log_evento('app', $accion, ['tipo' => 'error', 'actor' => 'sistema', 'detalle' => $detalle]);
 }
@@ -212,8 +212,10 @@ function actividad_conteo_tipos(string $canal): array
 /**
  * Resumen para las tarjetas del CRON (total, hoy, errores, último).
  *
- * A diferencia del listado, recorre TODO el histórico del canal, sin la
- * ventana de meses: es la consulta que más crece con el tiempo.
+ * El total cuenta todo el histórico del canal (sin la ventana de meses). Va
+ * en consultas separadas que resuelven los índices (canal, creado_en) y
+ * (tipo, creado_en): antes una sola consulta leía todas las filas y calculaba
+ * DATE() en cada una, y era la que más crecía con el tiempo.
  */
 function actividad_resumen(string $canal): array
 {
@@ -221,11 +223,12 @@ function actividad_resumen(string $canal): array
         return ['total' => 0, 'hoy' => 0, 'errores' => 0, 'ultimo' => null];
     }
     $canal = in_array($canal, ['app', 'api'], true) ? $canal : 'app';
-    $r = q("SELECT COUNT(*) total,
-                   SUM(CASE WHEN DATE(creado_en) = CURDATE() THEN 1 ELSE 0 END) hoy,
-                   SUM(CASE WHEN tipo = 'error' THEN 1 ELSE 0 END) errores,
-                   MAX(creado_en) ultimo
-            FROM actividad WHERE canal = ?", [$canal])->fetch();
+    $r = [
+        'total'   => qv('SELECT COUNT(*) FROM actividad WHERE canal = ?', [$canal]),
+        'hoy'     => qv('SELECT COUNT(*) FROM actividad WHERE canal = ? AND creado_en >= ?', [$canal, date('Y-m-d 00:00:00')]),
+        'errores' => qv("SELECT COUNT(*) FROM actividad WHERE tipo = 'error' AND canal = ?", [$canal]),
+        'ultimo'  => qv('SELECT MAX(creado_en) FROM actividad WHERE canal = ?', [$canal]),
+    ];
     return [
         'total'   => (int)($r['total'] ?? 0),
         'hoy'     => (int)($r['hoy'] ?? 0),

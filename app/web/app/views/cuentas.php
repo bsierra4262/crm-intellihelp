@@ -13,8 +13,10 @@
 //    $data      array  cuentas_listar(): rows (con n_contactos), total y paginación
 //    $usuarios  array  usuarios activos, para el filtro de propietario
 //
-//  Trampa: la columna «Estado» mira sólo `pendiente_norm`, no `aprobado_en`;
-//  una empresa aprobada sin completar sigue saliendo «Pendiente».
+//  La columna «Estado» usa ficha_pendiente(): una empresa incompleta que
+//  alguien aprobó sale «Aprobado», igual que en el filtro.
+//  «Exportar» sólo lo ve un administrador y la papelera de cada fila sólo el
+//  propietario o un administrador.
 //  Borrar una empresa no toca sus contactos: siguen apuntando a ella.
 // ============================================================
 ?>
@@ -25,7 +27,10 @@
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> empresas en la base</p>
     </div>
     <div class="head-actions">
-        <a class="btn btn-ghost" href="<?= e(url('cuentas' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
+        <?php // Exportar a CSV es sólo de administradores (la página lo corta igual). ?>
+        <?php if (auth_is_admin()): ?>
+            <a class="btn btn-ghost" href="<?= e(url('cuentas' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
+        <?php endif; ?>
         <a class="btn btn-primary" href="<?= e(url('cuenta-form')) ?>"><?= icon('mas', 16) ?>Nueva empresa</a>
     </div>
 </div>
@@ -108,8 +113,7 @@
             </thead>
             <tbody>
             <?php if (!$data['rows']): ?>
-                <?php // La tabla tiene 10 columnas; el colspan quedó en 8. ?>
-                <tr><td colspan="8" class="empty">No hay empresas que coincidan con el filtro.</td></tr>
+                <tr><td colspan="10" class="empty">No hay empresas que coincidan con el filtro.</td></tr>
             <?php else: foreach ($data['rows'] as $c): ?>
                 <tr>
                     <td class="w-check" data-label="">
@@ -119,7 +123,7 @@
                         <div class="cell-main">
                             <a href="<?= e(url('cuenta-ver?id=' . (int)$c['id'])) ?>"><strong><?= e($c['nombre']) ?></strong></a>
                             <?php if ($c['cuit']): ?><small><?= e(formatear_cuit($c['cuit'])) ?></small><?php endif; ?>
-                            <?php if (!empty($c['pendiente_norm'])): ?>
+                            <?php if (ficha_pendiente($c)): ?>
                                 <small class="pend">Falta <?= e(implode(', ', cuenta_falta($c))) ?></small>
                             <?php endif; ?>
                         </div>
@@ -140,14 +144,19 @@
                     <?php /* Una columna propia, no sólo el texto debajo del nombre:
                              de un vistazo se ve cuáles están listas y cuáles no. */ ?>
                     <td data-label="Estado" class="w-estado">
-                        <?php if (!empty($c['pendiente_norm'])): ?>
+                        <?php if (ficha_pendiente($c)): ?>
                             <span class="badge badge-pend" title="Falta <?= e(implode(', ', cuenta_falta($c))) ?>">Pendiente</span>
+                        <?php elseif (!empty($c['pendiente_norm'])): ?>
+                            <?php // Aprobada a mano aunque le falte algo: se dice qué, en el título. ?>
+                            <span class="badge badge-ok" title="Aprobada aunque falte <?= e(implode(', ', cuenta_falta($c))) ?>">Aprobado</span>
                         <?php else: ?>
                             <span class="badge badge-ok">Aprobado</span>
                         <?php endif; ?>
                     </td>
                     <td class="acts" data-label="Acciones">
                         <a class="act" href="<?= e(url('cuenta-form?id=' . (int)$c['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
+                        <?php // Sólo el propietario o un administrador (papelera_permitida()). ?>
+                        <?php if (puede_mandar_papelera($c)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="cuenta">
@@ -158,6 +167,7 @@
                                     data-confirmar="La empresa «<?= e($c['nombre']) ?>» se va a la papelera. Sus contactos siguen existiendo."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>

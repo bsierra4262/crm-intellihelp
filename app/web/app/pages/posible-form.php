@@ -14,8 +14,8 @@ declare(strict_types=1);
 //  Permisos: cualquier usuario con sesión edita cualquier posible cliente,
 //  incluso uno ya convertido (la edición no se bloquea después de convertir).
 //
-//  No se validan contra sus listas el estado, la fuente ni la calificación:
-//  llegan tal cual del POST.
+//  Estado, fuente y calificación se validan contra sus listas; el propietario,
+//  que exista.
 // ============================================================
 
 require_login();
@@ -35,11 +35,24 @@ if (is_post()) {
     verify_csrf();
     $d = $_POST;
     // La empresa es obligatoria porque la conversión crea (o reutiliza) una
-    // cuenta con ese nombre. El correo secundario (`email2`) no se valida.
+    // cuenta con ese nombre.
     if (trim((string)($d['apellido'] ?? '')) === '') { $errores['apellido'] = 'El apellido es obligatorio.'; }
     if (trim((string)($d['empresa']  ?? '')) === '') { $errores['empresa']  = 'La empresa es obligatoria.'; }
     if (trim((string)($d['email'] ?? '')) !== '' && !email_valido($d['email'])) {
         $errores['email'] = 'La dirección de correo no es válida.';
+    }
+    if (trim((string)($d['email2'] ?? '')) !== '' && !email_valido($d['email2'])) {
+        $errores['email2'] = 'El correo secundario no es válido.';
+    }
+    // Valores de lista: el navegador manda lo que quiera.
+    foreach (['estado' => [estados_posible_cliente(), 'El estado'], 'fuente' => [fuentes(), 'La fuente'],
+              'calificacion' => [calificaciones(), 'La calificación']] as $k => [$lista, $et]) {
+        if (trim((string)($d[$k] ?? '')) !== '' && !in_array($d[$k], $lista, true)) {
+            $errores[$k] = $et . ' no es una de la lista.';
+        }
+    }
+    if (!empty($d['propietario_id']) && !qv('SELECT 1 FROM usuarios WHERE id = ?', [(int)$d['propietario_id']])) {
+        $errores['propietario_id'] = 'El propietario elegido no existe.';
     }
 
     // El teléfono se valida en el servidor: `type="tel"` solo cambia el teclado

@@ -16,8 +16,10 @@
 //
 //  «Relacionado con» muestra el contacto o, si no hay, la empresa; una
 //  actividad vinculada sólo a un negocio o a un posible cliente sale con «—».
-//  El formulario de filtros conserva `vista` pero no `vencidas`: filtrar
-//  desde la vista que abre el contador de vencidas vuelve a «Pendientes».
+//  El formulario de filtros conserva la vista actual: `vencidas=1` (el enlace
+//  del contador) viaja como vista=vencidas.
+//  El enlace de Meet sólo sale si es https://.
+//  La papelera de cada fila sólo la ve el responsable o un administrador.
 // ============================================================
 
 // `vencidas=1` (el enlace del contador) equivale a la pestaña «Vencidas».
@@ -44,7 +46,7 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
 </div>
 
 <form class="filters card" method="get" action="<?= e(url('actividades')) ?>">
-    <input type="hidden" name="vista" value="<?= e($f['vista']) ?>">
+    <input type="hidden" name="vista" value="<?= e($vistaActual === 'pendientes' ? '' : $vistaActual) ?>">
     <div class="filter-grid">
         <label><span>Buscar</span><input type="search" name="q" value="<?= e($f['q']) ?>" placeholder="Asunto o detalle…"></label>
         <label><span>Tipo</span>
@@ -100,8 +102,8 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
                 <tr>
                     <td data-label="Asunto">
                         <a href="<?= e(url('actividad-form?id=' . (int)$a['id'])) ?>"><strong><?= e($a['asunto']) ?></strong></a>
-                        <?php // `meet_url` lo escribe la integración con Google Calendar; se usa como enlace sin revisar el esquema. ?>
-                        <?php if ($a['meet_url']): ?>
+                        <?php // `meet_url` lo escribe la integración con Google Calendar; sólo se enlaza si es https://. ?>
+                        <?php if ($a['meet_url'] && preg_match('#^https://#i', (string)$a['meet_url'])): ?>
                             <a href="<?= e($a['meet_url']) ?>" target="_blank" rel="noopener" class="chip"><?= icon('video', 12) ?>Meet</a>
                         <?php endif; ?>
                     </td>
@@ -134,6 +136,8 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
                             </form>
                         <?php endif; ?>
                         <a class="act" href="<?= e(url('actividad-form?id=' . (int)$a['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
+                        <?php // Sólo el propietario o un administrador (papelera_permitida()). ?>
+                        <?php if (puede_mandar_papelera($a)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="actividad">
@@ -144,6 +148,7 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
                                     data-confirmar="«<?= e($a['asunto']) ?>» se va a la papelera."
                                     data-confirmar-ok="Eliminar"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>

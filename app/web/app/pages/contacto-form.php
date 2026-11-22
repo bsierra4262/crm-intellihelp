@@ -16,9 +16,10 @@ declare(strict_types=1);
 //  la ficha: cualquier usuario puede editar cualquier contacto y cambiarle el
 //  dueño.
 //
-//  Trampa: la empresa nueva se crea ANTES de saber si el resto del formulario
-//  pasa la validación. Si falla otro campo, la empresa ya quedó creada (y
-//  aparece elegida al volver a dibujar el formulario).
+//  La empresa nueva («crear una empresa nueva») se crea recién cuando todo el
+//  formulario pasó la validación: si falla otro campo no queda una empresa
+//  suelta. Un alta con `?cuenta_id=N` (botón «Nuevo contacto» de la ficha de
+//  una empresa) llega con esa empresa elegida.
 // ============================================================
 
 require_login();
@@ -32,6 +33,11 @@ if ($id && !$c) {
     render('error', ['codigo' => 404, 'titulo' => 'Contacto inexistente',
         'mensaje' => 'Puede que lo hayan enviado a la papelera.'], 'No encontrado');
     exit;
+}
+
+// Alta desde la ficha de una empresa: llega elegida.
+if (!$id && (int)($_GET['cuenta_id'] ?? 0) > 0) {
+    $c = ['cuenta_id' => (int)$_GET['cuenta_id']];
 }
 
 $errores = [];
@@ -57,19 +63,30 @@ if (is_post()) {
         }
     }
 
-    // Alta de empresa al vuelo: si escribieron un nombre nuevo, se crea la
-    // cuenta en el momento en vez de obligar a salir del formulario.
-    // cuenta_asegurar() reutiliza una empresa con el mismo nombre exacto, así
-    // que escribir el nombre de una existente no la duplica.
-    if (empty($d['cuenta_id']) && trim((string)($d['cuenta_nueva'] ?? '')) !== '') {
-        $d['cuenta_id'] = cuenta_asegurar(trim((string)$d['cuenta_nueva']),
-            ['propietario_id' => $d['propietario_id'] ?: null]);
+    // Los valores de lista se controlan acá: el navegador manda lo que quiera.
+    if (trim((string)($d['fuente'] ?? '')) !== '' && !in_array($d['fuente'], fuentes(), true)) {
+        $errores['fuente'] = 'La fuente no es una de la lista.';
     }
+    // Un id que no existe hacía fallar el guardado (clave foránea) con un 500.
+    // Se mira que exista, aunque esté en la papelera: un vínculo viejo no se rechaza.
+    if (!empty($d['cuenta_id']) && !qv('SELECT 1 FROM cuentas WHERE id = ?', [(int)$d['cuenta_id']])) {
+        $errores['cuenta_id'] = 'La empresa elegida ya no existe.';
+    }
+    if (!empty($d['propietario_id']) && !qv('SELECT 1 FROM usuarios WHERE id = ?', [(int)$d['propietario_id']])) {
+        $errores['propietario_id'] = 'El propietario elegido no existe.';
+    }
+
+    // Alta de empresa al vuelo: si escribieron un nombre nuevo, la empresa se
+    // crea al guardar, en vez de obligar a salir del formulario. Para validar
+    // alcanza con saber que va a haber una; se crea más abajo, sólo si todo
+    // lo demás está bien.
+    $cuentaNueva = empty($d['cuenta_id']) ? trim((string)($d['cuenta_nueva'] ?? '')) : '';
 
     // Lo que pedimos siempre. El `required` del formulario es una comodidad
     // para quien lo llena, no una garantía: no lo aplica nadie fuera de un
     // navegador. La regla es una sola y vive en `contacto_falta()`.
     foreach (contacto_falta($d) as $queFalta) {
+        if ($queFalta === 'empresa' && $cuentaNueva !== '') { continue; }
         $campo = ['nombre' => 'nombre', 'apellido' => 'apellido',
                   'correo principal' => 'email', 'empresa' => 'cuenta_id'][$queFalta] ?? null;
         if ($campo) { $errores[$campo] = 'Hace falta para poder usar la ficha: ' . $queFalta . '.'; }
@@ -79,6 +96,12 @@ if (is_post()) {
     // de posibles clientes y la entrada web buscan por correo y toman el
     // primero que encuentran.
     if (!$errores) {
+        // cuenta_asegurar() reutiliza una empresa con el mismo nombre exacto,
+        // así que escribir el nombre de una existente no la duplica.
+        if ($cuentaNueva !== '') {
+            $d['cuenta_id'] = cuenta_asegurar(mb_substr($cuentaNueva, 0, 200),
+                ['propietario_id' => ($d['propietario_id'] ?? null) ?: null]);
+        }
         $nuevoId = contacto_guardar($d, $id ?: null);
         flash($id ? 'Contacto actualizado.' : 'Contacto creado.', 'success');
         redirect('contacto-ver?id=' . $nuevoId);

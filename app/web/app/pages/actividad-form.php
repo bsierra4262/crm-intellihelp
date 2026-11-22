@@ -16,9 +16,17 @@ declare(strict_types=1);
 //  Permisos: cualquier usuario con sesión crea o edita cualquier actividad,
 //  y puede asignársela a otro.
 //
-//  Validación mínima: sólo el asunto. No se controlan las fechas (formato,
-//  fin antes del inicio), ni que estado, prioridad o los ids vinculados
-//  existan; un id inexistente hace fallar el INSERT/UPDATE.
+//  Validación: actividad_validar() (actividades.php) controla asunto, fechas
+//  (formato y fin después del inicio), estado, prioridad y que los ids
+//  vinculados existan.
+//
+//  Reuniones reservadas por la agenda: si la actividad tiene una reserva
+//  confirmada (agenda_reservas.actividad_id), el tipo y las fechas no se
+//  cambian desde acá: cambiarlas movía sólo la actividad y dejaba la reserva,
+//  el evento de Google y la invitación del cliente en el horario viejo. Se
+//  ofrece el enlace a «Mover la reunión» (reserva-mover), que mueve todo junto.
+//
+//  `volver`: en un alta desde una ficha, a esa ficha; si no, al listado.
 // ============================================================
 
 require_login();
@@ -49,24 +57,45 @@ if (!$id) {
     ];
 }
 
+// La reserva de la agenda que creó esta reunión, si sigue confirmada. La
+// consulta no rompe la pantalla si la tabla de la agenda no está.
+$reserva = null;
+if ($id) {
+    try {
+        $reserva = q1("SELECT id, usuario_id FROM agenda_reservas
+                       WHERE actividad_id = ? AND estado = 'confirmada' ORDER BY id DESC LIMIT 1", [$id]);
+    } catch (\Throwable $e) {
+        $reserva = null;
+    }
+}
+$fechaBloqueada = (bool)$reserva;
+
+// A dónde volver después de guardar: una ruta interna, sin barras, puntos ni
+// dos puntos (redirect() le antepone la base de la aplicación). En un alta
+// desde una ficha se vuelve a esa ficha.
+$limpiarVolver = static fn(string $v): string => (string) preg_replace('/[^a-z0-9\-_?=&]/i', '', $v);
+$volver = '';
+if (!$id) {
+    foreach (['contacto_id' => 'contacto-ver', 'posible_cliente_id' => 'posible-ver',
+              'cuenta_id' => 'cuenta-ver', 'negocio_id' => 'negocio-ver'] as $col => $ruta) {
+        if ((int)($a[$col] ?? 0) > 0) { $volver = $ruta . '?id=' . (int)$a[$col]; break; }
+    }
+}
+
 $errores = [];
 
 if (is_post()) {
     verify_csrf();
     $d = $_POST;
-    if (trim((string)($d['asunto'] ?? '')) === '') { $errores['asunto'] = 'Poné un asunto.'; }
-    // Los input datetime-local mandan "Y-m-dTH:i": la base necesita espacio.
-    foreach (['vence_el', 'inicia_el', 'termina_el'] as $k) {
-        if (!empty($d[$k])) { $d[$k] = str_replace('T', ' ', (string)$d[$k]) . ':00'; }
+    $volver = $limpiarVolver((string)($d['volver'] ?? ''));
+    if ($fechaBloqueada) {
+        // Tipo y horario de una reunión reservada no se tocan desde acá.
+        foreach (['tipo', 'inicia_el', 'termina_el'] as $k) { $d[$k] = (string)($a[$k] ?? ''); }
     }
+    [$d, $errores] = actividad_validar($d);
     if (!$errores) {
         $nuevoId = actividad_guardar($d, $id ?: null);
         flash($id ? 'Actividad actualizada.' : 'Actividad creada.', 'success');
-        // `volver` permitiría regresar a la ficha de origen, pero el formulario
-        // actual no lo manda. Si llegara, va sin validar a redirect(): url()
-        // le antepone la base de la aplicación, que es lo único que impide
-        // que apunte a otro sitio.
-        $volver = $d['volver'] ?? '';
         redirect($volver !== '' ? $volver : 'actividades');
     }
     $a = array_merge($a ?? [], $d);
@@ -79,6 +108,8 @@ render('actividad-form', [
     'a'         => $a,
     'id'        => $id,
     'errores'   => $errores,
+    'reserva'   => $reserva,
+    'volver'    => $volver,
     'usuarios'  => users_activos(),
     'contactos' => q('SELECT id, nombre_completo FROM contactos WHERE eliminado_en IS NULL
                       ORDER BY apellido, nombre LIMIT 3000')->fetchAll(),
