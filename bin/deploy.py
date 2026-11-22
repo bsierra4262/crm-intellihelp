@@ -573,9 +573,10 @@ def cmd_test(cli) -> None:
     interprete de referencia es el del hosting. Correr los tests alla ademas
     prueba la version exacta que atiende al usuario, que es la que importa.
     """
-    # Una sola carpeta de pruebas para los dos destinos: lo que cambia es a
-    # que webroot y URL apuntan las baterias (CRM_SRC, CRM_URL).
-    remoto = f"{HOME}/crm_test"
+    # Una carpeta por destino (~/crm_test_pruebas, ~/crm_test_produccion): con
+    # una sola, dos `test` a la vez contra destinos distintos se pisaban los
+    # archivos. Las baterias apuntan a su webroot y URL con CRM_SRC y CRM_URL.
+    remoto = f"{HOME}/crm_test_{DESTINO}"
     sftp = cli.open_sftp()
     n = subir_arbol(sftp, RAIZ / "test", remoto)
     sftp.close()

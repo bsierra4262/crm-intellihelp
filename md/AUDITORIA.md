@@ -8,8 +8,8 @@ sigue con el código del 09/11.
 
 ### Resumen
 
-De los **246 hallazgos**, **237 quedaron arreglados**, 2 se dejaron como están por decisión (no
-eran un defecto sino una regla del equipo, ahora documentada) y **7 no se arreglan** desde el
+De los **246 hallazgos**, **238 quedaron arreglados**, 2 se dejaron como están por decisión (no
+eran un defecto sino una regla del equipo, ahora documentada) y **6 no se arreglan** desde el
 código (lista completa abajo, con el porqué y qué haría falta). Están arreglados el crítico y
 los 25 altos.
 
@@ -18,8 +18,8 @@ los 25 altos.
 | Crítico | 1 | 1 | 0 | 0 |
 | Alto | 25 | 25 | 0 | 0 |
 | Medio | 78 | 76 | 0 | 2 |
-| Bajo | 142 | 135 | 2 | 5 |
-| **Total** | **246** | **237** | **2** | **7** |
+| Bajo | 142 | 136 | 2 | 4 |
+| **Total** | **246** | **238** | **2** | **6** |
 
 Algunos hallazgos tenían varias partes y se arreglaron en parte; se cuentan como arreglados y la
 parte que queda figura en la lista de abajo (por ejemplo, la clave única de `mensajes` o la
@@ -36,7 +36,7 @@ contraseña heredada de los ajustes).
 | D2 — Correo, IMAP, conversaciones | 24 | 23 | 1: dueño de casillas y conversaciones | — | 016 |
 | E1 — Frontend y Ajustes | 22 | 22 | — | — | 017 |
 | E2 — Esquema, cron, deploy | 27 | 24 | «siempre en `primary`» no era un bug | 3 | 018 |
-| F — Pruebas | 18 | 17 | — | 1 | — |
+| F — Pruebas | 18 | 18 (la carpeta `~/crm_test` por destino, en deploy.py) | — | — | — |
 
 Los puntos de «Documentación que no coincide con el código» se corrigieron en
 DOCUMENTACION-MAESTRA, INTEGRACION-WEB, INSTALL y README. Pruebas al cerrar: `run_tests.php`
@@ -61,7 +61,6 @@ MariaDB: una base de producción simulada con 010–018 aplicadas dos veces qued
 | **`crm_secret` cambiado** (D2): lo cifrado con el secreto anterior no se puede leer | Arreglado en parte: la casilla muestra «Recargar contraseña» en vez de quedar «no configurada» en silencio | Nada más desde el código: si cambia el secreto, se recargan las contraseñas y se reconecta Google |
 | **`uq_msg` con `message_id` NULL** (E2) | La clave única no lo cubre, pero `imap.php` ya evita el duplicado (marca por mensaje, `INSERT IGNORE`) | Nada mientras se guarde por `imap.php` |
 | **Mezcla de versiones durante la subida** (E2): mientras `deploy.py app` sube, conviven unos segundos archivos viejos y nuevos | SFTP archivo por archivo; no hay cambio atómico en el hosting compartido | Subir a una carpeta nueva y cambiar un enlace simbólico, o una página de mantenimiento durante la subida |
-| **`deploy.py test` comparte `~/crm_test`** para los dos destinos (F): dos corridas a la vez se pisan | Quedó entre lotes (F lo pasó a E2) y no se tocó | Una carpeta por destino (`~/crm_test_pruebas`, `~/crm_test_produccion`) |
 | **Dueño de casillas y conversaciones** (D2, decisión): cualquier usuario usa cualquier casilla y ve cualquier conversación | La base es compartida por el equipo; el texto de la pantalla se aclaró («dueño» es informativo) | Si se quiere restringir: regla de permisos en `campana-form` y `conversacion` |
 | **Aperturas infladas por Apple Mail Privacy Protection** (D1) | Apple descarga el píxel de todos los correos; no se distingue desde el servidor | Nada: tomar las aperturas como indicio, no como dato |
 | **crm-pruebas sin casillas de correo**: `api_test.php` da 61/62 (falla «SMTP configurado en pruebas») | No es un defecto: la instalación de pruebas no tiene casillas cargadas; producción sí | Cargar una casilla de prueba en crm-pruebas |
