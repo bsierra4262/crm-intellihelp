@@ -21,8 +21,9 @@ require_login();
 //  entradas_web_listar, entradas_web_por_canal…).
 //
 //  ?exportar=1 baja la misma búsqueda en CSV, sin paginar y con los datos
-//  personales; también está abierto a cualquier usuario con sesión.
-//  csv_celda() neutraliza las celdas que una planilla tomaría como fórmula.
+//  personales: sólo administradores (el botón no se muestra a los demás y el
+//  servidor lo controla igual). csv_celda() neutraliza las celdas que una
+//  planilla tomaría como fórmula.
 // ============================================================
 
 if (!entradas_web_disponible()) {
@@ -74,6 +75,10 @@ $f = [
 
 // Exportación: la misma consulta, sin paginar, servida como CSV.
 if (($_GET['exportar'] ?? '') === '1') {
+    if (!auth_is_admin()) {
+        flash('Exportar las entradas de la web es de administración.', 'error');
+        redirect('entradas-web' . query_con(['exportar' => null]));
+    }
     [$where, $p] = entradas_web_where($f);
     $rows = q('SELECT e.*, ct.nombre_completo AS contacto, cu.nombre AS cuenta,
                       r.inicia_el AS reserva_inicio, r.estado AS reserva_estado, u.nombre AS propietario '

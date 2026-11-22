@@ -98,17 +98,24 @@ q('UPDATE usuarios SET nombre = ?, avatar_url = ? WHERE id = ?',
 
 // 6) Guardar los tokens: el refresh_token es lo que después permite crear
 //    reuniones en Google Calendar aunque el vendedor no tenga sesión abierta.
-//    No se controla qué permisos concedió: si en la pantalla de Google
-//    destildó el calendario, el login anda igual y la falla aparece recién en
-//    la primera consulta a Calendar.
 google_guardar_tokens((int)$usuario['id'], $tok);
 
-// 7) Recién reconectada la cuenta, se borra el aviso de «esta cuenta perdió la
-//    conexión»: si no, seguiría visible hasta la próxima llamada exitosa a
-//    Google (una reserva o el cron).
-$fallaPrevia = gcal_falla_pendiente();
-if ($fallaPrevia && (int)($fallaPrevia['usuario_id'] ?? 0) === (int)$usuario['id']) {
-    gcal_recordar_falla((int)$usuario['id'], 0, '');
+// 7) ¿Concedió los permisos del calendario? En la pantalla de Google se
+//    pueden destildar: el login anda igual, pero sin ellos no se ven los
+//    horarios ocupados ni se crean reuniones. Se avisa ahora (y queda el
+//    aviso rojo de la agenda) en vez de enterarse en la primera reserva.
+//    Si Google no informó los permisos (`scope` vacío) no se puede saber y
+//    no se avisa nada.
+if (google_permisos_faltantes((string)($tok['scope'] ?? ''))) {
+    gcal_recordar_falla((int)$usuario['id'], 403,
+        'Falta el permiso de Google Calendar: al conectar se destildó el acceso al calendario.');
+    flash('Entraste, pero no diste permiso para usar tu Google Calendar: la agenda no puede ver tus '
+        . 'horarios ni crear reuniones. Volvé a conectar y dejá tildado el acceso al calendario.', 'warn');
+} else {
+    // Recién reconectada la cuenta, se borra el aviso de «esta cuenta perdió
+    // la conexión»: si no, seguiría visible hasta la próxima llamada exitosa
+    // a Google (una reserva o el cron).
+    gcal_limpiar_falla((int)$usuario['id']);
 }
 
 auth_login_user((int)$usuario['id']);

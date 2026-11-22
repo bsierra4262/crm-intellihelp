@@ -13,7 +13,9 @@ require_admin();
 // Acciones por POST (con CSRF), todas vuelven con Post/Redirect/Get al año
 // de la fila tocada:
 //   · sincronizar: «Actualizar ahora», fuerza la consulta a la fuente;
-//   · agregar: carga (o pisa) un feriado a mano para una fecha y jurisdicción;
+//   · agregar: carga (o pisa uno manual) un feriado a mano para una fecha y
+//     jurisdicción; sobre uno oficial del mismo día no lo pisa (sólo deshace
+//     un «se trabaja»), para que siga los traslados del calendario oficial;
 //   · ignorar: uno oficial queda marcado «se trabaja»; uno manual se borra;
 //   · restituir: deshace «se trabaja»;
 //   · ajustes: jurisdicción que rige y si la agenda respeta feriados.
@@ -33,10 +35,9 @@ if (is_post()) {
     try {
         switch ($accion) {
             case 'sincronizar':
-                // null significa «otra sincronización tiene el bloqueo», pero
-                // feriados_asegurar() también devuelve null si algo lanzó una
-                // excepción (la registra en log_error): en ese caso el mensaje
-                // de «en curso» no es el motivo real.
+                // Forzada, null sólo significa «otra sincronización tiene el
+                // bloqueo»; una excepción vuelve como resultado con `error`
+                // (y queda en log_error).
                 $r = feriados_asegurar(false, true);
                 if ($r === null) {
                     flash('Ya hay una actualización en curso. Probá de nuevo en un minuto.', 'warn');
@@ -61,11 +62,27 @@ if (is_post()) {
                 if (!isset(FERIADOS_JURISDICCIONES[$jur])) { $jur = 'nacional'; }
                 if (!isset(FERIADOS_TIPOS[$tipo])) { $tipo = 'no_laborable'; }
                 $anio = (int)substr($fecha, 0, 4);
-                $previo = q1('SELECT id, ignorado FROM feriados WHERE fecha = ? AND jurisdiccion = ?', [$fecha, $jur]);
+                $previo = q1('SELECT id, ignorado, origen, nombre FROM feriados WHERE fecha = ? AND jurisdiccion = ?',
+                             [$fecha, $jur]);
+                // Ese día ya es feriado oficial (lo trae la sincronización): no se
+                // convierte en manual. Si se convirtiera, quedaría fijo para
+                // siempre, y si después el calendario oficial lo traslada habría
+                // dos días sin turnos. Sólo se deshace un «se trabaja», si lo había.
+                if ($previo && ($previo['origen'] ?? '') === 'auto') {
+                    if ((int)$previo['ignorado']) {
+                        q('UPDATE feriados SET ignorado = 0 WHERE id = ?', [(int)$previo['id']]);
+                    }
+                    $oficial = ['fecha' => $fecha, 'nombre' => (string)$previo['nombre'], 'jurisdiccion' => $jur];
+                    $avisadas = (int)$previo['ignorado'] ? feriados_avisar_reuniones([$oficial]) : 0;
+                    log_app('feriados.agregar', ['detalle' => $fecha . ' ya era oficial: ' . feriado_etiqueta($oficial)]);
+                    flash('El ' . fecha_corta($fecha) . ' ya figura en el calendario oficial como «'
+                        . (string)$previo['nombre'] . '»: se mantiene el oficial, que sigue los traslados solo.'
+                        . ((int)$previo['ignorado'] ? ' Ya no está marcado como «se trabaja».' : '')
+                        . ($avisadas ? ' Hay ' . $avisadas . ' reunión(es) agendadas ese día: se le avisó a cada responsable.' : ''),
+                        'success');
+                    break;
+                }
                 // Cargado a mano queda manual: la sincronización no lo vuelve a tocar.
-                // Eso incluye pisar uno oficial de la misma fecha: pasa a manual,
-                // y si después el calendario oficial lo traslada, éste queda donde
-                // estaba y el nuevo se agrega aparte.
                 if ($previo) {
                     q("UPDATE feriados SET nombre = ?, tipo = ?, origen = 'manual', ignorado = 0 WHERE id = ?",
                       [$nombre, $tipo, (int)$previo['id']]);
