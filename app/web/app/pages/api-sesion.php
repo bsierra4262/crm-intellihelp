@@ -14,9 +14,9 @@ declare(strict_types=1);
  */
 header('Content-Type: application/json; charset=utf-8');
 
-// En la práctica esta rama casi no se alcanza: sin sesión, index.php ya
-// redirigió al login (302) antes de llegar acá, y una sesión vencida la cortó
-// bootstrap.php con 440.
+// Sin sesión no se llega acá: index.php contesta 440 a los api-* sin sesión
+// (antes redirigía al login con 302) y una sesión vencida la corta
+// bootstrap.php con 440. Esto queda de resguardo, con la misma respuesta.
 $uid = current_user_id();
 if (!$uid) {
     http_response_code(440);

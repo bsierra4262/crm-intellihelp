@@ -84,7 +84,7 @@ foreach (['contactos', 'cuentas', 'posibles'] as $pag) {
 foreach (['contactos', 'cuentas', 'posibles', 'actividades'] as $v) {
     contiene("la papelera de $v sólo para propietario o admin", $b2Leer("views/$v.php"), 'puede_mandar_papelera(');
 }
-contiene('el servidor controla la papelera', $b2Leer('pages/registro-eliminar.php'), 'papelera_permitida(registro_propietario(');
+contiene('el servidor controla la papelera', $b2Leer('pages/registro-eliminar.php'), 'puede_mandar_papelera($entidad, $fila');
 contiene('«No incluirlo en campañas» se puede desmarcar', $b2Leer('views/contacto-form.php'), '<input type="hidden" name="no_email" value="0">');
 contiene('crear una empresa al vuelo libera el selector', $b2Leer('views/contacto-form.php'), 'data-libera-requerido="cuenta_id"');
 ok('la empresa nueva se crea después de validar',

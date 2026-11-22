@@ -200,8 +200,12 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
                     <small><?= e($u['rol'] === 'admin' ? 'Administrador' : 'Comercial') ?></small>
                 </span>
             </div>
-            <?php // Salir es un enlace (GET) sin token CSRF: ver pages/logout.php. ?>
-            <a class="icon-btn" href="<?= $asset('logout') ?>" title="Cerrar sesión" aria-label="Cerrar sesión"><?= icon('salir', 18) ?></a>
+            <?php // Salir va por POST con el token CSRF: un enlace (GET) lo podía
+                  // disparar cualquier sitio externo. Ver pages/logout.php. ?>
+            <form class="inline-form" method="post" action="<?= $asset('logout') ?>">
+                <?= csrf_field() ?>
+                <button class="icon-btn" type="submit" title="Cerrar sesión" aria-label="Cerrar sesión"><?= icon('salir', 18) ?></button>
+            </form>
         </div>
     </aside>
     <div class="scrim" data-close-nav></div>

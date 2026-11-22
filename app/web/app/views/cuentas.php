@@ -155,8 +155,8 @@
                     </td>
                     <td class="acts" data-label="Acciones">
                         <a class="act" href="<?= e(url('cuenta-form?id=' . (int)$c['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
-                        <?php // Sólo el propietario o un administrador (papelera_permitida()). ?>
-                        <?php if (puede_mandar_papelera($c)): ?>
+                        <?php // Sólo el propietario o un administrador (puedo_mandar_papelera(), registros.php). ?>
+                        <?php if (puedo_mandar_papelera('cuenta', $c)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="cuenta">

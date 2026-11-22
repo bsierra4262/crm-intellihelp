@@ -137,8 +137,8 @@ $colorEstado = [
                             <a class="act" href="<?= e(url('posible-convertir?id=' . (int)$p['id'])) ?>" title="Convertir en cliente"><?= icon('convertir', 16) ?></a>
                         <?php endif; ?>
                         <a class="act" href="<?= e(url('posible-form?id=' . (int)$p['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
-                        <?php // Sólo el propietario o un administrador (papelera_permitida()). ?>
-                        <?php if (puede_mandar_papelera($p)): ?>
+                        <?php // Sólo el propietario o un administrador (puedo_mandar_papelera(), registros.php). ?>
+                        <?php if (puedo_mandar_papelera('posible_cliente', $p)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="posible_cliente">

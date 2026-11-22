@@ -2,18 +2,38 @@
 declare(strict_types=1);
 
 // ============================================================
-//  Ruta: GET /logout (requiere sesión). Cierra la sesión y vuelve al login.
+//  Ruta: /logout (requiere sesión). Cierra la sesión y vuelve al login.
 //
-//  La llama el botón de salir de la barra lateral (un enlace, por eso es GET
-//  y no lleva token CSRF) e idle.js cuando vence el tiempo, con
-//  `?expiro=inactividad|expiro`. Deja la salida en la auditoría (tipo 'auth')
-//  y pasa el motivo al login para que muestre el aviso.
+//  Cómo se cierra, según cómo se llega:
+//    · POST + CSRF: el botón «salir» de la barra lateral (un formulario en
+//      layout.php). Cierra siempre.
+//    · GET desde una página del propio CRM: es idle.js cuando vence el
+//      tiempo, con `?motivo=inactividad|expiro` (o el viejo `?expiro=`).
+//      Una navegación no puede llevar el token CSRF, así que se confirma que
+//      el pedido salió del mismo sitio con pedido_mismo_origen() (helpers.php:
+//      la cabecera Sec-Fetch-Site que pone el navegador, o el Referer). Cierra
+//      igual que antes, motivo incluido. También cierra un GET escrito a mano
+//      o desde un favorito (Sec-Fetch-Site: none).
+//    · GET desde otro sitio, o sin forma de saber de dónde vino: no cierra
+//      nada; muestra una pantalla para confirmar con un botón (POST + CSRF).
+//      Así un sitio externo ya no puede desloguear a nadie con un enlace o
+//      una imagen apuntando acá.
+//  Deja la salida en la auditoría (tipo 'auth') y pasa el motivo al login
+//  para que muestre el aviso.
 // ============================================================
 
-// El cierre puede ser manual (el botón de la barra) o automático: idle.js manda
-// «?expiro=» cuando se acabó el tiempo. Se distinguen en la auditoría porque no
-// significan lo mismo: uno es una decisión, el otro es que la sesión se venció.
-$motivo = preg_replace('/[^a-z]/', '', (string)($_GET['expiro'] ?? ''));
+// El cierre puede ser automático: idle.js manda el motivo cuando se acabó el
+// tiempo. Se distingue en la auditoría porque no significa lo mismo que una
+// decisión de la persona. Sólo se aceptan los dos motivos que existen.
+$motivo = preg_replace('/[^a-z]/', '', (string)($_POST['motivo'] ?? $_GET['motivo'] ?? $_GET['expiro'] ?? ''));
+$motivo = in_array($motivo, ['inactividad', 'expiro'], true) ? $motivo : '';
+
+if (is_post()) {
+    verify_csrf();
+} elseif (pedido_mismo_origen($_SERVER) !== true) {
+    render('logout', ['motivo' => $motivo], 'Cerrar sesión');
+    exit;
+}
 
 $uid = current_user_id();
 if ($uid) {

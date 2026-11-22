@@ -8,11 +8,10 @@ declare(strict_types=1);
 //  con accion=restaurar, lo saca de ella. Campos: entidad (clave de
 //  tablas_papelera()), id, accion, volver (ruta interna a la que regresar).
 //
-//  Permisos: restaurar es sólo de administradores; eliminar, el propietario
-//  del registro o un administrador (papelera_permitida() en crm.php). Un
-//  registro sin propietario, o de una tabla sin propietario (listas,
-//  plantillas), lo puede eliminar cualquiera. No se mira si el módulo de esa
-//  entidad está encendido.
+//  Permisos: restaurar es sólo de administradores. Eliminar lo puede hacer el
+//  propietario del registro o un administrador; si el registro no tiene
+//  propietario, cualquiera (puede_mandar_papelera en registros.php). En los
+//  dos casos el módulo de la entidad tiene que estar encendido.
 // ============================================================
 require_login();
 
@@ -35,20 +34,28 @@ if (!$id || !isset(tablas_papelera()[$entidad])) {
     redirect($volver ?: 'dashboard');
 }
 
+// Con el módulo apagado, la entidad no está en uso: no se toca, ni para
+// borrar ni para restaurar.
+if (!entidad_habilitada($entidad)) {
+    flash('Esa parte del sistema no está en marcha.', 'error');
+    redirect($volver ?: 'dashboard');
+}
+
 // Restaurar es potestad del administrador: es quien maneja la papelera.
 if ($accion === 'restaurar') {
     require_admin();
     registro_restaurar($entidad, $id);
     flash('Registro restaurado.', 'success');
 } else {
-    // Las vistas ya esconden el botón a quien no puede; esto cubre un pedido
-    // armado a mano.
-    if (!papelera_permitida(registro_propietario($entidad, $id), current_user_id(), auth_is_admin())) {
-        flash('Sólo quien tiene asignado este registro, o un administrador, lo puede mandar a la papelera.', 'error');
-        redirect($volver ?: 'dashboard');
+    $fila = registro_vivo($entidad, $id);
+    if (!$fila) {
+        flash('Ese registro ya no existe o ya está en la papelera.', 'info');
+    } elseif (!puede_mandar_papelera($entidad, $fila, current_user_id(), auth_is_admin())) {
+        flash('Este registro tiene otro propietario: sólo él o un administrador lo pueden mandar a la papelera.', 'error');
+    } else {
+        registro_eliminar($entidad, $id);
+        flash('Lo enviamos a la papelera. Un administrador puede restaurarlo.', 'success');
     }
-    registro_eliminar($entidad, $id);
-    flash('Lo enviamos a la papelera. Un administrador puede restaurarlo.', 'success');
 }
 
 redirect($volver ?: 'dashboard');

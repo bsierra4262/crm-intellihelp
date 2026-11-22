@@ -11,11 +11,10 @@ declare(strict_types=1);
 
 // Sirve una imagen de las campañas. Es PÚBLICA a propósito: el correo la pide
 // desde el cliente del destinatario, que obviamente no tiene sesión.
-// Este reemplazo no cambia nada (pone cada coincidencia en su lugar con $0):
-// el control real es el preg_match de abajo, que exige exactamente 20 hex y
-// una extensión de imagen, y con eso no hay forma de salirse de la carpeta.
-$archivo = preg_replace('/[^a-f0-9]+\.(jpg|png|gif|webp)$/i', '$0', (string)($_GET['a'] ?? ''));
-if (!preg_match('/^[a-f0-9]{20}\.(jpg|png|gif|webp)$/i', (string)$archivo)) {
+// El control es este preg_match: exige exactamente 20 hex y una extensión de
+// imagen, y con eso no hay forma de salirse de la carpeta.
+$archivo = (string)($_GET['a'] ?? '');
+if (!preg_match('/^[a-f0-9]{20}\.(jpg|png|gif|webp)$/i', $archivo)) {
     http_response_code(404);
     exit;
 }

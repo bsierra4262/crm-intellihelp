@@ -146,8 +146,8 @@ function users_activos(): array
 /**
  * Actualiza rol y estado de un usuario y lo deja en la auditoría.
  *
- * No controla que quede al menos un administrador: eso lo hace
- * pages/usuario-guardar.php antes de llamar.
+ * No controla que quede al menos un administrador: para eso está
+ * user_update_protegido(), que es la que usa pages/usuario-guardar.php.
  */
 function user_update(int $id, string $rol, bool $activo): void
 {
@@ -155,6 +155,41 @@ function user_update(int $id, string $rol, bool $activo): void
     q('UPDATE usuarios SET rol = ?, activo = ? WHERE id = ?', [$rol, $activo ? 1 : 0, $id]);
     log_app('usuario.actualizar', ['entidad' => 'usuario', 'entidad_id' => $id,
         'detalle' => 'rol=' . $rol . ' · ' . ($activo ? 'activo' : 'inactivo')]);
+}
+
+/**
+ * Actualiza rol y estado SIN dejar el sistema sin administradores activos.
+ * Devuelve false (y no cambia nada) si el cambio dejaría cero.
+ *
+ * La comprobación y el cambio van en una misma transacción, con los
+ * administradores activos bloqueados (FOR UPDATE en MariaDB): si dos
+ * administradores se quitan el rol a la vez, el segundo espera al primero,
+ * vuelve a contar y se le rechaza. Contar antes y actualizar después, en dos
+ * pasos sueltos, dejaba pasar a los dos.
+ */
+function user_update_protegido(int $id, string $rol, bool $activo): bool
+{
+    $rol   = $rol === 'admin' ? 'admin' : 'comercial';
+    $pdo   = db();
+    $propia = !$pdo->inTransaction();
+    if ($propia) { $pdo->beginTransaction(); }
+    try {
+        $bloqueo = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+        $admins = array_map('intval', array_column(
+            q("SELECT id FROM usuarios WHERE rol = 'admin' AND activo = 1" . $bloqueo)->fetchAll(), 'id'));
+        $quedan = array_values(array_diff($admins, [$id]));
+        if ($rol === 'admin' && $activo) { $quedan[] = $id; }
+        if (!$quedan) {
+            if ($propia) { $pdo->rollBack(); }
+            return false;
+        }
+        user_update($id, $rol, $activo);
+        if ($propia) { $pdo->commit(); }
+        return true;
+    } catch (\Throwable $e) {
+        if ($propia && $pdo->inTransaction()) { $pdo->rollBack(); }
+        throw $e;
+    }
 }
 
 /** Cantidad de administradores activos (para no quedarse sin ninguno). */

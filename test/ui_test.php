@@ -671,8 +671,12 @@ ok('el .htaccess no fija la configuración de una instalación',
    !preg_match('/^\s*SetEnv\s+CRM_CONFIG/mi', $hta),
    'el mismo archivo va en las dos: fijarla ahí conecta pruebas a la base real');
 ok('ni el almacenamiento', !preg_match('/^\s*SetEnv\s+CRM_STORAGE/mi', $hta));
+// La carpeta crm_config/ ya no lleva escrito el usuario del hosting: sale de
+// la ruta de la instalación (o de CRM_CONFIG_DIR).
 ok('la busca el arranque, por el nombre de la carpeta',
-   str_contains($bootAssets, "'/home/u566451014/crm_config/' . \$carpeta . '.php'"));
+   str_contains($bootAssets, "\$d . '/' . \$carpeta . '.php'")
+   && str_contains($bootAssets, "'#^(/home/[^/]+)/#'")
+   && !str_contains($bootAssets, 'u566451014'));
 // Mandar todo a /crm sacaría a pruebas de su propia instalación en el medio
 // del ingreso con Google, que es como se descubrió.
 ok('la redirección a la dirección oficial no arrastra a la de pruebas',

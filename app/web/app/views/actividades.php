@@ -136,8 +136,8 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
                             </form>
                         <?php endif; ?>
                         <a class="act" href="<?= e(url('actividad-form?id=' . (int)$a['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
-                        <?php // Sólo el propietario o un administrador (papelera_permitida()). ?>
-                        <?php if (puede_mandar_papelera($a)): ?>
+                        <?php // Sólo el propietario o un administrador (puedo_mandar_papelera(), registros.php). ?>
+                        <?php if (puedo_mandar_papelera('actividad', $a)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="actividad">

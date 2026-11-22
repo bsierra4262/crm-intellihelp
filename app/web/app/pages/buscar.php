@@ -6,9 +6,10 @@ declare(strict_types=1);
 //
 //  Busca con LIKE '%q%' en contactos, empresas (cuentas), posibles clientes
 //  sin convertir y negocios, hasta 15 resultados de cada uno, sin los
-//  eliminados. No filtra por propietario (un comercial ve todo) ni por
-//  módulo: con Posibles o Negocios apagados, igual los busca y los muestra.
-//  Los comodines % y _ que escriba la persona no se escapan.
+//  eliminados. No filtra por propietario (la base se comparte en el equipo).
+//  Posibles y negocios se buscan sólo si su módulo está encendido: si no,
+//  los resultados llevarían a pantallas bloqueadas. Los % y _ que escriba la
+//  persona se buscan literales (like_contiene en helpers.php).
 //  Deja la búsqueda en la auditoría. Vista: views/buscar.php.
 // ============================================================
 require_login();
@@ -20,7 +21,7 @@ $r = ['contactos' => [], 'cuentas' => [], 'posibles' => [], 'negocios' => []];
 // posible cliente o una oportunidad, sin tener que elegir el módulo antes.
 // Menos de dos letras traería media base: no se busca.
 if (mb_strlen($q) >= 2) {
-    $like = '%' . $q . '%';
+    $like = like_contiene($q);
     $r['contactos'] = q('SELECT ct.id, ct.nombre_completo, ct.email, ct.cargo, cu.nombre AS cuenta
                          FROM contactos ct LEFT JOIN cuentas cu ON cu.id = ct.cuenta_id
                          WHERE ct.eliminado_en IS NULL
@@ -32,14 +33,14 @@ if (mb_strlen($q) >= 2) {
                        WHERE eliminado_en IS NULL AND (nombre LIKE ? OR sitio_web LIKE ? OR cuit LIKE ?)
                        ORDER BY nombre LIMIT 15', [$like, $like, $like])->fetchAll();
 
-    $r['posibles'] = q("SELECT id, TRIM(CONCAT(COALESCE(nombre,''), ' ', apellido)) AS nombre_completo,
+    $r['posibles'] = !ruta_habilitada('posibles') ? [] : q("SELECT id, TRIM(CONCAT(COALESCE(nombre,''), ' ', apellido)) AS nombre_completo,
                                empresa, email, estado
                         FROM posibles_clientes
                         WHERE eliminado_en IS NULL AND convertido_en IS NULL
                           AND (nombre LIKE ? OR apellido LIKE ? OR empresa LIKE ? OR email LIKE ?)
                         ORDER BY apellido LIMIT 15", [$like, $like, $like, $like])->fetchAll();
 
-    $r['negocios'] = q('SELECT n.id, n.nombre, n.importe, n.moneda, e.nombre AS etapa, cu.nombre AS cuenta
+    $r['negocios'] = !ruta_habilitada('negocios') ? [] : q('SELECT n.id, n.nombre, n.importe, n.moneda, e.nombre AS etapa, cu.nombre AS cuenta
                         FROM negocios n JOIN etapas e ON e.id = n.etapa_id
                         LEFT JOIN cuentas cu ON cu.id = n.cuenta_id
                         WHERE n.eliminado_en IS NULL AND (n.nombre LIKE ? OR cu.nombre LIKE ?)

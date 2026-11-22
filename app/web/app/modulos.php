@@ -29,10 +29,10 @@ declare(strict_types=1);
 //  agregar su ruta acá; si no figura en ningún módulo, queda en el núcleo y
 //  siempre habilitada.
 //
-//  Ojo: las rutas compartidas del núcleo (registro-eliminar, nota-guardar,
-//  etiquetas-guardar, buscar) no están atadas a ningún módulo, así que
-//  siguen actuando sobre negocios, posibles clientes o campañas aunque esos
-//  módulos estén apagados.
+//  Las rutas compartidas del núcleo (registro-eliminar, nota-guardar,
+//  etiquetas-guardar, adjunto, buscar) no están atadas a ningún módulo:
+//  controlan adentro el módulo del registro sobre el que actúan
+//  (entidad_habilitada() en registros.php, ruta_habilitada() en buscar).
 // ============================================================
 
 /**

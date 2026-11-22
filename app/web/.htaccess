@@ -65,11 +65,21 @@ Options -Indexes
 </IfModule>
 
 # Proteger archivos sensibles
-# Sólo se listan extensiones: un respaldo suelto (.bak, .env, .txt, .sh) o un
-# config.local.php servido sin PHP no queda cubierto por esta regla.
-<FilesMatch "\.(sql|md|json|lock|log|ini|yml|py)$">
+# Datos, documentación, respaldos sueltos y scripts que nunca se sirven: una
+# copia «config.php.bak» o un «.env» olvidado se leería como texto plano.
+<FilesMatch "\.(sql|md|json|lock|log|ini|yml|yaml|py|sh|bak|old|orig|swp|dist|env|txt|gz|zip|tar)$">
     Require all denied
 </FilesMatch>
+# Archivos de punto (.env, .git, .htpasswd…).
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+# La configuración local (un candidato de bootstrap.php) vive en el webroot
+# sólo en una máquina de desarrollo; aunque PHP la ejecutaría sin mostrar nada,
+# no tiene por qué responder.
+<Files "config.local.php">
+    Require all denied
+</Files>
 
 # ---- Rendimiento ----
 <IfModule mod_deflate.c>

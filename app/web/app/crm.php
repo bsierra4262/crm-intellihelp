@@ -1329,7 +1329,7 @@ function tablas_papelera(): array
  * Manda un registro a la papelera (pone `eliminado_en`).
  *
  * No verifica permisos ni que el registro exista: eso le toca a la página que
- * la llama (registro-eliminar mira papelera_permitida()). El borrado
+ * la llama (registro-eliminar mira puede_mandar_papelera() de registros.php). El borrado
  * definitivo lo hace el cron a los 60 días.
  *
  * @throws InvalidArgumentException si la entidad no está en tablas_papelera()
@@ -1368,16 +1368,6 @@ function papelera_permitida(?int $propietarioId, ?int $usuarioId, bool $esAdmin)
 {
     if ($esAdmin || !$propietarioId) { return true; }
     return $usuarioId !== null && $propietarioId === $usuarioId;
-}
-
-/**
- * Lo mismo para el usuario de la sesión y una fila ya leída (con su
- * `propietario_id`). Es lo que usan las vistas para mostrar u ocultar el botón.
- */
-function puede_mandar_papelera(array $fila): bool
-{
-    $prop = (int)($fila['propietario_id'] ?? 0);
-    return papelera_permitida($prop ?: null, current_user_id(), auth_is_admin());
 }
 
 /**
