@@ -41,8 +41,34 @@ declare(strict_types=1);
 //    · Sólo se lee INBOX: lo que Gmail mande a Spam o a otra etiqueta no se ve.
 //    · La respuesta cruda del servidor (`crudo`) trae, además del mensaje, la
 //      línea `* n FETCH (... {bytes}` de adelante y la de cierre con la
-//      etiqueta del comando atrás: no es el correo puro.
+//      etiqueta del comando atrás: no es el correo puro. El correo puro es
+//      el literal (`literal` en lo que devuelve imap_cmd()), y es lo único
+//      que se decodifica.
+//    · La marca de por dónde se iba avanza mensaje por mensaje: un correo que
+//      no se puede procesar se registra y se saltea, no traba la casilla.
+//    · Se guarda el UIDVALIDITY de cada casilla: si el servidor la renumera,
+//      la marca vieja ya no sirve y se vuelve a leer la ventana inicial.
+//    · El cruce con la campaña es por Message-ID (In-Reply-To/References de
+//      la respuesta, o la copia del original que trae el rebote). La
+//      dirección del remitente es sólo el respaldo.
 // ============================================================
+
+/**
+ * Lo máximo que se lee del socket para UNA respuesta. Pasado esto la
+ * conexión se abandona: un servidor que manda sin parar no puede llenar la
+ * memoria ni dejar el proceso leyendo para siempre.
+ */
+const IMAP_TOPE_ABSOLUTO = 67108864;
+/** Bytes que se bajan de una respuesta (se pide con FETCH parcial: un adjunto grande no se baja entero). */
+const IMAP_BYTES_RESPUESTA = 2097152;
+/** Bytes que se bajan del cuerpo de un rebote (el DSN y la copia del original entran de sobra). */
+const IMAP_BYTES_REBOTE = 524288;
+/**
+ * Días hacia atrás en que se busca un envío por dirección cuando la
+ * respuesta no se pudo cruzar por Message-ID. Pasado ese plazo, un correo de
+ * alguien que recibió una campaña hace meses ya no se cuenta como respuesta.
+ */
+const IMAP_RESPALDO_DIAS = 45;
 
 /** Fragmentos del remitente que delatan un aviso de rebote (MAILER-DAEMON y parientes). */
 const REMITENTES_REBOTE = ['mailer-daemon', 'postmaster', 'mail-daemon'];
@@ -215,21 +241,26 @@ function imap_cita(string $v): string
  *
  * Se lee hasta la línea que empieza con la etiqueta del comando (`a0001 OK…`,
  * `NO` o `BAD`). Si el socket se corta o vence el tiempo de espera, vuelve con
- * ok=false y lo que alcanzó a leer.
+ * ok=false, sucio=true y lo que alcanzó a leer.
  *
- * Trampas:
- *   · `$limiteBytes` sólo se controla en las líneas sueltas: un literal se lee
- *     siempre entero, aunque supere el tope (un correo con un adjunto grande
- *     se carga completo en memoria).
- *   · Si se corta por el tope, lo que quedó sin leer sigue en el socket y se
- *     mezcla con la respuesta del comando siguiente.
- *   · `crudo` incluye todas las líneas leídas, también la de cierre con la
- *     etiqueta: no es sólo el contenido pedido.
+ * El tope `$limiteBytes` vale para lo que se GUARDA (líneas y literales): lo
+ * que pasa del tope se sigue leyendo del socket y se descarta, así la
+ * conexión no queda desfasada y el comando siguiente no recibe restos de
+ * éste (`truncado` avisa que algo se descartó). Como red de seguridad, si el
+ * servidor manda más de IMAP_TOPE_ABSOLUTO se deja de leer y se devuelve
+ * sucio=true: esa conexión ya no se puede usar.
+ *
+ * Claves de la respuesta:
+ *   · `literal`: el primer literal (`{n}` + n bytes), que en un FETCH es
+ *     justo lo pedido, sin la línea `* n FETCH (` ni el cierre; '' si no hubo.
+ *   · `literales`: todos los literales, en orden.
+ *   · `crudo`: todas las líneas leídas, también la de cierre con la etiqueta.
  *
  * @param resource $fp          socket de imap_conectar()
  * @param string   $comando     el comando sin etiqueta ni CRLF
- * @param int      $limiteBytes tope de lectura (8 MB por defecto)
- * @return array{ok:bool, texto:string, lineas:array<int,string>, crudo:string}
+ * @param int      $limiteBytes tope de lo que se guarda (8 MB por defecto)
+ * @return array{ok:bool, texto:string, lineas:array<int,string>, crudo:string,
+ *               literal:string, literales:array<int,string>, truncado:bool, sucio:bool}
  */
 function imap_cmd($fp, string $comando, int $limiteBytes = 8388608): array
 {
@@ -239,31 +270,44 @@ function imap_cmd($fp, string $comando, int $limiteBytes = 8388608): array
     $tag = sprintf('a%04d', ++$n);
     fwrite($fp, $tag . ' ' . $comando . "\r\n");
 
-    $lineas = [];
-    $crudo  = '';
-    $ok     = false;
-    $texto  = '';
-    $leidos = 0;
+    $lineas    = [];
+    $literales = [];
+    $crudo     = '';
+    $ok        = false;
+    $texto     = '';
+    $leidos    = 0;
+    $guardados = 0;
+    $truncado  = false;
+    $sucio     = true;   // pasa a false recién al ver la línea con la etiqueta
 
-    while (!feof($fp)) {
+    while (true) {
         $linea = fgets($fp, 8192);
-        if ($linea === false) { break; }
+        if ($linea === false || $linea === '') { break; }
         $leidos += strlen($linea);
-        $crudo  .= $linea;
+        if ($leidos > IMAP_TOPE_ABSOLUTO) { break; }
+
+        if ($guardados < $limiteBytes) { $crudo .= $linea; $guardados += strlen($linea); }
+        else { $truncado = true; }
 
         // Literal anunciado al final de la línea: se leen esos bytes exactos.
+        // Lo que no entra en el tope se lee igual y se descarta.
         if (preg_match('/\{(\d+)\}\r?\n$/', $linea, $m)) {
             $faltan = (int)$m[1];
             $buf = '';
-            while ($faltan > 0 && !feof($fp)) {
+            while ($faltan > 0) {
                 $trozo = fread($fp, min($faltan, 65536));
-                if ($trozo === false || $trozo === '') { break; }
-                $buf    .= $trozo;
+                if ($trozo === false || $trozo === '') { break 2; }
                 $faltan -= strlen($trozo);
+                $leidos += strlen($trozo);
+                if ($leidos > IMAP_TOPE_ABSOLUTO) { break 2; }
+                $lugar = $limiteBytes - $guardados - strlen($buf);
+                if ($lugar > 0) { $buf .= strlen($trozo) <= $lugar ? $trozo : substr($trozo, 0, $lugar); }
+                if (strlen($trozo) > max(0, $lugar)) { $truncado = true; }
             }
-            $crudo  .= $buf;
-            $leidos += strlen($buf);
-            $lineas[] = rtrim($linea, "\r\n") . "\n" . $buf;
+            $guardados  += strlen($buf);
+            $crudo      .= $buf;
+            $literales[] = $buf;
+            $lineas[]    = rtrim($linea, "\r\n") . "\n" . $buf;
             continue;
         }
 
@@ -273,12 +317,14 @@ function imap_cmd($fp, string $comando, int $limiteBytes = 8388608): array
             $resto = trim(substr($linea, strlen($tag) + 1));
             $ok    = str_starts_with($resto, 'OK');
             $texto = $resto;
+            $sucio = false;
             break;
         }
-        if ($leidos > $limiteBytes) { break; }   // red de seguridad
     }
 
-    return ['ok' => $ok, 'texto' => $texto, 'lineas' => $lineas, 'crudo' => $crudo];
+    return ['ok' => $ok && !$sucio, 'texto' => $texto, 'lineas' => $lineas, 'crudo' => $crudo,
+            'literal' => $literales[0] ?? '', 'literales' => $literales,
+            'truncado' => $truncado, 'sucio' => $sucio];
 }
 
 /**
@@ -286,36 +332,91 @@ function imap_cmd($fp, string $comando, int $limiteBytes = 8388608): array
  *
  * Soporta las dos codificaciones de RFC 2047: B (base64) y Q
  * (quoted-printable con `_` como espacio), y convierte a UTF-8 desde el juego
- * de caracteres declarado.
+ * de caracteres declarado (texto_a_utf8(), que nunca lanza).
  *
- * Trampas:
- *   · La limpieza del final (quitar el espacio entre dos palabras codificadas
- *     seguidas) corre DESPUÉS de decodificar, cuando ya no quedan marcas
- *     `?= =?` en el texto: no hace nada, y una palabra partida en dos trozos
- *     codificados queda con un espacio en el medio.
- *   · En PHP 8, mb_convert_encoding() lanza ValueError ante un juego de
- *     caracteres que no conoce; la `@` no lo ataja. La excepción sube hasta
- *     imap_revisar().
+ * El espacio entre dos palabras codificadas seguidas no es parte del texto
+ * (RFC 2047) y se quita ANTES de decodificar. Además, los bytes de palabras
+ * seguidas con el mismo juego se juntan antes de convertir: Outlook parte el
+ * asunto donde le queda, a veces en el medio de una letra de dos bytes.
  */
 function imap_texto(?string $s): string
 {
     $s = trim((string)$s);
     if ($s === '') { return ''; }
-    $out = preg_replace_callback(
-        '/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/',
-        static function (array $m): string {
-            $juego = strtoupper($m[1]);
-            $texto = strtoupper($m[2]) === 'B'
-                ? (base64_decode($m[3], true) ?: '')
-                : quoted_printable_decode(str_replace('_', ' ', $m[3]));
-            if ($juego === 'UTF-8' || $juego === 'US-ASCII') { return $texto; }
-            $conv = @mb_convert_encoding($texto, 'UTF-8', $juego);
-            return $conv !== false ? $conv : $texto;
-        },
-        $s
-    );
-    // Entre dos palabras codificadas seguidas no va espacio (RFC 2047).
-    return trim(preg_replace('/\?=\s+=\?/', '', (string)$out) ?: (string)$out);
+    $palabra = '=\?[^?\s]+\?[BbQq]\?[^?\s]*\?=';
+    $s = preg_replace('/(' . $palabra . ')\s+(?=' . $palabra . ')/', '$1', $s) ?? $s;
+
+    $trozos = preg_split('/=\?([^?\s]+)\?([BbQq])\?([^?\s]*)\?=/', $s, -1, PREG_SPLIT_DELIM_CAPTURE);
+    if ($trozos === false) { return texto_a_utf8($s, 'UTF-8'); }
+
+    $out = '';
+    $juegoPend = null;
+    $bytesPend = '';
+    $volcar = static function () use (&$out, &$juegoPend, &$bytesPend): void {
+        if ($juegoPend !== null) { $out .= texto_a_utf8($bytesPend, $juegoPend); }
+        $juegoPend = null;
+        $bytesPend = '';
+    };
+    // preg_split con captura devuelve: texto, juego, codificación, datos, texto, …
+    for ($i = 0, $n = count($trozos); $i < $n; $i += 4) {
+        $texto = $trozos[$i];
+        if ($texto !== '') { $volcar(); $out .= texto_a_utf8($texto, 'UTF-8'); }
+        if (!isset($trozos[$i + 3])) { break; }
+        // RFC 2231 permite «UTF-8*es»: el idioma no interesa.
+        $juego = strtoupper((string) preg_replace('/\*.*$/', '', $trozos[$i + 1]));
+        $datos = $trozos[$i + 3];
+        $bytes = strtoupper($trozos[$i + 2]) === 'B'
+            ? (string) base64_decode($datos, false)
+            : quoted_printable_decode(str_replace('_', ' ', $datos));
+        if ($juegoPend !== null && $juegoPend !== $juego) { $volcar(); }
+        $juegoPend  = $juego;
+        $bytesPend .= $bytes;
+    }
+    $volcar();
+    return trim($out);
+}
+
+/**
+ * Pasa un texto a UTF-8 desde el juego de caracteres que declara el correo.
+ * Nunca lanza.
+ *
+ * En PHP 8, mb_convert_encoding() lanza ValueError ante un juego que no
+ * conoce (`unknown-8bit`, `iso-8859-8-i`, `x-user-defined` o lo que invente
+ * un spammer), y la `@` no lo ataja: antes eso cortaba la lectura de la
+ * casilla entera. Ahora: se prueban los alias conocidos, después iconv y, si
+ * nada sirve, el texto se deja como está si ya es UTF-8 válido o se lo lee
+ * como Windows-1252 (que incluye ISO-8859-1 y es lo que manda casi todo el
+ * correo viejo en castellano).
+ */
+function texto_a_utf8(string $texto, string $juego): string
+{
+    if ($texto === '') { return ''; }
+    $juego = strtoupper(trim($juego, " \t\"'"));
+    $alias = [
+        'UTF8' => 'UTF-8', 'LATIN1' => 'ISO-8859-1', 'ASCII' => 'US-ASCII', 'ANSI_X3.4-1968' => 'US-ASCII',
+        'ISO-8859-8-I' => 'ISO-8859-8', 'ISO-8859-6-I' => 'ISO-8859-6',
+        'KS_C_5601-1987' => 'UHC', 'GB2312' => 'CP936', 'GBK' => 'CP936', 'X-GBK' => 'CP936',
+        'X-SJIS' => 'SJIS', 'SHIFT-JIS' => 'SJIS', 'WINDOWS-1252' => 'Windows-1252', 'CP-1252' => 'Windows-1252',
+        'UNKNOWN-8BIT' => '', 'X-UNKNOWN' => '', 'X-USER-DEFINED' => '', 'DEFAULT' => '', 'UNKNOWN' => '',
+    ];
+    $juego = $alias[$juego] ?? $juego;
+
+    if ($juego !== '' && $juego !== 'UTF-8' && $juego !== 'US-ASCII') {
+        try {
+            $conv = mb_convert_encoding($texto, 'UTF-8', $juego);
+            if (is_string($conv) && mb_check_encoding($conv, 'UTF-8')) { return $conv; }
+        } catch (\ValueError $e) {
+            // Juego desconocido para mbstring: se prueba con iconv.
+        }
+        if (function_exists('iconv')) {
+            $conv = @iconv($juego, 'UTF-8//IGNORE', $texto);
+            if (is_string($conv) && $conv !== '' && mb_check_encoding($conv, 'UTF-8')) { return $conv; }
+        }
+    }
+    // Hay quien declara UTF-8 (o nada) y manda otra cosa: si no es válido se
+    // reinterpreta, porque un texto roto es peor que uno aproximado.
+    if (mb_check_encoding($texto, 'UTF-8')) { return $texto; }
+    return (string) mb_convert_encoding($texto, 'UTF-8', 'Windows-1252');
 }
 
 /**
@@ -359,9 +460,8 @@ function imap_nombre(string $cabecera): string
  * quoted-printable; 7bit, 8bit y binary pasan tal cual).
  *
  * El base64 se decodifica en modo no estricto: los caracteres que sobran no
- * hacen fallar, pero se decodifican como basura. Si al cuerpo le quedó
- * pegado algo que no es del mensaje (por ejemplo, la línea de cierre de la
- * respuesta IMAP), aparecen bytes de más al final.
+ * hacen fallar, pero se decodifican como basura. Por eso al decodificador
+ * le llega sólo el literal del FETCH, nunca la respuesta IMAP cruda.
  */
 function mime_decodificar(string $cuerpo, string $codificacion): string
 {
@@ -373,23 +473,39 @@ function mime_decodificar(string $cuerpo, string $codificacion): string
 }
 
 /**
- * Pasa un texto a UTF-8 desde el juego que declare la parte.
- *
- * Si la parte dice UTF-8 (o nada) pero el texto no es UTF-8 válido, se lo
- * reinterpreta entero como ISO-8859-1: alcanza un solo byte inválido para que
- * todos los acentos se vean mal. Igual que en imap_texto(), un juego
- * desconocido hace que mb_convert_encoding() lance ValueError en PHP 8.
+ * Pasa el cuerpo de una parte a UTF-8 desde el juego que declare. Es
+ * texto_a_utf8(): nunca lanza, ni con un juego desconocido.
  */
 function mime_a_utf8(string $texto, string $juego): string
 {
-    $juego = strtoupper(trim($juego)) ?: 'UTF-8';
-    if ($juego === 'UTF-8' || $juego === 'US-ASCII' || $juego === '') {
-        // Hay quien declara UTF-8 y manda otra cosa: si no es válido se
-        // reinterpreta, porque un texto roto es peor que uno aproximado.
-        return mb_check_encoding($texto, 'UTF-8') ? $texto : (string) mb_convert_encoding($texto, 'UTF-8', 'ISO-8859-1');
+    return texto_a_utf8($texto, $juego);
+}
+
+/**
+ * Lee un parámetro de un encabezado MIME (`boundary`, `charset`…) respetando
+ * mayúsculas y minúsculas del valor: el boundary las distingue. Acepta el
+ * valor entre comillas (que puede tener espacios) o suelto. '' si no está.
+ */
+function mime_parametro(string $cabecera, string $nombre): string
+{
+    if (preg_match('/(?:^|;)\s*' . preg_quote($nombre, '/') . '\s*=\s*(?:"((?:[^"\\\\]|\\\\.)*)"|([^;\s]+))/i',
+                   $cabecera, $m)) {
+        return ($m[1] ?? '') !== '' ? (string) preg_replace('/\\\\(.)/s', '$1', $m[1]) : (string)($m[2] ?? '');
     }
-    $conv = @mb_convert_encoding($texto, 'UTF-8', $juego);
-    return $conv !== false ? $conv : $texto;
+    return '';
+}
+
+/**
+ * Separa cabeceras y cuerpo en la primera línea en blanco. Una parte sin
+ * cabeceras (empieza directamente con la línea en blanco) da cabeceras ''.
+ *
+ * @return array{0:string, 1:string}
+ */
+function mime_separar(string $crudo): array
+{
+    if (preg_match('/^\r?\n/', $crudo)) { return ['', (string) preg_replace('/^\r?\n/', '', $crudo)]; }
+    $corte = preg_split("/\r?\n\r?\n/", $crudo, 2) ?: [$crudo];
+    return [$corte[0], $corte[1] ?? ''];
 }
 
 /**
@@ -404,10 +520,9 @@ function mime_a_utf8(string $texto, string $juego): string
  * conversación lo pone en un iframe con sandbox). Los adjuntos no se guardan
  * en ningún lado: se pierden.
  *
- * Trampa: el Content-Type se pasa a minúsculas ANTES de sacar el boundary, y
- * el boundary distingue mayúsculas. Con un separador en mayúsculas (Outlook,
- * Apple Mail, Yahoo) el explode no encuentra las partes y el correo queda con
- * texto y HTML vacíos.
+ * El boundary se saca del encabezado original, sin pasarlo a minúsculas: lo
+ * distingue, y Outlook, Apple Mail o Yahoo lo arman con mayúsculas. Los
+ * separadores se buscan sólo a principio de línea, como dice el estándar.
  *
  * @param string $crudo        cabeceras + cuerpo de la parte (o del correo entero)
  * @param int    $profundidad  nivel de anidamiento; corta a partir de 7
@@ -419,20 +534,23 @@ function mime_partes(string $crudo, int $profundidad = 0): array
     if ($profundidad > 6) { return $out; }          // correo raro o malicioso
 
     // Las cabeceras terminan en la primera línea en blanco; lo que sigue es el cuerpo.
-    $corte = preg_split("/\r?\n\r?\n/", $crudo, 2);
-    $cab   = $corte[0] ?? '';
-    $cuerpo = $corte[1] ?? '';
+    [$cab, $cuerpo] = mime_separar($crudo);
     // Sin Content-Type, el estándar dice text/plain en US-ASCII.
-    $tipo  = strtolower(imap_cabecera($cab, 'Content-Type')) ?: 'text/plain';
+    $tipoCrudo = imap_cabecera($cab, 'Content-Type');
+    $tipo  = strtolower($tipoCrudo) ?: 'text/plain';
     $codif = imap_cabecera($cab, 'Content-Transfer-Encoding');
 
-    if (str_starts_with($tipo, 'multipart/') && preg_match('/boundary="?([^";\s]+)"?/i', $tipo, $m)) {
-        $sep    = '--' . $m[1];
-        $trozos = explode($sep, $cuerpo);
+    $limite = str_starts_with($tipo, 'multipart/') ? mime_parametro($tipoCrudo, 'boundary') : '';
+    if ($limite !== '') {
+        $trozos = explode("\n--" . $limite, "\n" . $cuerpo);
         array_shift($trozos);                        // el preámbulo no es una parte
         foreach ($trozos as $t) {
-            if (str_starts_with(ltrim($t), '--')) { break; }   // cierre del multipart
-            $p = mime_partes(ltrim($t, "\r\n"), $profundidad + 1);
+            if (str_starts_with($t, '--')) { break; }   // cierre del multipart
+            // El resto de la línea del separador (espacios de relleno) y su
+            // salto; al final, el \r que era del salto antes del separador.
+            $t = (string) preg_replace('/^[ \t]*\r?\n/', '', $t, 1);
+            if (str_ends_with($t, "\r")) { $t = substr($t, 0, -1); }
+            $p = mime_partes($t, $profundidad + 1);
             if ($out['texto'] === '' && $p['texto'] !== '') { $out['texto'] = $p['texto']; }
             if ($out['html']  === '' && $p['html']  !== '') { $out['html']  = $p['html']; }
         }
@@ -440,9 +558,9 @@ function mime_partes(string $crudo, int $profundidad = 0): array
     }
 
     // Un adjunto no es contenido para leer.
-    if (stripos(imap_cabecera($cab, 'Content-Disposition'), 'attachment') === 0) { return $out; }
+    if (stripos(ltrim(imap_cabecera($cab, 'Content-Disposition')), 'attachment') === 0) { return $out; }
 
-    $juego = preg_match('/charset="?([^";\s]+)"?/i', $tipo, $m2) ? $m2[1] : 'UTF-8';
+    $juego = mime_parametro($tipoCrudo, 'charset') ?: 'UTF-8';
     $texto = mime_a_utf8(mime_decodificar($cuerpo, $codif), $juego);
 
     if (str_starts_with($tipo, 'text/html'))       { $out['html']  = $texto; }
@@ -552,17 +670,67 @@ function imap_ultimo_uid(string $buzon): int
 }
 
 /**
+ * El UIDVALIDITY guardado de un buzón, o null si todavía no se guardó (o si
+ * la columna no existe porque falta la migración 016).
+ */
+function imap_uidvalidity_guardado(string $buzon): ?int
+{
+    try {
+        $v = qv('SELECT uidvalidity FROM imap_estado WHERE buzon = ?', [$buzon]);
+    } catch (\PDOException $e) {
+        return null;
+    }
+    return ($v === false || $v === null || $v === '') ? null : (int)$v;
+}
+
+/**
+ * El UIDVALIDITY que anuncia el servidor al hacer SELECT
+ * (`* OK [UIDVALIDITY 1234] …`), o null si no lo manda.
+ *
+ * @param array<int,string> $lineas las líneas de la respuesta al SELECT
+ */
+function imap_uidvalidity(array $lineas): ?int
+{
+    foreach ($lineas as $l) {
+        if (preg_match('/\[UIDVALIDITY\s+(\d+)\]/i', $l, $m)) { return (int)$m[1]; }
+    }
+    return null;
+}
+
+/**
+ * Guarda el UIDVALIDITY de un buzón. Con $reiniciar la marca de UID vuelve a
+ * cero (el servidor renumeró la casilla y la marca vieja no significa nada).
+ * Sin la columna (falta la migración 016) no hace nada: se sigue como antes.
+ */
+function imap_guardar_uidvalidity(string $buzon, int $validez, bool $reiniciar = false): void
+{
+    try {
+        q('INSERT IGNORE INTO imap_estado (buzon, ultimo_uid) VALUES (?, 0)', [$buzon]);
+        q('UPDATE imap_estado SET uidvalidity = ?' . ($reiniciar ? ', ultimo_uid = 0' : '') . ' WHERE buzon = ?',
+          [$validez, $buzon]);
+    } catch (\PDOException $e) {
+        // Columna inexistente: la migración todavía no corrió.
+    }
+}
+
+/**
  * Guarda hasta dónde se leyó un buzón y la hora de la corrida.
  *
- * El GREATEST hace que la marca nunca retroceda, aunque dos corridas
- * terminen en otro orden. Por lo mismo, para releer una casilla hay que
- * borrar o bajar la fila a mano.
+ * Se llama después de CADA mensaje, no al final de la vuelta: así un corte a
+ * mitad de camino no obliga a reprocesar lo ya hecho, y un mensaje que no se
+ * pudo procesar no traba la casilla.
+ *
+ * La marca nunca retrocede (el CASE hace de GREATEST), aunque dos corridas
+ * terminen en otro orden. Para releer una casilla hay que bajar la fila a
+ * mano. Se escribe en dos pasos (INSERT IGNORE + UPDATE) para no depender de
+ * ON DUPLICATE KEY.
  */
 function imap_guardar_uid(string $buzon, int $uid): void
 {
-    q('INSERT INTO imap_estado (buzon, ultimo_uid, ultima_corrida) VALUES (?, ?, NOW())
-       ON DUPLICATE KEY UPDATE ultimo_uid = GREATEST(ultimo_uid, VALUES(ultimo_uid)), ultima_corrida = NOW()',
-      [$buzon, $uid]);
+    q('INSERT IGNORE INTO imap_estado (buzon, ultimo_uid) VALUES (?, 0)', [$buzon]);
+    q('UPDATE imap_estado SET ultimo_uid = CASE WHEN ultimo_uid < ? THEN ? ELSE ultimo_uid END,
+              ultima_corrida = NOW()
+       WHERE buzon = ?', [$uid, $uid, $buzon]);
 }
 
 // ------------------------------------------------------------
@@ -599,7 +767,10 @@ function es_rebote(string $de, string $asunto): bool
  *
  * Orden de decisión:
  *   1. el `Status: X.Y.Z` del DSN estándar: 5 es definitivo, 4 pasajero;
- *   2. un código SMTP 4xx sin ningún 50x/55x en el texto: pasajero;
+ *   2. un código SMTP 4xx en su contexto (con el código extendido 4.x.x, o
+ *      detrás de «smtp;», «said:» o «error») y ningún 5xx en el mismo
+ *      contexto: pasajero. Un «450» suelto en el texto (la copia del
+ *      original, un pie de página) no cuenta;
  *   3. frases típicas: primero las pasajeras (ganan si aparecen las dos),
  *      después las definitivas;
  *   4. si nada coincide, pasajero.
@@ -611,9 +782,9 @@ function es_rebote_duro(string $cuerpo): bool
     if (preg_match('/Status:\s*([45])\.\d+\.\d+/i', $cuerpo, $m)) {
         return $m[1] === '5';
     }
-    // Ojo: busca cualquier número de tres cifras que empiece con 4 seguido de
-    // espacio o guion, en todo el texto; un «450 » suelto alcanza.
-    if (preg_match('/\b(4\d\d)[\s-]/', $cuerpo) && !preg_match('/\b5[05]\d[\s-]/', $cuerpo)) {
+    $codigo = static fn(string $d): string =>
+        '/(?:\b' . $d . '\d\d[ -]' . $d . '\.\d{1,3}\.\d{1,3}\b|(?:smtp;|said:|error:?)\s*' . $d . '\d\d\b)/i';
+    if (preg_match($codigo('4'), $cuerpo) && !preg_match($codigo('5'), $cuerpo)) {
         return false;
     }
     $definitivas = [
@@ -647,33 +818,115 @@ function es_rebote_duro(string $cuerpo): bool
  * Saca del cuerpo del rebote la dirección que falló.
  *
  * Primero busca los campos del DSN estándar (Final-Recipient y
- * Original-Recipient). Si no hay, toma TODAS las direcciones que aparezcan en
- * el texto, incluidas las de la copia del mensaje original que suelen traer
- * los avisos (remitente, Reply-To, direcciones del pie). El llamador filtra
- * después por las que figuran en `envios`.
+ * Original-Recipient). Si no hay DSN, lee SÓLO el aviso, cortado antes de la
+ * copia del mensaje original que suelen traer los rebotes: ahí están el
+ * remitente, el Reply-To y las direcciones del pie de la campaña, que no
+ * rebotaron. Dentro del aviso, primero las formas típicas de los servidores
+ * (`<x@y>:` de Postfix, la dirección sola en su línea de Exim y Gmail,
+ * «to x@y» / «para x@y»); si ninguna aparece, todas las del aviso. El
+ * llamador además filtra por las que figuran en `envios`.
  *
  * @return array<int,string> direcciones normalizadas, sin repetir
  */
 function extraer_destinatario_rebote(string $cuerpo): array
 {
+    $email = '[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}';
     $encontrados = [];
-    if (preg_match_all('/Final-Recipient:\s*rfc822;\s*([^\s<>]+@[^\s<>]+)/i', $cuerpo, $m)) {
+    if (preg_match_all('/Final-Recipient:\s*rfc822;\s*<?([^\s<>]+@[^\s<>]+?)>?\s*$/im', $cuerpo, $m)) {
         $encontrados = array_merge($encontrados, $m[1]);
     }
-    if (preg_match_all('/Original-Recipient:\s*rfc822;\s*([^\s<>]+@[^\s<>]+)/i', $cuerpo, $m)) {
+    if (preg_match_all('/Original-Recipient:\s*rfc822;\s*<?([^\s<>]+@[^\s<>]+?)>?\s*$/im', $cuerpo, $m)) {
         $encontrados = array_merge($encontrados, $m[1]);
     }
     if (!$encontrados) {
-        if (preg_match_all('/[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i', $cuerpo, $m)) {
+        $aviso = rebote_sin_copia($cuerpo);
+        $patrones = [
+            '/^\s*<(' . $email . ')>\s*:/im',                         // Postfix: «<x@y>: host … said»
+            '/^[ \t]*<?(' . $email . ')>?[ \t]*\r?$/im',              // Exim, Gmail: la dirección sola en su línea
+            '/\b(?:to|para|a|recipient|destinatario)\s*:?\s*<?(' . $email . ')>?/i',
+        ];
+        foreach ($patrones as $re) {
+            if (preg_match_all($re, $aviso, $m)) { $encontrados = array_merge($encontrados, $m[1]); }
+        }
+        if (!$encontrados && preg_match_all('/' . $email . '/i', $aviso, $m)) {
             $encontrados = $m[0];
         }
     }
     return array_values(array_unique(array_map('normalizar_email', $encontrados)));
 }
 
+/**
+ * El texto del aviso de rebote sin la copia del mensaje original que viene
+ * pegada abajo. Corta en la primera marca conocida: la parte
+ * `message/rfc822` o `text/rfc822-headers`, los separadores de Exim, Postfix,
+ * Gmail y Office 365, o el primer bloque de cabeceras (`From:`, `Received:`,
+ * `Return-Path:` a principio de línea). Si no encuentra nada, devuelve todo.
+ */
+function rebote_sin_copia(string $cuerpo): string
+{
+    $marcas = [
+        '/^Content-Type:\s*(?:message\/rfc822|text\/rfc822-headers|message\/global)/im',
+        '/^-{2,}\s*(?:This is a copy of|Original message|Mensaje original|Below this line is a copy)/im',
+        '/^-{2,}\s*(?:Forwarded message|Mensaje reenviado)/im',
+        '/^(?:Return-Path|Received|From|De|Message-ID|DKIM-Signature):\s/im',
+        '/^Original message headers:/im',
+    ];
+    $corte = strlen($cuerpo);
+    foreach ($marcas as $re) {
+        if (preg_match($re, $cuerpo, $m, PREG_OFFSET_CAPTURE) && $m[0][1] < $corte) { $corte = $m[0][1]; }
+    }
+    return substr($cuerpo, 0, $corte);
+}
+
+/**
+ * Los Message-ID (`<algo@dominio>`) que aparecen en un texto: cabeceras
+ * In-Reply-To/References, o la copia del original que trae un rebote.
+ * Como mucho 50, sin repetir.
+ *
+ * @return array<int,string>
+ */
+function imap_message_ids(string $texto): array
+{
+    if (!preg_match_all('/<([^<>\s@]{1,200}@[^<>\s@]{1,200})>/', $texto, $m)) { return []; }
+    $ids = array_values(array_unique(array_map(fn($x) => '<' . $x . '>', $m[1])));
+    return array_slice($ids, 0, 50);
+}
+
 // ------------------------------------------------------------
 //  Revisión de la casilla
 // ------------------------------------------------------------
+
+/**
+ * Toma el turno de leer las casillas: escribe la marca `imap_ultima_corrida`
+ * sólo si sigue valiendo lo que se leyó ($previa). Es una comparación y
+ * escritura en una sola sentencia: si el cron y el despachador entran casi
+ * juntos, uno solo gana y el otro no lee.
+ *
+ * Si la tabla de ajustes no responde como se espera, se cae al
+ * setting_set() de siempre y se lee igual (la casilla soporta dos lecturas
+ * a la vez: la marca es por mensaje y el guardado ignora repetidos).
+ *
+ * @param int $previa el valor de la marca que se leyó antes de decidir
+ * @return bool true si este proceso tiene el turno
+ */
+function imap_tomar_turno(int $previa): bool
+{
+    $ahora = (string) time();
+    try {
+        q("INSERT IGNORE INTO app_settings (clave, valor) VALUES ('imap_ultima_corrida', '0')");
+        $st = q("UPDATE app_settings SET valor = ?
+                 WHERE clave = 'imap_ultima_corrida' AND (valor = ? OR valor IS NULL OR valor = '')",
+                [$ahora, (string)$previa]);
+        $gano = $st->rowCount() === 1;
+    } catch (\Throwable $e) {
+        setting_set('imap_ultima_corrida', $ahora);
+        $gano = true;
+    }
+    // El caché de ajustes de un proceso largo (el cron) puede tener la marca
+    // vieja: se descarta para que la próxima consulta lea la de la base.
+    if (function_exists('setting_refrescar')) { setting_refrescar(); }
+    return $gano;
+}
 
 /**
  * Lee la casilla si ya pasó el tiempo mínimo desde la última vez.
@@ -685,17 +938,13 @@ function extraer_destinatario_rebote(string $cuerpo): array
  * espaciado cuando no hay nada en curso, porque abrir IMAP es caro y no tiene
  * sentido hacerlo cada cinco minutos para no encontrar nada.
  *
- * Devuelve null si todavía no tocaba mirar.
+ * Devuelve null si todavía no tocaba mirar, o si otro proceso tomó el turno.
  *
  * La llaman el cron (cada 60 s con campañas en curso, cada 900 s sin nada) y
  * el despachador de campañas en medio de una corrida larga. La marca vive en
- * el ajuste `imap_ultima_corrida` (epoch). Nunca lanza excepción: un error
- * vuelve como `['error' => ...]` con los contadores en cero.
- *
- * Trampa: la consulta y la escritura de la marca no son atómicas. Dos
- * procesos que entran casi juntos pueden leer la casilla a la vez; el UNIQUE
- * de `mensajes.message_id` evita el duplicado, pero el segundo corta con
- * error esa vuelta.
+ * el ajuste `imap_ultima_corrida` (epoch) y se toma con imap_tomar_turno(),
+ * que es atómica. Nunca lanza excepción: un error vuelve como
+ * `['error' => ...]` con los contadores en cero.
  *
  * @param int $cadaSegundos intervalo mínimo entre lecturas (piso de 30 s)
  * @return array|null el resumen de imap_revisar_todas(), o null si no tocaba
@@ -707,13 +956,14 @@ function imap_quizas_revisar(int $cadaSegundos): ?array
 
     // La marca se pone ANTES de leer: si la lectura falla o tarda, no se
     // reintenta en bucle contra un servidor que no está contestando.
-    setting_set('imap_ultima_corrida', (string)time());
+    if (!imap_tomar_turno($ultima)) { return null; }
     try {
         $r = imap_revisar_todas();
     } catch (\Throwable $e) {
         db_reanudar();
-        return ['error' => $e->getMessage(), 'rebotes' => 0, 'respuestas' => 0,
-                'revisados' => 0, 'casillas' => 0];
+        log_error('imap.revisar', $e->getMessage(), $e->getFile(), $e->getLine());
+        return ['error' => 'La lectura de las casillas falló; el detalle quedó en el registro de errores.',
+                'rebotes' => 0, 'respuestas' => 0, 'revisados' => 0, 'casillas' => 0];
     }
     // Leer una casilla puede llevar varios segundos y este hosting corta la
     // conexión a la base a los 20 de inactividad.
@@ -778,33 +1028,12 @@ function imap_revisar_todas(int $diasPrimeraVez = 30): array
 /**
  * Escanea la casilla y actualiza rebotes y respuestas.
  *
- * La primera pasada mira los últimos N días; las siguientes, sólo lo que llegó
- * después del último UID visto. Sin eso, el cron cada 5 minutos releería la
- * casilla entera todo el tiempo.
+ * Abre la conexión, delega todo el trabajo en imap_procesar_buzon() y, al
+ * final, recalcula los contadores de las campañas que tuvieron movimiento en
+ * la última hora.
  *
- * Qué se hace con cada mensaje nuevo de INBOX:
- *   · si es un rebote (remitente o asunto típicos), se busca en el cuerpo la
- *     dirección que falló y, si figura en `envios`, se llama a marcar_rebote()
- *     (que puede archivar contactos y dar de baja la dirección si es duro);
- *   · si el remitente tiene un envío en estado 'enviado', se baja el correo
- *     entero, se guarda en `mensajes` (mensaje_entrante) y se llama a
- *     marcar_respuesta(), que avisa al dueño de la campaña;
- *   · todo lo demás (correo personal, spam) se ignora sin guardarse.
- *
- * El cruce con la campaña es por dirección de correo, no por In-Reply-To:
- * cualquier correo de alguien que alguna vez recibió una campaña cuenta como
- * respuesta, y se asigna al envío más reciente.
- *
- * Escribe en: imap_estado (marca), mensajes, envios, contactos,
- * posibles_clientes, desuscripciones (a través de las funciones de campanas.php).
- *
- * Trampas:
- *   · No se mira UIDVALIDITY: si el servidor renumera la casilla, la marca
- *     guardada queda por encima de todo y no se lee nada más.
- *   · Si algo lanza una excepción a mitad de la vuelta, la marca NO se guarda
- *     (imap_guardar_uid queda adentro del try) y la próxima corrida reprocesa
- *     desde el principio de esta tanda; un mensaje que siempre falla deja la
- *     casilla trabada en ese punto.
+ * Un error de la base (PDOException) no se muestra tal cual: se registra con
+ * log_error() y vuelve un mensaje genérico.
  *
  * @param int         $diasPrimeraVez ventana de la primera lectura (sin marca previa)
  * @param array|null  $cfg            host/port/user/pass/cuenta_id; null = imap_cfg()
@@ -829,113 +1058,10 @@ function imap_revisar(int $diasPrimeraVez = 30, ?array $cfg = null, string $etiq
     }
 
     try {
-        $sel = imap_cmd($fp, 'SELECT "INBOX"');
-        if (!$sel['ok']) {
-            $res['error'] = 'No se pudo abrir INBOX: ' . $sel['texto'];
-            return $res;
-        }
-
-        $ultimo = imap_ultimo_uid($etiquetaBuzon);
-        $busq = $ultimo > 0
-            ? 'UID SEARCH UID ' . ($ultimo + 1) . ':*'
-            : 'UID SEARCH SINCE ' . date('d-M-Y', strtotime("-$diasPrimeraVez days"));
-        $r = imap_cmd($fp, $busq);
-        if (!$r['ok']) {
-            $res['error'] = 'La búsqueda falló: ' . $r['texto'];
-            return $res;
-        }
-
-        $uids = [];
-        foreach ($r['lineas'] as $l) {
-            if (preg_match('/^\* SEARCH(.*)$/i', $l, $m)) {
-                foreach (preg_split('/\s+/', trim($m[1])) ?: [] as $x) {
-                    if ($x !== '' && ctype_digit($x)) { $uids[] = (int)$x; }
-                }
-            }
-        }
-        // `UID n:*` siempre devuelve al menos el último mensaje aunque no sea
-        // nuevo: se descarta lo que ya se procesó.
-        $uids = array_values(array_filter($uids, fn($u) => $u > $ultimo));
-        sort($uids);
-        // Tope por corrida: el cron pasa cada pocos minutos, no hace falta
-        // procesar miles de una y arriesgar el tiempo de ejecución.
-        $uids   = array_slice($uids, 0, 300);
-        $propio = normalizar_email((string)($c['user'] ?? ''));
-        $maxUid = $ultimo;
-
-        foreach ($uids as $uid) {
-            $res['revisados']++;
-
-            $h = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[HEADER])");
-            if (!$h['ok']) {
-                // No se pudo leer. El puntero NO avanza: si avanzara, este
-                // mensaje quedaría dado por procesado y ese rebote —o esa
-                // respuesta de un cliente— se perdería sin que
-                // nadie se entere. Se corta acá y la próxima corrida reintenta
-                // desde este mismo mensaje.
-                log_app('imap.lectura_fallida', ['tipo' => 'error',
-                    'detalle' => 'No se pudo leer el mensaje ' . $uid . ' de ' . $etiquetaBuzon
-                               . '. Se reintenta en la próxima corrida.']);
-                break;
-            }
-            // Recién ahora se da por leído.
-            $maxUid = max($maxUid, $uid);
-            $cab    = $h['crudo'];
-            $de     = imap_direccion(imap_cabecera($cab, 'From'));
-            $asunto = imap_texto(imap_cabecera($cab, 'Subject'));
-
-            // Lo que manda la propia casilla (copias, pruebas) no es ni rebote
-            // ni respuesta.
-            if ($de === '' || $de === $propio) { continue; }
-
-            if (es_rebote($de, $asunto)) {
-                // Sólo acá hace falta el cuerpo: es donde viene el DSN con la
-                // dirección que falló y el código de error.
-                $b = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[TEXT])", 524288);
-                $cuerpo = $b['ok'] ? $b['crudo'] : '';
-                $duro   = es_rebote_duro($cuerpo);
-                foreach (extraer_destinatario_rebote($cuerpo) as $direccion) {
-                    if ($direccion === $propio) { continue; }
-                    // Sólo cuentan los rebotes de NUESTRAS campañas: los rebotes
-                    // personales de la misma casilla no ensucian el CRM.
-                    if (!qv('SELECT 1 FROM envios WHERE email = ? LIMIT 1', [$direccion])) { continue; }
-                    marcar_rebote($direccion, recortar($asunto, 200), $duro);
-                    $res['rebotes']++;
-                    if ($duro) { $res['duros']++; }
-                }
-                continue;
-            }
-
-            // Respuesta de un destinatario de campaña.
-            if (qv("SELECT 1 FROM envios WHERE email = ? AND estado = 'enviado' LIMIT 1", [$de])) {
-                // Se guarda el correo entero, no sólo la marca de que
-                // respondió: así la respuesta se lee desde el CRM sin tener
-                // que irse al correo.
-                $b     = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[])", 2097152);
-                // Ojo: `crudo` trae también la línea de cierre del comando
-                // («)» y «aNNNN OK …»). En un correo de una sola parte eso
-                // queda pegado al final del cuerpo.
-                $partes = $b['ok'] ? mime_partes($b['crudo']) : ['texto' => '', 'html' => ''];
-                $fecha  = imap_cabecera($cab, 'Date');
-                mensaje_entrante([
-                    'de'          => $de,
-                    'de_nombre'   => imap_nombre(imap_cabecera($cab, 'From')),
-                    'para'        => $propio,
-                    'asunto'      => $asunto,
-                    'texto'       => $partes['texto'],
-                    'html'        => $partes['html'],
-                    'message_id'  => trim(imap_cabecera($cab, 'Message-ID')),
-                    'in_reply_to' => trim(imap_cabecera($cab, 'In-Reply-To')),
-                    'referencias' => trim(imap_cabecera($cab, 'References')),
-                    'fecha'       => $fecha !== '' ? date('Y-m-d H:i:s', strtotime($fecha) ?: time()) : date('Y-m-d H:i:s'),
-                    'cuenta_correo_id' => $cfg['cuenta_id'] ?? null,
-                ]);
-                marcar_respuesta($de, $asunto);
-                $res['respuestas']++;
-            }
-        }
-
-        imap_guardar_uid($etiquetaBuzon, $maxUid);
+        $res = imap_procesar_buzon($fp, $c, $etiquetaBuzon, $diasPrimeraVez);
+    } catch (\PDOException $e) {
+        log_error('imap.revisar', $e->getMessage(), $e->getFile(), $e->getLine());
+        $res['error'] = 'Falló la base de datos mientras se leía la casilla; se reintenta en la próxima corrida.';
     } catch (\Throwable $e) {
         $res['error'] = $e->getMessage();
     } finally {
@@ -949,6 +1075,314 @@ function imap_revisar(int $diasPrimeraVez = 30, ?array $cfg = null, string $etiq
         campana_recontar((int)$r2['campana_id']);
     }
     return $res;
+}
+
+/**
+ * Las acciones que se disparan al encontrar un rebote o una respuesta. Están
+ * separadas para que las pruebas puedan reemplazarlas por un doble.
+ *
+ *   · 'rebote'    fn(string $direccion, string $detalle, bool $duro): void
+ *                 → marcar_rebote() (campanas.php);
+ *   · 'respuesta' fn(array $d): bool, con $d en el formato de
+ *                 mensaje_entrante(); devuelve false si el correo ya estaba
+ *                 guardado → mensaje_entrante() + marcar_respuesta() del
+ *                 envío cruzado.
+ *
+ * @return array{rebote:callable, respuesta:callable}
+ */
+function imap_acciones_por_defecto(): array
+{
+    return [
+        'rebote' => static function (string $direccion, string $detalle, bool $duro): void {
+            marcar_rebote($direccion, $detalle, $duro);
+        },
+        'respuesta' => static function (array $d): bool {
+            if (mensaje_entrante($d) === null) { return false; }
+            if (!empty($d['envio_id'])) {
+                marcar_respuesta((string)$d['de'], (string)$d['asunto'], (int)$d['envio_id']);
+            }
+            return true;
+        },
+    ];
+}
+
+/**
+ * Recorre los mensajes nuevos de INBOX en una conexión ya abierta.
+ *
+ * La primera pasada mira los últimos N días; las siguientes, sólo lo que llegó
+ * después del último UID visto. Sin eso, el cron cada 5 minutos releería la
+ * casilla entera todo el tiempo.
+ *
+ * UIDVALIDITY: si el servidor anuncia uno distinto del guardado, renumeró la
+ * casilla y la marca vieja no sirve (quedaría por encima de todo y no se
+ * leería nada más). Se vuelve a la ventana de la primera vez; lo ya guardado
+ * no se duplica porque el guardado ignora los Message-ID repetidos.
+ *
+ * Qué se hace con cada mensaje nuevo (imap_procesar_mensaje):
+ *   · si es un rebote, se busca de quién era: primero por el Message-ID del
+ *     envío que trae la copia del original, después por el DSN y, como
+ *     último recurso, por las direcciones del aviso que figuren en `envios`;
+ *   · si cruza con un envío por In-Reply-To/References (o con un mensaje ya
+ *     guardado de la conversación), es una respuesta: se baja el correo, se
+ *     guarda y se marca el envío. Sin cruce por Message-ID, el respaldo es
+ *     la dirección del remitente, sólo contra envíos de los últimos
+ *     IMAP_RESPALDO_DIAS días;
+ *   · todo lo demás (correo personal, spam) se ignora sin guardarse.
+ *
+ * La marca avanza después de CADA mensaje. Un mensaje que no se puede
+ * procesar (charset imposible, dato que la base rechaza) se registra en la
+ * auditoría y se saltea; sólo un problema de conexión (IMAP que no contesta,
+ * base caída) corta la vuelta sin avanzar, para reintentar ese mismo mensaje
+ * en la corrida siguiente.
+ *
+ * @param resource   $fp             conexión de imap_conectar() (o un doble en las pruebas)
+ * @param array      $c              host/port/user/pass/cuenta_id
+ * @param string     $etiquetaBuzon  clave en imap_estado
+ * @param int        $diasPrimeraVez ventana de la primera lectura
+ * @param array|null $acciones       null = imap_acciones_por_defecto()
+ * @return array{rebotes:int, duros:int, respuestas:int, revisados:int, error:?string}
+ */
+function imap_procesar_buzon($fp, array $c, string $etiquetaBuzon, int $diasPrimeraVez = 30, ?array $acciones = null): array
+{
+    $res = ['rebotes' => 0, 'duros' => 0, 'respuestas' => 0, 'revisados' => 0, 'error' => null];
+    $acciones = ($acciones ?? []) + imap_acciones_por_defecto();
+
+    $sel = imap_cmd($fp, 'SELECT "INBOX"');
+    if (!$sel['ok']) {
+        $res['error'] = 'No se pudo abrir INBOX: ' . $sel['texto'];
+        return $res;
+    }
+
+    $ultimo  = imap_ultimo_uid($etiquetaBuzon);
+    $validez = imap_uidvalidity($sel['lineas']);
+    if ($validez !== null) {
+        $guardada = imap_uidvalidity_guardado($etiquetaBuzon);
+        $renumerada = $guardada !== null && $guardada !== $validez;
+        if ($renumerada) {
+            log_app('imap.uidvalidity', ['tipo' => 'sistema',
+                'detalle' => 'El servidor renumeró ' . $etiquetaBuzon . ' (UIDVALIDITY ' . $guardada . ' → '
+                           . $validez . '). Se vuelve a leer desde los últimos ' . $diasPrimeraVez . ' días.']);
+            $ultimo = 0;
+        }
+        if ($renumerada || $guardada === null) { imap_guardar_uidvalidity($etiquetaBuzon, $validez, $renumerada); }
+    }
+
+    $busq = $ultimo > 0
+        ? 'UID SEARCH UID ' . ($ultimo + 1) . ':*'
+        : 'UID SEARCH SINCE ' . date('d-M-Y', strtotime("-$diasPrimeraVez days"));
+    $r = imap_cmd($fp, $busq);
+    if (!$r['ok']) {
+        $res['error'] = 'La búsqueda falló: ' . $r['texto'];
+        return $res;
+    }
+
+    $uids = [];
+    foreach ($r['lineas'] as $l) {
+        if (preg_match('/^\* SEARCH(.*)$/i', $l, $m)) {
+            foreach (preg_split('/\s+/', trim($m[1])) ?: [] as $x) {
+                if ($x !== '' && ctype_digit($x)) { $uids[] = (int)$x; }
+            }
+        }
+    }
+    // `UID n:*` siempre devuelve al menos el último mensaje aunque no sea
+    // nuevo: se descarta lo que ya se procesó.
+    $uids = array_values(array_unique(array_filter($uids, fn($u) => $u > $ultimo)));
+    sort($uids);
+    // Tope por corrida: el cron pasa cada pocos minutos, no hace falta
+    // procesar miles de una y arriesgar el tiempo de ejecución.
+    $uids   = array_slice($uids, 0, 300);
+    $propio = normalizar_email((string)($c['user'] ?? ''));
+
+    foreach ($uids as $uid) {
+        $res['revisados']++;
+        try {
+            $p = imap_procesar_mensaje($fp, $uid, $propio, $c, $acciones);
+        } catch (\PDOException $e) {
+            // Un dato que la base rechaza (clase 22: demasiado largo, fecha
+            // inválida; clase 23: clave repetida) es culpa de ESTE mensaje: se
+            // saltea. Cualquier otro error de base (conexión caída) corta sin
+            // avanzar y se reintenta en la próxima corrida.
+            $clase = substr((string)($e->errorInfo[0] ?? $e->getCode()), 0, 2);
+            if ($clase !== '22' && $clase !== '23') { throw $e; }
+            imap_registrar_salteado($etiquetaBuzon, $uid, $e);
+            $p = ['salteado' => true];
+        } catch (\Throwable $e) {
+            imap_registrar_salteado($etiquetaBuzon, $uid, $e);
+            $p = ['salteado' => true];
+        }
+
+        if (!empty($p['reintentar'])) {
+            // No se pudo leer. El puntero NO avanza: si avanzara, este
+            // mensaje quedaría dado por procesado y ese rebote —o esa
+            // respuesta de un cliente— se perdería sin que nadie se entere.
+            // Se corta acá y la próxima corrida reintenta desde este mismo.
+            log_app('imap.lectura_fallida', ['tipo' => 'error',
+                'detalle' => 'No se pudo leer el mensaje ' . $uid . ' de ' . $etiquetaBuzon
+                           . '. Se reintenta en la próxima corrida.']);
+            break;
+        }
+        foreach (['rebotes', 'duros', 'respuestas'] as $k) { $res[$k] += (int)($p[$k] ?? 0); }
+        imap_guardar_uid($etiquetaBuzon, $uid);
+    }
+    return $res;
+}
+
+/**
+ * Deja constancia de un mensaje que no se pudo procesar y se salteó. El
+ * detalle técnico va a la auditoría (sólo la ven los administradores).
+ */
+function imap_registrar_salteado(string $buzon, int $uid, \Throwable $e): void
+{
+    log_app('imap.mensaje_salteado', ['tipo' => 'error',
+        'detalle' => 'El mensaje ' . $uid . ' de ' . $buzon . ' no se pudo procesar y se salteó: '
+                   . get_class($e) . ' · ' . recortar($e->getMessage(), 300)]);
+}
+
+/**
+ * Procesa un mensaje de la casilla: decide si es rebote, respuesta o nada,
+ * y dispara la acción que corresponda.
+ *
+ * @return array{rebotes?:int, duros?:int, respuestas?:int, reintentar?:bool}
+ *         'reintentar' = falló la lectura por IMAP: no hay que avanzar la marca
+ */
+function imap_procesar_mensaje($fp, int $uid, string $propio, array $c, array $acciones): array
+{
+    $h = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[HEADER])", 262144);
+    if (!$h['ok']) { return ['reintentar' => true]; }
+    // Si el mensaje se borró entre la búsqueda y la lectura, el servidor no
+    // manda nada: queda sin cabeceras y se saltea.
+    $cab    = $h['literal'];
+    $de     = imap_direccion(imap_cabecera($cab, 'From'));
+    $asunto = imap_texto(imap_cabecera($cab, 'Subject'));
+
+    // Lo que manda la propia casilla (copias, pruebas) no es ni rebote
+    // ni respuesta.
+    if ($de === '' || $de === $propio) { return []; }
+
+    if (es_rebote($de, $asunto)) {
+        // Sólo acá hace falta el cuerpo: es donde viene el DSN con la
+        // dirección que falló y el código de error.
+        $b = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[TEXT]<0." . IMAP_BYTES_REBOTE . '>)', IMAP_BYTES_REBOTE + 65536);
+        if (!$b['ok']) { return ['reintentar' => true]; }
+        $cuerpo = $b['literal'];
+        $duro   = es_rebote_duro($cuerpo);
+        $out    = ['rebotes' => 0, 'duros' => 0];
+        foreach (imap_rebote_destinatarios($cuerpo, $propio) as $direccion) {
+            ($acciones['rebote'])($direccion, recortar($asunto, 200), $duro);
+            $out['rebotes']++;
+            if ($duro) { $out['duros']++; }
+        }
+        return $out;
+    }
+
+    $cruce = imap_cruzar_respuesta($cab, $de);
+    if ($cruce === null) { return []; }
+
+    // Se guarda el correo entero (hasta IMAP_BYTES_RESPUESTA: con un adjunto
+    // grande se baja sólo el principio, donde van el texto y el HTML), no
+    // sólo la marca de que respondió: así la respuesta se lee desde el CRM
+    // sin tener que irse al correo.
+    $b = imap_cmd($fp, "UID FETCH $uid (BODY.PEEK[]<0." . IMAP_BYTES_RESPUESTA . '>)', IMAP_BYTES_RESPUESTA + 65536);
+    if (!$b['ok']) { return ['reintentar' => true]; }
+    $partes = mime_partes($b['literal']);
+    $fecha  = imap_cabecera($cab, 'Date');
+    $ts     = $fecha !== '' ? strtotime($fecha) : false;
+    $nuevo = ($acciones['respuesta'])([
+        'de'          => $de,
+        'de_nombre'   => imap_nombre(imap_cabecera($cab, 'From')),
+        'para'        => $propio,
+        'asunto'      => $asunto,
+        'texto'       => $partes['texto'],
+        'html'        => $partes['html'],
+        'message_id'  => trim(imap_cabecera($cab, 'Message-ID')),
+        'in_reply_to' => trim(imap_cabecera($cab, 'In-Reply-To')),
+        'referencias' => trim(imap_cabecera($cab, 'References')),
+        'fecha'       => date('Y-m-d H:i:s', $ts ?: time()),
+        'cuenta_correo_id' => $c['cuenta_id'] ?? null,
+        'envio_id'    => $cruce['envio_id'],
+        'campana_id'  => $cruce['campana_id'],
+        'contacto_id' => $cruce['contacto_id'] ?? null,
+    ]);
+    return ['respuestas' => $nuevo === false ? 0 : 1];
+}
+
+/**
+ * ¿El correo es una respuesta a algo nuestro? Y si lo es, ¿a qué envío?
+ *
+ * Orden (DOCUMENTACION-MAESTRA §11, regla 5: el Message-ID es la forma de
+ * cruzar):
+ *   1. algún Message-ID de In-Reply-To/References es el de un envío de
+ *      campaña → ese envío;
+ *   2. es el de un mensaje ya guardado (por ejemplo, la respuesta que se
+ *      mandó desde el CRM) → la misma conversación, con su envío y campaña;
+ *   3. respaldo por dirección: el último envío 'enviado' a ese remitente en
+ *      los últimos IMAP_RESPALDO_DIAS días (hay clientes de correo que no
+ *      mandan las cabeceras del hilo).
+ *
+ * @return array{envio_id:?int, campana_id:?int, contacto_id?:?int, por:string}|null null = no es respuesta
+ */
+function imap_cruzar_respuesta(string $cabeceras, string $de): ?array
+{
+    $ids = imap_message_ids(imap_cabecera($cabeceras, 'In-Reply-To') . ' ' . imap_cabecera($cabeceras, 'References'));
+    if ($ids) {
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $envio = q1("SELECT id, campana_id, contacto_id FROM envios WHERE message_id IN ($ph)
+                     ORDER BY enviado_en DESC LIMIT 1", $ids);
+        if ($envio) {
+            return ['envio_id' => (int)$envio['id'], 'campana_id' => (int)$envio['campana_id'],
+                    'contacto_id' => $envio['contacto_id'] !== null ? (int)$envio['contacto_id'] : null,
+                    'por' => 'message_id'];
+        }
+        $msg = q1("SELECT envio_id, campana_id, contacto_id FROM mensajes WHERE message_id IN ($ph)
+                   ORDER BY id DESC LIMIT 1", $ids);
+        if ($msg) {
+            return ['envio_id' => $msg['envio_id'] !== null ? (int)$msg['envio_id'] : null,
+                    'campana_id' => $msg['campana_id'] !== null ? (int)$msg['campana_id'] : null,
+                    'contacto_id' => $msg['contacto_id'] !== null ? (int)$msg['contacto_id'] : null,
+                    'por' => 'hilo'];
+        }
+    }
+    $envio = q1("SELECT id, campana_id, contacto_id FROM envios
+                 WHERE email = ? AND estado = 'enviado' AND enviado_en >= ?
+                 ORDER BY enviado_en DESC LIMIT 1",
+                [$de, date('Y-m-d H:i:s', time() - IMAP_RESPALDO_DIAS * 86400)]);
+    if ($envio) {
+        return ['envio_id' => (int)$envio['id'], 'campana_id' => (int)$envio['campana_id'],
+                'contacto_id' => $envio['contacto_id'] !== null ? (int)$envio['contacto_id'] : null,
+                'por' => 'direccion'];
+    }
+    return null;
+}
+
+/**
+ * A quién se le marca el rebote.
+ *
+ *   1. Si la copia del original trae el Message-ID de un envío nuestro, es
+ *      la dirección de ESE envío, sin adivinar.
+ *   2. Si no, las direcciones de extraer_destinatario_rebote() (DSN o el
+ *      aviso sin la copia) que figuren en `envios`: los rebotes personales
+ *      de la misma casilla no ensucian el CRM.
+ * Nunca la propia casilla.
+ *
+ * @return array<int,string>
+ */
+function imap_rebote_destinatarios(string $cuerpo, string $propio): array
+{
+    $ids = imap_message_ids($cuerpo);
+    if ($ids) {
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $porId = array_map(fn($f) => normalizar_email((string)$f['email']),
+                           q("SELECT DISTINCT email FROM envios WHERE message_id IN ($ph)", $ids)->fetchAll());
+        $porId = array_values(array_unique(array_filter($porId, fn($d) => $d !== '' && $d !== $propio)));
+        if ($porId) { return $porId; }
+    }
+    $out = [];
+    foreach (extraer_destinatario_rebote($cuerpo) as $direccion) {
+        if ($direccion === $propio) { continue; }
+        if (!qv('SELECT 1 FROM envios WHERE email = ? LIMIT 1', [$direccion])) { continue; }
+        $out[] = $direccion;
+    }
+    return $out;
 }
 
 /**

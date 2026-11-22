@@ -45,6 +45,11 @@
     var propT     = document.getElementById('propTitulo');
     var propC     = document.getElementById('propCuerpo');
     var marco     = document.getElementById('previewFrame');
+    // La vista previa es HTML armado por el servidor con lo que escribió el
+    // usuario: se muestra en un marco aislado, sin scripts ni acceso al CRM
+    // (los bloques ya escapan el texto; esto es la segunda capa). Los enlaces
+    // pueden abrirse en otra pestaña.
+    if (marco) { marco.setAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox'); }
 
     // --------------------------------------------------------
     //  Qué campos tiene cada bloque. Es el espejo del renderizador de PHP:
@@ -289,34 +294,75 @@
     //  Vista previa: la arma el servidor, no el navegador
     // --------------------------------------------------------
     var pendiente = null;
+    // Número de pedido de vista previa: sólo se pinta la respuesta del
+    // último. Si una vieja tarda más que la nueva, se descarta al llegar.
+    var pedidoN = 0;
+
+    /**
+     * Muestra (o saca, con texto vacío) un aviso arriba de la vista previa
+     * cuando no se pudo actualizar: sin esto la vista quedaba congelada sin
+     * que nadie se diera cuenta.
+     */
+    function avisoVista(texto) {
+        var cont = marco ? marco.parentNode : null;
+        if (!cont) { return; }
+        var av = document.getElementById('avisoVista');
+        if (!texto) { if (av) { av.hidden = true; } return; }
+        if (!av) {
+            av = document.createElement('div');
+            av.id = 'avisoVista';
+            av.className = 'flash flash-warn';
+            av.setAttribute('role', 'status');
+            cont.parentNode.insertBefore(av, cont);
+        }
+        av.textContent = texto;
+        av.hidden = false;
+    }
+
     /**
      * Copia el estado al campo oculto (así el formulario siempre manda lo
      * último) y, 400 ms después del último cambio, pide al servidor el HTML
      * de la vista previa, el asunto con las variables reemplazadas y el
      * chequeo.
      *
-     * Trampas: las respuestas no se ordenan (si una vieja tarda más, pisa a
-     * la nueva) y cualquier error —sesión vencida, respuesta que no es JSON—
-     * se traga en silencio: la vista previa queda congelada sin aviso.
+     * Sólo se pinta la respuesta del pedido más reciente. Si el servidor no
+     * contesta JSON (la sesión venció y devolvió el login, o hubo un error),
+     * se avisa arriba de la vista previa en vez de dejarla congelada.
      */
     function refrescar() {
         campo.value = JSON.stringify(estado);
         clearTimeout(pendiente);
         pendiente = setTimeout(function () {
+            var n = ++pedidoN;
             var cuerpo = new URLSearchParams();
             cuerpo.set('_csrf', cfg.csrf);
             cuerpo.set('bloques', campo.value);
             cuerpo.set('asunto', (document.getElementById('campoAsunto') || {}).value || '');
             fetch(cfg.urlVista, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
                 body: cuerpo.toString()
-            }).then(function (r) { return r.json(); }).then(function (d) {
-                if (!d || !d.ok) { return; }
+            }).then(function (r) {
+                var tipo = r.headers.get('Content-Type') || '';
+                if (r.redirected || tipo.indexOf('json') === -1) { throw new Error('sesion'); }
+                return r.json();
+            }).then(function (d) {
+                if (n !== pedidoN) { return; }   // llegó tarde: ya hay uno más nuevo
+                if (!d || !d.ok) {
+                    avisoVista('No se pudo actualizar la vista previa' + (d && d.error ? ': ' + d.error : '.'));
+                    return;
+                }
+                avisoVista('');
                 marco.srcdoc = d.html;
                 document.getElementById('vistaAsunto').textContent = d.asunto || '(sin asunto)';
                 pintarChequeo(d.chequeo);
-            }).catch(function () {});
+            }).catch(function (err) {
+                if (n !== pedidoN) { return; }
+                avisoVista(err && err.message === 'sesion'
+                    ? 'La vista previa no se actualiza: la sesión venció. Guardá una copia de lo escrito y recargá la página.'
+                    : 'La vista previa no se actualiza: no hay conexión con el servidor. Se reintenta con el próximo cambio.');
+            });
         }, 400);
     }
 

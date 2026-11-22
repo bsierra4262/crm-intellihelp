@@ -380,13 +380,3 @@ function plantillas_preajustes(): array
         ],
     ];
 }
-
-/**
- * Devuelve un preajuste listo para cargar en el editor, o null si la clave no
- * existe. Nota: hoy no la llama nadie; plantilla-form.php indexa
- * plantillas_preajustes() directamente.
- */
-function preajuste_get(string $clave): ?array
-{
-    return plantillas_preajustes()[$clave] ?? null;
-}
