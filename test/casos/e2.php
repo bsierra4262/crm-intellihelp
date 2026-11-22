@@ -9,7 +9,10 @@
 //  propias pruebas en test/herramientas_test.py.
 // ============================================================
 
-$__raizApp = dirname(__DIR__, 2) . '/app';
+// Local: <repo>/app. En el servidor (deploy.py test) CRM_SRC es <webroot>/app
+// y cron.php, reinicio.php y migrar.php viven en <webroot>; app/db no se sube,
+// así que los controles de schema y migraciones se saltean ahí.
+$__raizApp = getenv('CRM_SRC') ? dirname((string) getenv('CRM_SRC')) : dirname(__DIR__, 2) . '/app';
 if (!defined('CRON_SOLO_FUNCIONES'))     { define('CRON_SOLO_FUNCIONES', true); }
 if (!defined('REINICIO_SOLO_FUNCIONES')) { define('REINICIO_SOLO_FUNCIONES', true); }
 if (!defined('MIGRAR_SOLO_FUNCIONES'))   { define('MIGRAR_SOLO_FUNCIONES', true); }
@@ -94,6 +97,10 @@ ok('cron: todos los catch reabren la conexión antes de registrar el error', $__
 // Una instalación nueva hecha sólo con schema.sql tiene que quedar igual que
 // una migrada: cada tabla, columna, índice y ajuste que agrega una migración
 // tiene que estar también en schema.sql (y lo que una migración saca, no).
+if (!is_file($__raizApp . '/db/schema.sql')) {
+    echo "  (schema y migraciones: salteado, app/db no está en esta copia)
+";
+} else {
 $__schema = (string) file_get_contents($__raizApp . '/db/schema.sql');
 $__bloques = [];
 foreach (migrar_sentencias($__schema) as $__s) {
@@ -144,3 +151,4 @@ foreach (glob($__raizApp . '/db/migracion-*.sql') as $__mig) {
 eq('schema: tiene todo lo que agregan las migraciones', $__faltan, []);
 no_contiene('schema: reimportar ya no pisa las probabilidades del embudo', $__schema,
             'ON DUPLICATE KEY UPDATE `probabilidad` = VALUES(`probabilidad`)');
+}

@@ -173,7 +173,8 @@ if (!isset($rutas[$rutaBase])) {
 // fuera la respuesta.
 $def = $rutas[$rutaBase];
 if (empty($def['public']) && !auth_user()) {
-    if (str_starts_with($rutaBase, 'api-') || vivo_pedido()
+    // api-keys es una pantalla (la de claves), no un endpoint: va al login.
+    if ((str_starts_with($rutaBase, 'api-') && $rutaBase !== 'api-keys') || vivo_pedido()
         || (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest')) {
         json_out(['ok' => false, 'error' => 'sesion_expirada'], 440);
     }
