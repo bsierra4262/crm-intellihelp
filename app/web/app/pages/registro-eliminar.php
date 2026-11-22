@@ -8,9 +8,11 @@ declare(strict_types=1);
 //  con accion=restaurar, lo saca de ella. Campos: entidad (clave de
 //  tablas_papelera()), id, accion, volver (ruta interna a la que regresar).
 //
-//  Permisos: restaurar es sólo de administradores; eliminar lo puede hacer
-//  cualquier usuario con sesión, sobre cualquier registro (no se mira el
-//  propietario ni si el módulo de esa entidad está encendido).
+//  Permisos: restaurar es sólo de administradores; eliminar, el propietario
+//  del registro o un administrador (papelera_permitida() en crm.php). Un
+//  registro sin propietario, o de una tabla sin propietario (listas,
+//  plantillas), lo puede eliminar cualquiera. No se mira si el módulo de esa
+//  entidad está encendido.
 // ============================================================
 require_login();
 
@@ -39,6 +41,12 @@ if ($accion === 'restaurar') {
     registro_restaurar($entidad, $id);
     flash('Registro restaurado.', 'success');
 } else {
+    // Las vistas ya esconden el botón a quien no puede; esto cubre un pedido
+    // armado a mano.
+    if (!papelera_permitida(registro_propietario($entidad, $id), current_user_id(), auth_is_admin())) {
+        flash('Sólo quien tiene asignado este registro, o un administrador, lo puede mandar a la papelera.', 'error');
+        redirect($volver ?: 'dashboard');
+    }
     registro_eliminar($entidad, $id);
     flash('Lo enviamos a la papelera. Un administrador puede restaurarlo.', 'success');
 }

@@ -14,10 +14,11 @@
 //  (sectores_por_tipo() en JSON) según el tipo elegido; `data-elegido` lleva
 //  el sector guardado para volver a marcarlo. Sin JavaScript queda vacío y,
 //  como es `required`, el formulario no se puede mandar.
-//  El servidor no comprueba que tipo y sector estén en esas listas.
+//  El servidor comprueba que tipo y sector estén en esas listas.
 //
-//  `sitio_web` y `linkedin` son type="url": el navegador exige el esquema
-//  (https://), aunque el ejemplo del campo lo muestre sin él.
+//  `sitio_web` y `linkedin` son texto con teclado de direcciones (no
+//  type="url", que exige el https:// que el ejemplo no muestra); al mostrarlos,
+//  dato() les antepone https:// si no lo traen.
 // ============================================================
 
 /** @var ?array $c @var int $id @var array $errores @var array $usuarios */
@@ -109,12 +110,13 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <input type="number" name="empleados" value="<?= $v('empleados') ?>" min="0" step="1">
                 <i class="hint">Cuánta gente tiene. Ayuda a dimensionar la propuesta.</i>
             </label>
-            <?php // Sin propietario cargado se preselecciona a quien edita: guardar sin tocarlo le asigna la empresa. ?>
+            <?php // Quien carga se preselecciona sólo en un alta: editar una empresa sin dueño no se la asigna a quien edita. ?>
             <label class="fld"><span>Propietario</span>
                 <select name="propietario_id">
                     <option value="">— Sin asignar —</option>
+                    <?php $propSel = (string)($id ? ($c['propietario_id'] ?? '') : ($c['propietario_id'] ?? current_user_id())); ?>
                     <?php foreach ($usuarios as $u): ?>
-                        <option value="<?= (int)$u['id'] ?>" <?= (string)($c['propietario_id'] ?? current_user_id()) === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
+                        <option value="<?= (int)$u['id'] ?>" <?= $propSel === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Quién la atiende. Es lo que separa «Lo mío» de «Todo el equipo» en el panel.</i>
@@ -134,7 +136,7 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <i class="hint">La casilla general de la empresa (info@, ventas@). El correo de cada persona va en su ficha.</i>
             </label>
             <label class="fld wide"><span>Sitio web</span>
-                <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="distribuidoradelsur.com">
+                <input type="text" inputmode="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="distribuidoradelsur.com">
                 <i class="hint">El sitio de la empresa.</i>
             </label>
             <label class="fld wide"><span>Domicilio</span>
@@ -158,7 +160,7 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <input name="pais" value="<?= $v('pais', 'Argentina') ?>" maxlength="60">
             </label>
             <label class="fld wide"><span>LinkedIn</span>
-                <input type="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255">
+                <input type="text" inputmode="url" name="linkedin" placeholder="linkedin.com/company/…" value="<?= $v('linkedin') ?>" maxlength="255">
                 <i class="hint">La página de la empresa en LinkedIn.</i>
             </label>
             <label class="fld full"><span>Notas</span>

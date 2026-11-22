@@ -39,10 +39,16 @@ if (is_post() && ($_POST['accion'] ?? '') === 'reactivar') {
     verify_csrf();
     require_admin();
     $ok = reactivar_suscripcion((string)$c['email']);
+    // reactivar_suscripcion() devuelve true sólo si había una baja registrada,
+    // pero igual destilda «No incluirlo en campañas». Si la ficha tenía esa
+    // marca (sin baja registrada), también cambió algo y se dice.
+    $habiaMarca = !empty($c['no_email']);
     flash($ok
         ? 'Listo: ' . $c['email'] . ' vuelve a recibir campañas.'
-        : 'No figuraba dado de baja, así que no hizo falta cambiar nada.',
-        $ok ? 'success' : 'info');
+        : ($habiaMarca
+            ? 'Listo: se quitó la marca «No incluirlo en campañas». No había una baja pedida por la persona.'
+            : 'No figuraba dado de baja, así que no hizo falta cambiar nada.'),
+        $ok || $habiaMarca ? 'success' : 'info');
     redirect('contacto-ver?id=' . $id);
 }
 

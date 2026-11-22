@@ -13,8 +13,8 @@ declare(strict_types=1);
 //  Tablas: lee `cuentas`, `usuarios` (y cuenta `contactos` por empresa);
 //  el POST escribe `cuentas.aprobado_en/aprobado_por`.
 //  Módulo: núcleo (Empresas).
-//  Permisos: cualquier usuario con sesión aprueba y exporta; sin control por
-//  rol ni por propietario.
+//  Permisos: cualquier usuario con sesión aprueba en masa; exportar a CSV es
+//  sólo de administradores. La papelera de cada fila, el propietario o un admin.
 // ============================================================
 
 require_login();
@@ -53,6 +53,7 @@ $f = [
 // Exportación: la misma consulta sin paginar. exportar_csv() termina la
 // ejecución. `condicion_iva`, `empleados` y `linkedin` no salen en el archivo.
 if (($_GET['exportar'] ?? '') === '1') {
+    require_admin();
     [$where, $p] = cuentas_where($f);
     $rows = q("SELECT c.*, u.nombre AS propietario FROM cuentas c
                LEFT JOIN usuarios u ON u.id = c.propietario_id $where ORDER BY c.nombre", $p)->fetchAll();

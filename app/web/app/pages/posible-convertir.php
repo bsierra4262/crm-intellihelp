@@ -12,16 +12,15 @@ declare(strict_types=1);
 //  contacto.
 //
 //  Tablas (a través de posible_convertir): escribe `cuentas`, `contactos`,
-//  `negocios`, `negocio_etapas`, `notas`, `actividades`, `adjuntos` y
-//  `posibles_clientes`.
-//  Módulo: `posibles`. El negocio se crea aunque el módulo `negocios` esté
-//  apagado, y en ese caso la redirección final cae en una ruta bloqueada.
+//  `negocios`, `negocio_etapas`, `notas`, `actividades`, `adjuntos`,
+//  `etiqueta_registro` y `posibles_clientes`.
+//  Módulo: `posibles`. Con el módulo `negocios` apagado no se ofrece ni se
+//  crea el negocio, y se vuelve siempre a la ficha del contacto.
 //  Permisos: cualquier usuario con sesión, sea o no el propietario.
 //
-//  Doble conversión: el chequeo de `convertido_en` (acá y dentro de
-//  posible_convertir) se hace sin bloquear la fila, así que dos POST casi
-//  simultáneos (doble clic, dos pestañas) pueden pasar los dos y duplicar
-//  empresa, contacto y negocio.
+//  Doble conversión: posible_convertir() toma la fila con un UPDATE
+//  condicional dentro de la transacción; el segundo envío (doble clic, otra
+//  pestaña) recibe el código 409 y acá se lo manda a la ficha con un aviso.
 // ============================================================
 
 require_login();
@@ -40,45 +39,60 @@ if ($p['convertido_en']) {
     redirect('posible-ver?id=' . $id);
 }
 
-$error = null;
+$verNegocios = ruta_habilitada('negocios');
+// Sin embudo predeterminado con etapas activas el negocio no se puede crear:
+// la vista lo avisa antes, en vez de descubrirlo después.
+$hayEmbudo = $verNegocios && conversion_etapa_inicial() !== null;
+$error   = null;
+$errores = [];
+$form    = [];
 
 if (is_post()) {
     verify_csrf();
-    // El importe acepta coma decimal cambiándola por punto. Un importe con
-    // separador de miles («1.234,56») queda «1.234.56» y el (float) de
-    // posible_convertir lo lee como 1.234. Moneda y fecha de cierre no se
-    // validan: una fecha inválida hace fallar el INSERT y se muestra el
-    // mensaje de la base.
-    try {
-        $r = posible_convertir($id, [
-            'crear_negocio'   => !empty($_POST['crear_negocio']),
-            'negocio_nombre'  => $_POST['negocio_nombre'] ?? '',
-            'negocio_importe' => str_replace(',', '.', (string)($_POST['negocio_importe'] ?? '0')),
-            'negocio_moneda'  => $_POST['negocio_moneda'] ?? 'ARS',
-            'negocio_cierre'  => $_POST['negocio_cierre'] ?? null,
-        ]);
-        // El mensaje dice «se creó» también cuando la empresa o el contacto se
-        // reutilizaron. Si se pidió negocio pero no hay embudo predeterminado
-        // con etapas activas, no se crea y no se avisa.
-        flash('Convertido: se creó la empresa y el contacto' . ($r['negocio_id'] ? ' y el negocio' : '') . '.', 'success');
-        redirect($r['negocio_id'] ? 'negocio-ver?id=' . $r['negocio_id'] : 'contacto-ver?id=' . $r['contacto_id']);
-    } catch (\Throwable $e) {
-        // La transacción ya se deshizo adentro de posible_convertir(). El
-        // mensaje crudo de la excepción (puede ser un error de SQL) se muestra
-        // en pantalla y queda en la auditoría.
-        $error = $e->getMessage();
-        log_app('posible.convertir_error', ['tipo' => 'error', 'entidad' => 'posible_cliente',
-            'entidad_id' => $id, 'detalle' => $e->getMessage()]);
+    // Lo que se escribió vuelve a la pantalla si algo falla.
+    $form = [
+        'crear_negocio'   => $hayEmbudo && !empty($_POST['crear_negocio']),
+        'negocio_nombre'  => (string)($_POST['negocio_nombre'] ?? ''),
+        'negocio_importe' => (string)($_POST['negocio_importe'] ?? ''),
+        'negocio_moneda'  => (string)($_POST['negocio_moneda'] ?? 'ARS'),
+        'negocio_cierre'  => (string)($_POST['negocio_cierre'] ?? ''),
+    ];
+    // Importe con miles y decimales a la argentina, moneda de la lista y
+    // fecha real: conversion_opciones() (crm.php).
+    [, $errores] = conversion_opciones($form);
+    if (!$errores) {
+        try {
+            $r = posible_convertir($id, $form);
+            flash(conversion_mensaje($r), $r['negocio_omitido'] ? 'warn' : 'success');
+            redirect($r['negocio_id'] && $verNegocios ? 'negocio-ver?id=' . $r['negocio_id'] : 'contacto-ver?id=' . $r['contacto_id']);
+        } catch (\RuntimeException $e) {
+            if ($e->getCode() === 409) {
+                // Otro envío lo convirtió mientras tanto (doble clic, otra pestaña).
+                flash('Este posible cliente ya se había convertido.', 'info');
+                redirect('posible-ver?id=' . $id);
+            }
+            // La transacción ya se deshizo adentro. El detalle técnico va al
+            // registro de errores; en pantalla, un mensaje que se entienda.
+            log_error('posible.convertir_error', $e->getMessage(), $e->getFile(), $e->getLine());
+            $error = 'No se pudo convertir: no se guardó nada. Probá de nuevo y, si vuelve a pasar, avisale a un administrador.';
+        } catch (\Throwable $e) {
+            log_error('posible.convertir_error', $e->getMessage(), $e->getFile(), $e->getLine());
+            $error = 'No se pudo convertir: no se guardó nada. Probá de nuevo y, si vuelve a pasar, avisale a un administrador.';
+        }
     }
 }
 
 // ¿La empresa y el contacto ya existen? Se avisa para que nadie se sorprenda
 // de que no se dupliquen. Son las mismas búsquedas que hace
 // posible_convertir(): empresa por nombre exacto, contacto sólo por el correo
-// principal (no mira email2 ni email3).
+// principal (no mira email2 ni email3). Del contacto se trae su empresa, para
+// decir si se enlaza a ésta o conserva la que tiene.
 $cuentaExistente   = cuenta_por_nombre((string)$p['empresa']);
 $contactoExistente = $p['email']
-    ? q1('SELECT id, nombre_completo FROM contactos WHERE email = ? AND eliminado_en IS NULL LIMIT 1', [$p['email']])
+    ? q1('SELECT ct.id, ct.nombre_completo, ct.cuenta_id, cu.nombre AS cuenta
+          FROM contactos ct LEFT JOIN cuentas cu ON cu.id = ct.cuenta_id
+          WHERE ct.email = ? AND ct.eliminado_en IS NULL LIMIT 1', [$p['email']])
     : null;
 
-render('posible-convertir', compact('p', 'error', 'cuentaExistente', 'contactoExistente'), 'Convertir posible cliente');
+render('posible-convertir', compact('p', 'error', 'errores', 'form', 'cuentaExistente', 'contactoExistente',
+                                    'verNegocios', 'hayEmbudo'), 'Convertir posible cliente');

@@ -12,8 +12,10 @@
 //
 //  A diferencia del contacto, acá la casilla «No incluirlo en campañas» sí
 //  se limpia al desmarcarla: posible_guardar() siempre escribe `no_email`.
-//  El sector es texto libre (en la empresa es una lista cerrada) y la
-//  conversión no lo pasa a la cuenta.
+//  El sector es texto libre (en la empresa es una lista cerrada): la
+//  conversión lo pasa a la empresa sólo si coincide con uno de la lista; si
+//  no, queda en la nota «Datos del posible cliente» del contacto.
+//  El propietario se preselecciona con quien carga sólo en un alta.
 // ============================================================
 
 /** @var ?array $p @var int $id @var array $errores @var array $usuarios */
@@ -76,12 +78,13 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
                 </select>
                 <i class="hint">De dónde salió. Sirve para saber qué canal trae más clientes en Reportes.</i>
             </label>
-            <?php // Sin propietario cargado se preselecciona a quien edita. ?>
+            <?php // Quien carga se preselecciona sólo en un alta: editar uno sin dueño no se lo asigna a quien edita. ?>
             <label class="fld"><span>Propietario</span>
                 <select name="propietario_id">
                     <option value="">— Sin asignar —</option>
+                    <?php $propSel = (string)($id ? ($p['propietario_id'] ?? '') : ($p['propietario_id'] ?? current_user_id())); ?>
                     <?php foreach ($usuarios as $u): ?>
-                        <option value="<?= (int)$u['id'] ?>" <?= (string)($p['propietario_id'] ?? current_user_id()) === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
+                        <option value="<?= (int)$u['id'] ?>" <?= $propSel === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Quién lo atiende. Es lo que separa «Lo mío» de «Todo el equipo» en el panel.</i>
@@ -108,10 +111,10 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
             <label class="fld"><span>Conmutador</span><input type="tel" name="conmutador" value="<?= $v('conmutador') ?>" maxlength="60" inputmode="tel" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios." placeholder="011 4321-1000">
                 <i class="hint">La central de la empresa, cuando hay que pedir por interno.</i>
             </label>
-            <label class="fld"><span>Sitio web</span><input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="empresa.com">
+            <label class="fld"><span>Sitio web</span><input type="text" inputmode="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="empresa.com">
                 <i class="hint">El de la empresa. Mirarlo antes de llamar cambia la conversación.</i>
             </label>
-            <label class="fld wide"><span>LinkedIn</span><input type="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255" placeholder="linkedin.com/in/juanperez">
+            <label class="fld wide"><span>LinkedIn</span><input type="text" inputmode="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255" placeholder="linkedin.com/in/juanperez">
                 <i class="hint">El perfil de la persona.</i>
             </label>
             <label class="fld"><span>Sector</span><input name="sector" value="<?= $v('sector') ?>" maxlength="80" placeholder="Logistica y transporte">

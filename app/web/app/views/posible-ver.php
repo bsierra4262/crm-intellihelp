@@ -13,16 +13,18 @@
 //    $actividades  array  actividades_de('posible_cliente_id', id)
 //    $linea        array  timeline('posible_cliente', id): sólo auditoría
 //
-//  Ojo con los módulos: a diferencia de las fichas de contacto y empresa,
-//  esta no recibe $verActividades ni $verAdjuntos. El botón «Nueva
-//  actividad», el panel de actividades y el de adjuntos salen siempre,
-//  aunque esos módulos estén apagados en producción.
+//    $verActividades, $verAdjuntos, $verNegocios  bool  módulos encendidos
+//
+//  Como en las fichas de contacto y empresa, «Nueva actividad», el panel de
+//  actividades, el de adjuntos y el enlace al negocio generado sólo salen
+//  con su módulo encendido (en producción cada uno se enciende aparte).
 //
 //  Después de convertir, las notas, actividades y adjuntos se mudaron al
 //  contacto: esta ficha queda con esos paneles vacíos y un aviso con los
 //  enlaces a lo que se generó.
 // ============================================================
-/** @var array $p @var array $notas @var array $actividades @var array $linea */
+/** @var array $p @var array $notas @var array $actividades @var array $linea
+ *  @var bool $verActividades @var bool $verAdjuntos @var bool $verNegocios */
 $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
 ?>
 <div class="detail-head">
@@ -41,7 +43,9 @@ $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
         <?php if (!$p['convertido_en']): ?>
             <a class="btn btn-accent" href="<?= e(url('posible-convertir?id=' . (int)$p['id'])) ?>"><?= icon('convertir', 16) ?>Convertir</a>
         <?php endif; ?>
-        <a class="btn btn-ghost" href="<?= e(url('actividad-form?posible_cliente_id=' . (int)$p['id'])) ?>"><?= icon('tareas', 16) ?>Nueva actividad</a>
+        <?php if ($verActividades): ?>
+            <a class="btn btn-ghost" href="<?= e(url('actividad-form?posible_cliente_id=' . (int)$p['id'])) ?>"><?= icon('tareas', 16) ?>Nueva actividad</a>
+        <?php endif; ?>
         <a class="btn btn-primary" href="<?= e(url('posible-form?id=' . (int)$p['id'])) ?>"><?= icon('editar', 16) ?>Editar</a>
     </div>
 </div>
@@ -51,7 +55,7 @@ $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
         Este posible cliente ya se convirtió.
         <?php if ($p['cuenta_id']): ?> Empresa: <a href="<?= e(url('cuenta-ver?id=' . (int)$p['cuenta_id'])) ?>">ver</a>.<?php endif; ?>
         <?php if ($p['contacto_id']): ?> Contacto: <a href="<?= e(url('contacto-ver?id=' . (int)$p['contacto_id'])) ?>">ver</a>.<?php endif; ?>
-        <?php if ($p['negocio_id']): ?> Negocio: <a href="<?= e(url('negocio-ver?id=' . (int)$p['negocio_id'])) ?>">ver</a>.<?php endif; ?>
+        <?php if ($p['negocio_id'] && $verNegocios): ?> Negocio: <a href="<?= e(url('negocio-ver?id=' . (int)$p['negocio_id'])) ?>">ver</a>.<?php endif; ?>
     </div>
 <?php endif; ?>
 
@@ -110,10 +114,11 @@ $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
 <?php // Los parciales toman la entidad y el id de estas variables del ámbito de la vista. ?>
 <?php $etqEntidad = 'posible_cliente'; $etqId = (int)$p['id'];
       include APP . '/views/_etiquetas.php'; ?>
-        <?php $adjEntidad = 'posible_cliente'; $adjId = (int)$p['id'];
-      include APP . '/views/_adjuntos.php'; ?>
+        <?php if ($verAdjuntos): $adjEntidad = 'posible_cliente'; $adjId = (int)$p['id'];
+            include APP . '/views/_adjuntos.php';
+        endif; ?>
         <?php include APP . '/views/_notas.php'; ?>
-        <?php include APP . '/views/_actividades_panel.php'; ?>
+        <?php if ($verActividades): include APP . '/views/_actividades_panel.php'; endif; ?>
         <div class="card">
             <div class="card-head"><h2>Historial</h2></div>
             <?php if (!$linea): ?>

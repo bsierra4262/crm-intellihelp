@@ -16,20 +16,18 @@
 //    $linea        array  timeline('cuenta', id): sólo auditoría
 //    $verNegocios, $verActividades, $verAdjuntos  bool  módulos encendidos
 //
-//  Datos que la ficha no muestra aunque se cargan en el formulario: el
-//  código postal y las notas (`descripcion`).
+//  Las tarjetas de embudo abierto y ganado sólo salen con el módulo de
+//  negocios encendido, y suman cada moneda por separado
+//  (cuenta_totales_negocios()): no se convierte de dólares a pesos.
 // ============================================================
 /** @var array $c @var array $contactos @var array $negocios @var array $notas
  *  @var array $actividades @var array $linea */
-// Totales de las tarjetas. Se suman los importes tal cual, sin mirar la
-// moneda de cada negocio, y se muestran en pesos: un negocio en dólares
-// cuenta como si fueran pesos. Las tarjetas salen aunque el módulo de
-// negocios esté apagado.
-$abierto = 0.0; $ganado = 0.0;
-foreach ($negocios as $n) {
-    if ($n['etapa_tipo'] === 'abierta') { $abierto += (float)$n['importe']; }
-    if ($n['etapa_tipo'] === 'ganada')  { $ganado  += (float)$n['importe']; }
-}
+// Totales de las tarjetas, separados por moneda. Sin negocios, «$ 0,00».
+$totales = cuenta_totales_negocios($negocios);
+$porMoneda = static function (array $t): string {
+    if (!$t) { return e(money(0)); }
+    return implode('<br>', array_map(fn($mon, $v) => e(money($v, $mon)), array_keys($t), $t));
+};
 ?>
 <div class="detail-head">
     <span class="avatar-fallback"><?= e(iniciales($c['nombre'])) ?></span>
@@ -40,7 +38,7 @@ foreach ($negocios as $n) {
         </div>
     </div>
     <div class="head-actions">
-        <?php // contacto-form no lee `cuenta_id` de la dirección: la empresa no llega preseleccionada. ?>
+        <?php // contacto-form toma `cuenta_id` de la dirección: la empresa llega elegida. ?>
         <a class="btn btn-ghost" href="<?= e(url('contacto-form?cuenta_id=' . (int)$c['id'])) ?>"><?= icon('contactos', 16) ?>Nuevo contacto</a>
         <?php if ($verNegocios): ?>
             <a class="btn btn-ghost" href="<?= e(url('negocio-form?cuenta_id=' . (int)$c['id'])) ?>"><?= icon('negocios', 16) ?>Nuevo negocio</a>
@@ -54,14 +52,16 @@ foreach ($negocios as $n) {
         <span class="stat-label">Contactos</span>
         <span class="stat-value"><?= count($contactos) ?></span>
     </div>
+    <?php if ($verNegocios): ?>
     <div class="card stat">
         <span class="stat-label">Embudo abierto</span>
-        <span class="stat-value"><?= money($abierto) ?></span>
+        <span class="stat-value"><?= $porMoneda($totales['abierto']) ?></span>
     </div>
     <div class="card stat">
         <span class="stat-label">Ganado histórico</span>
-        <span class="stat-value accent"><?= money($ganado) ?></span>
+        <span class="stat-value accent"><?= $porMoneda($totales['ganado']) ?></span>
     </div>
+    <?php endif; ?>
     <div class="card stat">
         <span class="stat-label">Alta</span>
         <span class="stat-value sm"><?= fecha_corta($c['creado_en']) ?></span>
@@ -84,11 +84,19 @@ foreach ($negocios as $n) {
                 dato('Propietario', $c['propietario']);
                 dato('Domicilio', $c['calle']);
                 dato('Localidad', $c['localidad']);
+                dato('Código postal', $c['codigo_postal']);
                 dato('Provincia', $c['provincia']);
                 dato('País', $c['pais']);
                 ?>
             </div>
         </div>
+
+        <?php if (trim((string)($c['descripcion'] ?? '')) !== ''): ?>
+        <div class="card">
+            <div class="card-head"><h2>Notas de la empresa</h2></div>
+            <p class="pre-wrap m-0"><?= e($c['descripcion']) ?></p>
+        </div>
+        <?php endif; ?>
 
         <div class="card">
             <div class="card-head"><h2>Contactos</h2>

@@ -15,6 +15,9 @@
 //                       {id, nombre, detalle}); el resto se busca al escribir
 //    $cuentas    array  ídem, la empresa vinculada
 //    $negocios   array  ídem, el negocio vinculado
+//    $reserva    ?array la reserva confirmada de la agenda (id, usuario_id) si
+//                       la reunión vino de ahí: tipo y horario quedan fijos
+//    $volver     string ruta interna a la que volver al guardar ('' = listado)
 //
 //  El script del final oculta los campos que no aplican al tipo (atributo
 //  `data-solo`). Ocultos igual viajan en el POST; actividad_guardar() es la
@@ -24,10 +27,13 @@
 //  en campos que buscan al escribir, y como el desplegable siempre trae el
 //  valor vinculado, guardar sin tocarlos no lo pierde.
 //  El posible cliente viaja en un campo oculto, sin selector.
-//  El formulario no manda `volver`: la página siempre vuelve a `actividades`.
+//  Con $reserva, tipo e inicio/fin se muestran deshabilitados (no viajan; la
+//  página igual los repone) y se ofrece mover la reunión desde la agenda.
 // ============================================================
 /** @var ?array $a @var int $id @var array $errores @var array $usuarios
- *  @var array $contactos @var array $cuentas @var array $negocios */
+ *  @var array $contactos @var array $cuentas @var array $negocios @var ?array $reserva @var string $volver */
+$bloq = !empty($reserva) ? ' disabled' : '';
+$cancelar = url(($volver ?? '') !== '' ? $volver : 'actividades');
 // Atajo: el valor del campo ya escapado para HTML, con un valor por defecto.
 $v = fn(string $k, $def = '') => e($a[$k] ?? $def);
 // Los datetime-local necesitan "Y-m-dTH:i".
@@ -40,8 +46,20 @@ $tipo = $a['tipo'] ?? 'tarea';
 ?>
 <div class="page-head">
     <div><h1><?= $id ? 'Editar actividad' : 'Nueva actividad' ?></h1></div>
-    <div class="head-actions"><a class="btn btn-ghost" href="<?= e(url('actividades')) ?>">Cancelar</a></div>
+    <div class="head-actions"><a class="btn btn-ghost" href="<?= e($cancelar) ?>">Cancelar</a></div>
 </div>
+
+<?php if (!empty($reserva)): ?>
+    <div class="flash flash-info">
+        Esta reunión la reservaron desde la agenda: el día y la hora no se cambian acá, porque quedarían
+        distintos de la reserva, del evento de Google y de la invitación que recibió el cliente.
+        <?php if (ruta_habilitada('reserva-mover')): ?>
+            <a href="<?= e(url('reserva-mover?id=' . (int)$reserva['id'])) ?>">Mover la reunión a otro horario</a>.
+        <?php else: ?>
+            Para cambiarla hay que moverla desde la agenda de reuniones.
+        <?php endif; ?>
+    </div>
+<?php endif; ?>
 
 <?php if ($errores): ?>
     <div class="flash flash-error">Revisá los campos marcados: <?= e(implode(' ', $errores)) ?></div>
@@ -49,12 +67,13 @@ $tipo = $a['tipo'] ?? 'tarea';
 
 <form method="post" class="form-wrap">
     <?= csrf_field() ?>
+    <input type="hidden" name="volver" value="<?= e($volver ?? '') ?>">
 
     <div class="card form-card">
         <h2 class="sec">Qué hay que hacer</h2>
         <div class="grid-fields">
             <label class="fld"><span>Tipo</span>
-                <select name="tipo" id="tipoActividad">
+                <select name="tipo" id="tipoActividad"<?= $bloq ?>>
                     <?php foreach (tipos_actividad() as $k => $et): ?>
                         <option value="<?= e($k) ?>" <?= $tipo === $k ? 'selected' : '' ?>><?= e($et) ?></option>
                     <?php endforeach; ?>
@@ -77,12 +96,15 @@ $tipo = $a['tipo'] ?? 'tarea';
 
             <label class="fld" data-solo="tarea"><span>Vence el</span>
                 <input type="datetime-local" name="vence_el" value="<?= e($dt($a['vence_el'] ?? null)) ?>">
+                <?php if (isset($errores['vence_el'])): ?><i class="hint bad"><?= e($errores['vence_el']) ?></i><?php endif; ?>
             </label>
             <label class="fld" data-solo="llamada reunion"><span>Empieza</span>
-                <input type="datetime-local" name="inicia_el" value="<?= e($dt($a['inicia_el'] ?? null)) ?>">
+                <input type="datetime-local" name="inicia_el" value="<?= e($dt($a['inicia_el'] ?? null)) ?>"<?= $bloq ?>>
+                <?php if (isset($errores['inicia_el'])): ?><i class="hint bad"><?= e($errores['inicia_el']) ?></i><?php endif; ?>
             </label>
             <label class="fld" data-solo="reunion"><span>Termina</span>
-                <input type="datetime-local" name="termina_el" value="<?= e($dt($a['termina_el'] ?? null)) ?>">
+                <input type="datetime-local" name="termina_el" value="<?= e($dt($a['termina_el'] ?? null)) ?>"<?= $bloq ?>>
+                <?php if (isset($errores['termina_el'])): ?><i class="hint bad"><?= e($errores['termina_el']) ?></i><?php endif; ?>
                 <i class="hint">Si lo dejás vacío se toman 30 minutos.</i>
             </label>
             <label class="fld" data-solo="reunion"><span>Lugar</span>
@@ -172,7 +194,7 @@ $tipo = $a['tipo'] ?? 'tarea';
 
     <div class="form-actions">
         <button class="btn btn-primary"><?= icon('ok', 16) ?><?= $id ? 'Guardar cambios' : 'Crear actividad' ?></button>
-        <a class="btn btn-ghost" href="<?= e(url('actividades')) ?>">Cancelar</a>
+        <a class="btn btn-ghost" href="<?= e($cancelar) ?>">Cancelar</a>
     </div>
 </form>
 

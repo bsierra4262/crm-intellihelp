@@ -15,8 +15,8 @@ declare(strict_types=1);
 //  puede venir de una pantalla propia.
 //
 //  Módulo: `actividades`. Permisos: cualquier usuario con sesión completa
-//  cualquier actividad, sea o no el responsable. No se comprueba que la
-//  actividad exista ni que no esté en la papelera.
+//  cualquier actividad, sea o no el responsable. Una actividad que no existe
+//  o está en la papelera no se toca y se avisa.
 // ============================================================
 
 require_login();
@@ -29,9 +29,10 @@ $id        = (int)($_POST['id'] ?? 0);
 $reabrir   = ($_POST['reabrir'] ?? '') === '1';
 $resultado = trim((string)($_POST['resultado'] ?? '')) ?: null;
 
-if ($id) {
-    actividad_completar($id, !$reabrir, $resultado);
+if ($id && actividad_completar($id, !$reabrir, $resultado)) {
     flash($reabrir ? 'Actividad reabierta.' : 'Actividad completada.', 'success');
+} else {
+    flash('Esa actividad ya no existe: puede que la hayan mandado a la papelera.', 'error');
 }
 
 // No se usa redirect() porque el Referer ya es una dirección absoluta.

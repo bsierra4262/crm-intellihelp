@@ -13,8 +13,9 @@ declare(strict_types=1);
 //  Módulo: `posibles`.
 //  Permisos: cualquier usuario con sesión.
 //
-//  Las actividades se consultan siempre, aunque el módulo de actividades
-//  esté apagado (la vista tampoco mira si está encendido).
+//  Igual que las fichas de contacto y empresa: actividades y adjuntos sólo se
+//  consultan y se muestran con su módulo encendido, y el enlace al negocio
+//  generado sólo sale con el módulo de negocios encendido.
 // ============================================================
 
 require_login();
@@ -43,9 +44,16 @@ if (is_post() && ($_POST['accion'] ?? '') === 'estado') {
     redirect('posible-ver?id=' . $id);
 }
 
+$verActividades = ruta_habilitada('actividades');
+$verAdjuntos    = ruta_habilitada('adjunto');
+$verNegocios    = ruta_habilitada('negocios');
+
 render('posible-ver', [
     'p'           => $p,
     'notas'       => notas_de('posible_cliente', $id),
-    'actividades' => actividades_de('posible_cliente_id', $id),
+    'actividades' => $verActividades ? actividades_de('posible_cliente_id', $id) : [],
+    'verActividades' => $verActividades,
+    'verAdjuntos'    => $verAdjuntos,
+    'verNegocios'    => $verNegocios,
     'linea'       => timeline('posible_cliente', $id),
 ], trim(($p['nombre'] ?? '') . ' ' . $p['apellido']));
