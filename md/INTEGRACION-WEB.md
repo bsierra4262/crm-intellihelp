@@ -177,7 +177,9 @@ tiempo dejaría al visitante con un error y la reunión tomada.
 Por eso `agenda_reservar()` se parte en dos:
 
 - `agenda_reservar()`: valida, bloquea el calendario del vendedor, comprueba el hueco, inserta la
-  reserva, el contacto, la empresa y la reunión. Es todo base de datos: menos de un segundo.
+  reserva, el contacto, la empresa y la reunión. No es sólo base de datos: para comprobar el
+  hueco consulta Google en vivo, sin caché, con 6 s como máximo en total (§5.3); el resto es
+  base de datos.
 - `agenda_reserva_completar()`: evento de Google con Meet, mail con la `.ics`, alerta.
 
 La API responde después del primer paso y corre el segundo con `finish_request()`. Si el proceso
@@ -240,6 +242,13 @@ Base: `https://intellihelp.tech/crm/api/v1/` (producción) y
 `https://intellihelp.tech/crm-pruebas/api/v1/` (pruebas). Son rutas del front controller
 (`index.php`), públicas en el sentido de que no usan sesión: la autenticación es la firma.
 
+> **Arreglos de la auditoría (22/11/2026): el contrato con la web no cambió.** Mismas rutas,
+> cabeceras, firma, cuerpos y respuestas; la prueba de contrato da 24/24 contra la web en vivo
+> (`NEW-PAGE-ITH/TEMPLATE-NICO/api`). Lo que cambió es del lado del CRM y está marcado abajo:
+> `api/estado` (§5.1), los tiempos de Google y de los feriados (§5.3), el cupo por visitante, el
+> tope de 20 intentos y la reparación de entradas trabadas (§5.6), y `codigo` en
+> `503 migracion_pendiente` (§5.4). La web no tiene que tocar nada.
+
 ### 5.1 Clave y secreto
 
 - Se crean en **API** (`api-keys`), sólo administradores, eligiendo el permiso **«Escritura (web)»**.
@@ -247,8 +256,13 @@ Base: `https://intellihelp.tech/crm/api/v1/` (producción) y
 - Secreto: 64 hex (`random_bytes(32)`). Se guarda con `cifrar()` en `api_tokens.secreto_cifrado`
   y se descifra sólo para verificar la firma.
 - Las dos se muestran **una única vez** en pantalla. No se mandan por mail ni quedan en la auditoría.
-- Una clave `escritura` sólo sirve para `api/v1/*`. `api/estado` sigue aceptando cualquier clave
-  activa, como hoy.
+- Una clave `escritura` sólo sirve para `api/v1/*`. `api/estado` (ITHOS / Jarvis) acepta sólo
+  claves de **lectura** o la **root**: una clave de escritura sin su secreto no tiene que poder
+  leer nada. `api/estado` atiende sólo `GET` (otro método → `405` con `Allow: GET`) y como mucho
+  **60 pedidos por minuto por IP de origen** (`429 demasiados_pedidos` con `Retry-After`); los
+  rechazos por clave inválida se registran hasta 20 por origen cada 10 minutos.
+- La pantalla **API** (`api-keys`) muestra la fórmula de la firma igual a `api_firma_canonica()`
+  (§5.2), con idempotencia y hash de IP.
 - Si `app.secret` de la instalación tiene menos de 32 caracteres, la API v1 responde
   `503 configuracion_incompleta` (`crm_secret()` tiene un respaldo débil derivado de la base que
   no sirve para cifrar el secreto).
@@ -292,7 +306,8 @@ Tabla `api_limites` (§7). Al pasarse: `429 demasiados_pedidos` con `Retry-After
 |---|---|
 | por clave, `disponibilidad` | 120 por minuto |
 | por clave, `reserva` + `entrada` | 30 por minuto |
-| por hash de IP, `reserva` | 3 por hora · 6 por día |
+| por hash de IP, `reserva` | 3 por hora · 6 por día, contando **sólo las reservas que entran** (ver §5.6) |
+| por hash de IP, intentos de `reserva` | 20 por hora, entren o no → `429 demasiados_pedidos` |
 | por hash de IP, `entrada` | 5 por hora · 10 por día |
 | `/r/` pública, por hash de IP, reservar/mover/cancelar | 3 por hora · 6 por día |
 | `/r/` pública, por hash de IP, páginas (GET) | 30 cada 10 minutos |
@@ -308,8 +323,18 @@ Tabla `api_limites` (§7). Al pasarse: `429 demasiados_pedidos` con `Retry-After
 - Los tokens de formulario de `/r/` sirven una sola vez (`ft:<nonce>` en `api_limites`).
 - Los horarios que se muestran (API y `/r/`) usan una caché de 60 s de la consulta a Google
   (`STORAGE/cache-gcal`, sólo franjas ocupadas). La verificación final de una reserva consulta a
-  Google sin caché y con 6 s como máximo: si Google tarda más, `503 sin_calendario` antes de que
-  la web corte a los 10 s.
+  Google sin caché y con **6 s como máximo en total, incluida la renovación del token** (que
+  tiene su propio tope de conexión y de tiempo): si Google tarda más, `503 sin_calendario` antes
+  de que la web corte a los 10 s. Una respuesta de `freeBusy` con errores, sin el calendario o
+  con código distinto de 200 cuenta como «no se pudo leer»: nunca se toma como «todo libre» ni se
+  cachea. Después de un `invalid_grant` no se vuelve a intentar la renovación por 15 minutos.
+- Los feriados que se sincronizan **al vuelo** (§10.2 del documento maestro) esperan 2 s como
+  mucho por año y cortan en el primer año que falla, con 15 minutos de pausa antes de reintentar:
+  sumados a Google no llevan la respuesta más allá de los 10 s de la web.
+- En la API v1 la autenticación va antes de los límites; para que los pedidos rechazados no
+  llenen la auditoría, se registran hasta 20 por origen cada 10 minutos.
+- `disponibilidad` no tiene límite por visitante: el `GET` no trae el hash de IP (por contrato) y
+  la web ya limita y cachea. Agregarlo requiere que la web mande el hash también en el `GET`.
 
 ### 5.4 Respuestas
 
@@ -333,7 +358,7 @@ Siempre JSON UTF-8, con `Cache-Control: no-store` y `X-Content-Type-Options: nos
 | 415 | `tipo_de_contenido` | POST sin `application/json` |
 | 422 | `datos_invalidos` · `falta_consentimiento` | con `"campos": {"email": "…"}` |
 | 429 | `demasiados_pedidos` · `limite_reservas` | §5.3 (`limite_reservas`: topes por correo o del día, con `mensaje` para la persona) |
-| 503 | `modulo_apagado` · `sin_calendario` · `migracion_pendiente` · `configuracion_incompleta` | el CRM no puede atender eso ahora |
+| 503 | `modulo_apagado` · `sin_calendario` · `migracion_pendiente` · `configuracion_incompleta` | el CRM no puede atender eso ahora. `migracion_pendiente` que sale de una tabla o columna inexistente trae además `"codigo": "ERR-XXXXXX"` y queda en `log_error()` |
 | 500 | `error_interno` | con `"codigo": "ERR-XXXXXX"` (el de `log_error()`); nunca la traza |
 
 Cada pedido deja una línea con `log_api()`: acción (`api/v1/reserva`), actor (nombre de la
@@ -430,6 +455,18 @@ La lista se mantiene sola (ver [DOCUMENTACION-MAESTRA §10.2](DOCUMENTACION-MAES
   clave única. Si la clave ya existe: con el mismo `cuerpo_hash` y `estado = 'ok'` →
   `200` con la respuesta original y `"repetida": true`; con `estado = 'procesando'` →
   `409 en_proceso`; con otro cuerpo → `409 idempotencia_reusada`.
+- **Entradas trabadas** (el proceso murió entre la reserva y la escritura de `estado = 'ok'`, o
+  esa escritura falló): antes de contestar un repetido, `api_reparar_previa()` las arregla. Si
+  la entrada tiene reserva enlazada, arma la respuesta con esa reserva y el reintento recibe
+  `200` con `"repetida": true` (ya no `horario_tomado` contra su propia reunión). Si quedó en
+  `procesando` sin nada enlazado, vence a los **120 s** (`API_PROCESANDO_VENCE_SEG`) y el
+  reintento se procesa de nuevo en vez de recibir `409 en_proceso` para siempre. Una falla al
+  escribir el `ok` no cambia la respuesta `201`.
+- **Cupo por visitante** (3 por hora, 6 por día): cuenta **sólo las reservas que entran**. Un
+  intento que termina en `horario_tomado`, `feriado`, tope o error no gasta cupo, y un reintento
+  con la misma idempotencia tampoco (se contesta antes de mirar el cupo). Aparte hay un tope de
+  **20 intentos por hora** por hash de IP, entren o no, contra quien prueba horarios en masa:
+  al pasarlo, `429 demasiados_pedidos`.
 - `409 horario_tomado` cuando el hueco ya no está libre (otro lo tomó, o Carlos agregó algo en
   su calendario). La web vuelve a pedir los horarios.
 - `409 feriado` cuando el inicio cae en un feriado (por ejemplo, uno decretado después de que la
@@ -660,7 +697,8 @@ entorno, y con `--pruebas` igual apunta a producción (§4 #13). Para las migrac
   corresponden sin pedir credenciales. Recibe la ruta de un `.sql`, lo divide en sentencias,
   las ejecuta en orden y deja `app_settings.migracion_<nnn> = fecha`. Imprime sólo cuántas
   sentencias corrió y cuáles fallaron, nunca la configuración. Con `--simular` sólo lista.
-- `python bin/deploy.py migrar app/db/migracion-008-entradas-web.sql [--pruebas]`: sube el
+- `python bin/deploy.py migrar app/db/migracion-008-entradas-web.sql --pruebas|--produccion`
+  (desde los arreglos de la auditoría el destino es obligatorio en todo comando): sube el
   `.sql` a `/home/uXXXXXXXXX/crm_migracion/<archivo>.sql` (fuera del webroot, con su nombre
   original para que quede la marca `migracion_<nnn>`), corre
   `php <WEBROOT>/migrar.php` y lo borra.
@@ -670,8 +708,8 @@ Orden (las 002 a 007 ya están aplicadas en las dos bases; se verificó en prueb
 
 1. **Pruebas**: `deploy.py app --pruebas` (sube `migrar.php`) → `deploy.py migrar …008… --pruebas`
    → `deploy.py check --pruebas` → pruebas (§11).
-2. **Producción** (sólo en la fase Producción, §12): respaldo de la base → `deploy.py app`
-   → `deploy.py migrar …008…` → `deploy.py check`.
+2. **Producción** (sólo en la fase Producción, §12): respaldo de la base → `deploy.py app --produccion`
+   → `deploy.py migrar …008… --produccion` → `deploy.py check --produccion`.
 
 El código nuevo comprueba que exista `entradas_web` y, si no, la API responde
 `503 migracion_pendiente` en vez de un error 500. Así no importa si por un descuido se sube el
@@ -1214,8 +1252,8 @@ Pasos:
 
 1. Revisión final y commit en los dos repositorios.
 2. Respaldo de la base de producción.
-3. `python bin/deploy.py app` → `python bin/deploy.py migrar app/db/migracion-008-entradas-web.sql`
-   → `python bin/deploy.py check`.
+3. `python bin/deploy.py app --produccion` → `python bin/deploy.py migrar app/db/migracion-008-entradas-web.sql --produccion`
+   → `python bin/deploy.py check --produccion`.
 4. En el CRM de producción, con el usuario de Carlos: Agenda → tipo «Reunión de diagnóstico»,
    slug `diagnostico`, con su horario real.
 5. Ajustes → Qué está en marcha: **Agenda** y **Actividades** encendidos.

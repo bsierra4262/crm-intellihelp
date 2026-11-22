@@ -1,5 +1,93 @@
 # AUDITORÍA DEL CÓDIGO · CRM INTELLIHELP
 
+## Estado al 22/11/2026: arreglado
+
+Rama `fix/auditoria`: se juntaron las diez ramas de arreglos, una por lote (`fix/a` … `fix/f`).
+Aplicado en **crm-pruebas** (código desplegado y migraciones 010–018). **Producción no se tocó**:
+sigue con el código del 09/11.
+
+### Resumen
+
+De los **246 hallazgos**, **237 quedaron arreglados**, 2 se dejaron como están por decisión (no
+eran un defecto sino una regla del equipo, ahora documentada) y **7 no se arreglan** desde el
+código (lista completa abajo, con el porqué y qué haría falta). Están arreglados el crítico y
+los 25 altos.
+
+| Gravedad | Hallazgos | Arreglados | Decisión | No se arregla |
+|---|---|---|---|---|
+| Crítico | 1 | 1 | 0 | 0 |
+| Alto | 25 | 25 | 0 | 0 |
+| Medio | 78 | 76 | 0 | 2 |
+| Bajo | 142 | 135 | 2 | 5 |
+| **Total** | **246** | **237** | **2** | **7** |
+
+Algunos hallazgos tenían varias partes y se arreglaron en parte; se cuentan como arreglados y la
+parte que queda figura en la lista de abajo (por ejemplo, la clave única de `mensajes` o la
+contraseña heredada de los ajustes).
+
+| Lote | Hallazgos | Arreglados | Decisión / no era un bug | No se arregla | Migración |
+|---|---|---|---|---|---|
+| A — Núcleo | 29 | 29 (la IP de baja y píxel, en D1) | — | — | 010 |
+| B1 — CRM, negocios, importador | 29 | 28 (los importes de la conversión, en B2) | 1: cualquiera edita negocios | — | — |
+| B2 — Contactos, cuentas, posibles, actividades | 28 | 28 (los desplegables, en B1) | — | — | — |
+| C1 — Agenda | 21 | 21 (la renovación del token, en C2) | `reservas?todos=1` no era un bug (base compartida); sí se arregló la consulta de la cadena | — | 013 |
+| C2 — API web, feriados, Google | 22 | 20 | — | 2 | — |
+| D1 — Campañas | 26 | 25 | — | 1 | 015 |
+| D2 — Correo, IMAP, conversaciones | 24 | 23 | 1: dueño de casillas y conversaciones | — | 016 |
+| E1 — Frontend y Ajustes | 22 | 22 | — | — | 017 |
+| E2 — Esquema, cron, deploy | 27 | 24 | «siempre en `primary`» no era un bug | 3 | 018 |
+| F — Pruebas | 18 | 17 | — | 1 | — |
+
+Los puntos de «Documentación que no coincide con el código» se corrigieron en
+DOCUMENTACION-MAESTRA, INTEGRACION-WEB, INSTALL y README. Pruebas al cerrar: `run_tests.php`
+1187/1187 en local y 1183/1183 en el servidor (PHP 8.3), `ui_test.php` 334/334 (332 en el
+servidor), contrato con la web 24/24, `smoke.sh` 71/71, render 61/61 pantallas, `api_test.php`
+61/62 en crm-pruebas (ver abajo) y herramientas Python 21/21. `schema.sql` verificado en
+MariaDB: una base de producción simulada con 010–018 aplicadas dos veces queda igual al
+`schema.sql` nuevo (sólo cambia el orden de un índice).
+
+### Lo que NO se arregló
+
+| Qué | Por qué | Qué haría falta |
+|---|---|---|
+| **WordPress se queda con pedidos a `/crm`** (D1). Unos 4 de cada 10 pedidos terminan en el WordPress del raíz: afecta la baja legal, el píxel, las imágenes y la baja de un clic de Gmail | No es del código del CRM: lo decide el `.htaccess` raíz del servidor, que pertenece al WordPress | Excluir `/crm` y `/crm-pruebas` en el `.htaccess` raíz de `public_html`, antes de las reglas de WordPress, y verificarlo por HTTP |
+| **Sin límite por visitante en `GET api/v1/disponibilidad`** (C2). Sólo hay 120/min por clave, compartido | Por contrato el `GET` no trae el hash de IP del visitante; la web ya limita y cachea | Que la web mande `X-ITH-Client-IP-Hash` también en el `GET` (cambio de contrato, del lado de la web primero) |
+| **`uq_ew_idem` no protege con `token_id` NULL** (C2, E2) | No causa problemas: la agenda pública `/r/` genera la idempotencia al azar; y la 008 ya está aplicada | Si alguna vez importa, una columna calculada con `COALESCE(token_id, 0)` en la clave única, por migración |
+| **Migraciones 005–009, 013, 016 y 018 sólo para MariaDB** (E2, C2) | Usan `ADD COLUMN/INDEX IF NOT EXISTS`; el hosting es MariaDB. `schema.sql` sí sirve en MySQL 8 | Reescribirlas con comprobaciones en `information_schema` si algún día se instala sobre MySQL |
+| **Sin claves foráneas en las tablas de 002–004** (E2). La purga deja huérfanos en `mensajes`, `etiqueta_registro`, `notas`, `envios`, `lista_miembros` | Ya hay huérfanos en las bases: agregar las FK obliga a limpiarlos, y limpiar es borrar | Decidir qué se borra, limpiar con respaldo y agregar las FK por migración |
+| **Columnas sin uso** (E2, D2): `cuentas_correo.imap_ultimo_uid`, `actividades.recordar_min` / `recordado_en` | Sacarlas es un `DROP COLUMN`: se prefirió no borrar en esta pasada | Una migración con `DROP COLUMN` cuando se confirme que nada las lee |
+| **Aviso de `recordar_min` de las actividades** (E2): el formulario lo carga pero nadie manda ese recordatorio | Es una función nueva, no un arreglo | Un paso del cron que mande el aviso y marque `recordado_en` (o sacar el campo del formulario) |
+| **Ajustes heredados `imap_pass` / `smtp_pass` en texto plano** (D2) | Son de la configuración vieja de una sola casilla; las casillas actuales guardan la contraseña cifrada | Migrarlos a `cuentas_correo` cifrados y borrar los ajustes |
+| **`crm_secret` cambiado** (D2): lo cifrado con el secreto anterior no se puede leer | Arreglado en parte: la casilla muestra «Recargar contraseña» en vez de quedar «no configurada» en silencio | Nada más desde el código: si cambia el secreto, se recargan las contraseñas y se reconecta Google |
+| **`uq_msg` con `message_id` NULL** (E2) | La clave única no lo cubre, pero `imap.php` ya evita el duplicado (marca por mensaje, `INSERT IGNORE`) | Nada mientras se guarde por `imap.php` |
+| **Mezcla de versiones durante la subida** (E2): mientras `deploy.py app` sube, conviven unos segundos archivos viejos y nuevos | SFTP archivo por archivo; no hay cambio atómico en el hosting compartido | Subir a una carpeta nueva y cambiar un enlace simbólico, o una página de mantenimiento durante la subida |
+| **`deploy.py test` comparte `~/crm_test`** para los dos destinos (F): dos corridas a la vez se pisan | Quedó entre lotes (F lo pasó a E2) y no se tocó | Una carpeta por destino (`~/crm_test_pruebas`, `~/crm_test_produccion`) |
+| **Dueño de casillas y conversaciones** (D2, decisión): cualquier usuario usa cualquier casilla y ve cualquier conversación | La base es compartida por el equipo; el texto de la pantalla se aclaró («dueño» es informativo) | Si se quiere restringir: regla de permisos en `campana-form` y `conversacion` |
+| **Aperturas infladas por Apple Mail Privacy Protection** (D1) | Apple descarga el píxel de todos los correos; no se distingue desde el servidor | Nada: tomar las aperturas como indicio, no como dato |
+| **crm-pruebas sin casillas de correo**: `api_test.php` da 61/62 (falla «SMTP configurado en pruebas») | No es un defecto: la instalación de pruebas no tiene casillas cargadas; producción sí | Cargar una casilla de prueba en crm-pruebas |
+
+### Decisiones tomadas por defecto que conviene revisar
+
+Se eligió lo más prudente donde la auditoría pedía una definición. Todas se pueden cambiar.
+
+| Tema | Qué se decidió | Dónde |
+|---|---|---|
+| Exportar a CSV | Sólo administradores (contactos, empresas, posibles clientes y entradas de la web) | contactos, cuentas, posibles, entradas-web |
+| Papelera | La manda el propietario o un admin; sin propietario, cualquiera. Listas y plantillas: quien las creó; campañas: propietario o creador. Restaurar, sólo admin | `puede_mandar_papelera()` (registros.php) |
+| Campañas | Iniciar y cancelar: creador, responsable o admin | `campana_puede_gestionar()` |
+| Edición | Cualquiera edita negocios, contactos y empresas, y aprueba en masa (base compartida) | — |
+| Alertas personales | El correo va al dueño de la alerta, no a la lista de avisos | notificaciones.php |
+| Monedas | ARS y USD siempre por separado, sin conversión; el cumplimiento de cuota, sólo ARS | `sumar_por_moneda()` (helpers.php) |
+| Modo prueba | Sólo sale a los usuarios activos del CRM más `testing_lista_blanca` (sin pantalla: se carga en `app_settings`) | `campana_lista_blanca()` |
+| Cruce de respuestas | Por `In-Reply-To` / `References`; si no cruza, cuenta como respuesta sólo si hubo un envío a ese remitente en los últimos 45 días | `IMAP_RESPALDO_DIAS` (imap.php) |
+| Recordatorio de último momento | Reserva hecha con menos de 24 h: el recordatorio sale 12 h después de reservar, o ninguno si la reunión es antes | `AGENDA_RECORDATORIO_GRACIA_H` (agenda.php) |
+| Intentos de reserva | Tope de 20 intentos por hora por visitante (además del cupo 3/h y 6/día de reservas que entran) | api/v1/reserva.php |
+| `api/estado` | Sólo `GET`, 60 pedidos por minuto por IP de origen, claves de lectura o root | pages/api/estado.php |
+| Tope diario de la agenda | Los cambios de horario no cuentan; las canceladas sí | `agenda_controlar_topes()` |
+| Papelera mínima | 7 días (Ajustes no acepta menos) | ajustes_validar.php |
+
+---
+
 Fecha: 22/11/2026 · Rama: `docs/auditoria-comentarios` · Base: `80a38d9` (web-api-v1-produccion)
 
 ## Qué se hizo

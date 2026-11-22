@@ -4,6 +4,122 @@ Todos los cambios notables de este proyecto se documentan acá.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/)
 y el versionado, [SemVer](https://semver.org/lang/es/).
 
+## 2026-11-22 · Arreglos de la auditoría
+
+Arreglos de los hallazgos de [md/AUDITORIA.md](md/AUDITORIA.md), en diez lotes que se juntaron
+en la rama `fix/auditoria`. Lo que no se arregló, y por qué, está al principio de ese documento.
+Aplicado en crm-pruebas (código y migraciones 010–018); **producción todavía no**. El contrato
+con la web no cambió.
+
+### Lo que cambia para quien usa el CRM
+
+- **Contestar un correo desde la conversación vuelve a andar** (antes fallaba siempre).
+- **«Borrar los datos de prueba»**, y «Se trabaja» / «Eliminar» en Feriados, hacen lo que dicen.
+- **Desplegables grandes con buscador:** en empresa, contacto, negocio y campaña se escriben dos
+  letras o más y aparecen los que coinciden. Editar ya no borra un vínculo que no entraba en la
+  lista.
+- **Permisos:** exportar a CSV (contactos, empresas, posibles clientes, entradas de la web) es
+  sólo de administradores; mandar a la papelera, del propietario o un administrador (sin
+  propietario, cualquiera); iniciar o cancelar una campaña, de su creador, su responsable o un
+  administrador. Los botones que no corresponden no se muestran.
+- **Adjuntos:** los borra su autor o un administrador, y van a la papelera (solapa «Archivos»).
+- **Montos en ARS y USD por separado** en negocios, Kanban, cuotas, pronóstico, reportes y la
+  ficha de la empresa. No hay conversión.
+- **Alertas:** las del equipo se marcan leídas por persona; las personales llegan por correo a
+  su dueño.
+- **Sesión:** una pestaña olvidada ya no cierra la sesión de las demás; una pestaña visible sin
+  uso se cierra a los 10 minutos (la campana ya no la mantiene viva). Si el formulario vence,
+  la pantalla muestra lo escrito.
+- **Ajustes** valida lo que se carga (papelera de 7 a 365 días, clave del cron de 24 caracteres
+  o más, correos, teléfonos) y, con un error, no guarda nada. Volver a «Prueba» pide una
+  confirmación aparte.
+- **Modo prueba:** las campañas sólo mandan a los usuarios del CRM y a la lista blanca
+  (`testing_lista_blanca`).
+- **Campañas:** los contactos en la papelera ya no reciben correos; un rechazo 5xx no se
+  reintenta; aparecen envíos «fallido» y «dudoso» para revisar a mano; una casilla desactivada
+  deja la campaña quieta en vez de mandar por otra.
+- **Reuniones de la agenda:** la fecha se cambia con «Mover la reunión», no desde el formulario de
+  la actividad. Una reunión reservada con menos de 24 h recibe el recordatorio 12 h después de
+  reservar (o ninguno). Las campañas descuentan las reuniones canceladas.
+- **Negocios:** al cambiar de etapa la probabilidad pasa a ser la de la etapa; sólo se mueve a
+  etapas activas del mismo embudo; la fecha de cierre se conserva.
+- **Conversión de posibles clientes:** lleva etiquetas, sector y empleados, no pisa datos y no
+  pone «Precalificado»; los importes se leen en formato argentino.
+- **Importador:** acepta los CSV de Excel en castellano; al reimportar no reasigna propietarios ni
+  empresas y omite lo que está en la papelera.
+- Un comercial ve la falla de Google de su propia agenda; las ajenas sólo un administrador.
+
+### Correo e IMAP
+
+- `conversacion.php` usa `verify_csrf()`; responder sale por la casilla correcta con
+  `In-Reply-To` y queda guardado.
+- IMAP: la conversión de caracteres nunca lanza, la marca de UID avanza por mensaje, boundary del
+  encabezado original (Outlook, Apple Mail), literal separado del cierre del FETCH, `UIDVALIDITY`,
+  turno atómico, `INSERT IGNORE`, cabeceras recortadas.
+- Respuestas cruzadas por `In-Reply-To` / `References` (respaldo por dirección con envíos de 45
+  días); rebotes por el `Message-ID` del envío y marcando sólo el envío más reciente.
+- HTML entrante saneado con lista blanca sobre `DOMDocument` (requiere la extensión `dom`) y
+  mostrado en un `iframe` sin `allow-same-origin`.
+- Casillas: el alta guarda `smtp_pass`; una dada de baja se puede volver a cargar.
+- Campañas: XSS de plantillas cerrado (JSON escapado, sólo plantillas visuales, variables
+  escapadas, vistas previas en `iframe sandbox`); marca «Entregando al servidor…» y estado dudoso
+  contra los duplicados; 5xx definitivos; el corte por presupuesto respeta las esperas; topes
+  antes de cada correo; `bajas_tokens` mantiene vivos los enlaces de baja después de la purga;
+  IP como hash en baja y píxel; `api-campana` liviano.
+
+### Agenda, Google y API
+
+- Mover y cancelar: bloqueo, `FOR UPDATE` y `estado = 'confirmada'`; base primero, Google
+  después, con `gcal_pendiente` y reintento desde el cron.
+- `freeBusy` con error ya no publica todo libre; falla de Google por vendedor; renovación del
+  token dentro de los 6 s de la reserva y pausa de 15 minutos tras `invalid_grant`; evento con id
+  propio.
+- Feriados comparados por fecha argentina; consulta al vuelo de 2 s; un feriado manual no pisa
+  uno oficial.
+- API v1: cupo por visitante que cuenta sólo reservas que entran, tope de 20 intentos por hora
+  (`429 demasiados_pedidos`), reparación de entradas trabadas (120 s), `codigo` en
+  `503 migracion_pendiente`. `api/estado`: sólo `GET`, 60 por minuto por IP, claves de lectura o
+  root. Auditoría que no se puede inundar.
+
+### Núcleo, seguridad y frontend
+
+- Logout por POST con CSRF (GET sólo desde el mismo sitio); `440` en JSON para `api-*`, `__vivo` y
+  XHR sin sesión; pantalla `419` que conserva lo escrito.
+- Último administrador protegido; `.htaccess` niega respaldos y archivos sueltos; adjuntos en
+  disco sólo con extensiones de documento; `crm_config` deducido (`CRM_CONFIG_DIR`); secreto al
+  azar en `STORAGE/.secreto-app` si falta `app.secret`.
+- Confirmaciones con `requestSubmit`; ventana y desplegables accesibles; `ASSETS_V` cubre todos los
+  CSS y JS; refresco con `__vivo=1`.
+
+### Base, cron, despliegue y pruebas
+
+- `schema.sql` completo: 42 tablas, todas las migraciones hasta la 018. Instalación nueva = sólo
+  `schema.sql`.
+- Migraciones nuevas:
+  - **010** `notificacion_lecturas` (alertas leídas por persona).
+  - **013** `agenda_reservas.gcal_pendiente` + índice.
+  - **015** `bajas_tokens`; `ip` a `VARCHAR(64)` en `envio_eventos` y `desuscripciones`; ajuste
+    `testing_lista_blanca`.
+  - **016** `imap_estado.uidvalidity`; índices `ix_msg_de` / `ix_msg_para`; `smtp_pass` con
+    `DEFAULT ''`.
+  - **017** `avisar_sistema` vuelve a `1`; alertas de sistema viejas marcadas como avisadas.
+  - **018** índices de `envios`, `listas` y `campanas`; fuera `ix_cont_pend` / `ix_cta_pend`;
+    `mensajes.cuenta_correo_id` a `INT UNSIGNED`; `remitente_vivo` + `uq_cuenta_remitente_viva`.
+- Cron: bloqueo con el nombre de la base, marca diaria después del éxito (reintento cada hora),
+  cabecera `X-Cron-Clave` con `hash_equals`, reintentos de Google.
+- `deploy.py`: destino obligatorio (`--pruebas` | `--produccion`), `config --pruebas` sube
+  `crm-pruebas.php`, `schema` sólo sobre base vacía con `CRM_DB_PASS_<DESTINO>`, verificación de
+  la clave del servidor (`--aceptar-clave-nueva`), `app --limpiar`.
+- `reinicio.php`: carpeta `crm-pruebas` con su config o base `*_pruebas`, `app_entorno` ausente =
+  producción, confirmación con el nombre de la base (`--confirmar=<base>`), borrado en
+  transacción, datos personales en la sección `'pruebas'` de la config.
+- Pruebas: `render` y `vivo` contra pruebas por defecto (producción con `--produccion`);
+  `run_tests.php` exige `pdo_sqlite` (o `CRM_TEST_SIN_BASE=1`) y carga `test/casos/` y
+  `test/casos_db/`. Resultados: `run_tests.php` 1187/1187 (1183/1183 en el servidor, PHP 8.3),
+  `ui_test.php` 334/334, contrato con la web 24/24, `smoke.sh` 71/71, render 61/61,
+  `api_test.php` 61/62 en pruebas (falta una casilla de correo cargada en crm-pruebas),
+  herramientas Python 21/21.
+
 ## [Unreleased]
 
 ### Added
