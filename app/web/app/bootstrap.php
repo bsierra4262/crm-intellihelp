@@ -95,11 +95,16 @@ define('APP_ENV', $CONFIG['app']['env'] ?? 'prod');
  * La versión sale de la fecha de modificación de los propios archivos: si
  * cambia alguno, cambia la versión y el navegador no se queda con la hoja
  * cacheada. No depende de acordarse de subir un número a mano.
+ * Entran TODAS las hojas (assets/css/*.css) y todos los scripts
+ * (assets/js/*.js), también los que se agreguen después: con una lista fija,
+ * un cambio en un script que no figuraba no renovaba la caché.
  */
 define('ASSETS_V', (function (): string {
     $mayor = 0;
-    foreach (['css/app.css', 'js/app.js', 'js/editor.js', 'js/idle.js', 'js/vivo.js'] as $a) {
-        $t = @filemtime(dirname(__DIR__) . '/assets/' . $a);
+    $dir = dirname(__DIR__) . '/assets/';
+    $archivos = array_merge(glob($dir . 'css/*.css') ?: [], glob($dir . 'js/*.js') ?: []);
+    foreach ($archivos as $a) {
+        $t = @filemtime($a);
         if ($t !== false && $t > $mayor) { $mayor = $t; }
     }
     // Si no se pudo leer ninguno, se cae a un valor fijo antes que servir sin

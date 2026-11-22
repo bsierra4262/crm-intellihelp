@@ -140,7 +140,7 @@ function notif_marcar_leidas(int $usuarioId, ?int $id = null): void
  *
  * Toma hasta 50 por corrida, sólo de los tipos con el aviso encendido. El
  * correo va a la lista `avisar_email_a` de Ajustes (separada por comas) o, si
- * está vacía, a todos los administradores activos: el primero como
+ * no tiene ninguna dirección válida, a todos los administradores activos: el primero como
  * destinatario y el resto en copia. Las alertas personales (con usuario_id)
  * también van a esa lista, no a su dueño.
  *
@@ -169,12 +169,16 @@ function notif_enviar_pendientes(): int
                 ORDER BY id LIMIT 50", $quiere)->fetchAll();
     if (!$filas) { return 0; }
 
-    // A quién se le avisa: lo cargado en Ajustes, o los administradores activos.
-    $a = array_filter(array_map('trim', explode(',', (string) setting_get('avisar_email_a', ''))));
+    // A quién se le avisa: las direcciones VÁLIDAS cargadas en Ajustes o, si
+    // no queda ninguna (campo vacío o todas mal escritas), los administradores
+    // activos. Antes el reparto a los administradores pasaba sólo con el campo
+    // vacío, y una lista toda inválida marcaba los avisos como enviados sin
+    // mandarlos.
+    $a = array_values(array_filter(array_map('trim', explode(',', (string) setting_get('avisar_email_a', ''))), 'email_valido'));
     if (!$a) {
-        $a = array_column(q("SELECT email FROM usuarios WHERE activo = 1 AND rol = 'admin'")->fetchAll(), 'email');
+        $a = array_values(array_filter(array_column(
+            q("SELECT email FROM usuarios WHERE activo = 1 AND rol = 'admin'")->fetchAll(), 'email'), 'email_valido'));
     }
-    $a = array_values(array_filter($a, 'email_valido'));
     if (!$a || !smtp_configurado()) {
         // Sin destinatario o sin casilla no se puede avisar; se marcan igual
         // para no arrastrarlas indefinidamente en cada corrida.

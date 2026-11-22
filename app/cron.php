@@ -60,11 +60,12 @@ require $bootstrap;
 
 // Por URL: /cron.php?clave=<cron_clave>. Sin clave configurada se niega
 // siempre, así que por defecto la vía web está cerrada. La clave viaja en la
-// URL, de modo que queda en los registros de acceso del servidor; y se
-// compara con !== (no con hash_equals), lo que en teoría deja medir tiempos.
+// URL, de modo que queda en los registros de acceso del servidor. Se compara
+// con hash_equals (tiempo constante) y Ajustes exige al menos 24 caracteres.
 if ($porWeb) {
     $clave = (string) setting_get('cron_clave', '');
-    if ($clave === '' || (($_GET['clave'] ?? '') !== $clave)) {
+    $dada  = $_GET['clave'] ?? '';
+    if ($clave === '' || !is_string($dada) || !hash_equals($clave, $dada)) {
         http_response_code(403);
         exit('Acceso denegado.');
     }

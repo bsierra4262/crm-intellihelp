@@ -101,11 +101,14 @@
      * elegido, a partir del mapa JSON de data-mapa. Se llama al cargar la
      * página y cada vez que cambia el tipo.
      *
-     * Si el sector guardado no figura en la lista del tipo (un valor viejo
-     * cargado a mano, o un tipo cambiado), se pierde de la vista: el select
-     * queda en la opción vacía y, como es obligatorio, hay que elegir otro.
+     * Si el sector guardado (data-elegido) no figura en la lista del tipo
+     * guardado (un valor viejo cargado a mano o importado), se agrega al final
+     * como opción extra, marcada «(valor anterior)», para que abrir y guardar
+     * la ficha no obligue a cambiarlo. Si se elige otro tipo, esa opción deja
+     * de ofrecerse: el sector viejo no tiene por qué servir para el tipo nuevo.
      * Si data-mapa no es JSON válido, no se toca nada.
      */
+    var tipoInicial = null;   // el tipo con el que se abrió la ficha
     function llenarSectores() {
         var tipo = document.querySelector('[data-tipo-empresa]');
         var sec  = document.querySelector('[data-sector-empresa]');
@@ -131,6 +134,16 @@
             if (o === elegido) { op.selected = true; }
             sec.appendChild(op);
         });
+
+        if (tipoInicial === null) { tipoInicial = tipo.value; }
+        var guardado = sec.getAttribute('data-elegido') || '';
+        if (guardado !== '' && tipo.value === tipoInicial && opciones.indexOf(guardado) === -1) {
+            var viejo = document.createElement('option');
+            viejo.value = guardado;
+            viejo.textContent = guardado + ' (valor anterior)';
+            if (elegido === guardado) { viejo.selected = true; }
+            sec.appendChild(viejo);
+        }
         // El desplegable propio tiene que redibujarse: su lista es una copia.
         sec.dispatchEvent(new Event('change', { bubbles: true }));
     }

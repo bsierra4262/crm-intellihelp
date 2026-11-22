@@ -1482,10 +1482,15 @@ function marcar_rebote(string $email, string $detalle = '', bool $duro = false):
                    . ($archivados ? ' · ' . $archivados . ' contacto(s) archivado(s)' : '')]);
 }
 
-/** Cuántos días se conserva lo archivado antes de borrarlo definitivamente. */
+/**
+ * Cuántos días se conserva lo archivado antes de borrarlo definitivamente.
+ * Un valor vacío, 0 o ilegible vale como el defecto (60), y nunca menos de 7:
+ * antes un ajuste guardado vacío daba 1 día y la purga vaciaba la papelera.
+ */
 function dias_papelera(): int
 {
-    return max(1, (int) setting_get('papelera_dias', '60'));
+    $n = (int) setting_get('papelera_dias', '60');
+    return $n <= 0 ? 60 : max(7, $n);
 }
 
 /**

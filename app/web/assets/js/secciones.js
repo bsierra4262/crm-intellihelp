@@ -105,10 +105,10 @@
      * Toma la respuesta del servidor y reemplaza las zonas que cambiaron.
      *
      * Cada zona de la pantalla se busca en la respuesta por su nombre
-     * (data-vivo="nombre"); si no está, se deja como está. Una zona con
-     * data-vivo vacío (campana-ver.php) se busca como data-vivo="" y toma la
-     * primera vacía de la respuesta: con dos zonas sin nombre en la misma
-     * pantalla se pisarían.
+     * (data-vivo="nombre"); si no está, se deja como está. Si hay varias zonas
+     * con el mismo nombre (por ejemplo, dos con data-vivo vacío), se aparean
+     * por orden de aparición: la segunda de la pantalla con la segunda de la
+     * respuesta, y así.
      *
      * Lo último que mandó el servidor para cada zona se guarda en la propiedad
      * `__servidor` del propio elemento.
@@ -118,10 +118,14 @@
     function aplicar(html) {
         var doc2 = new DOMParser().parseFromString(html, 'text/html');
         var cambio = false;
+        // Cuántas zonas de cada nombre se recorrieron ya, para aparear por orden.
+        var vistas = {};
 
         doc.querySelectorAll('[data-vivo]').forEach(function (zona) {
             var nombre = zona.getAttribute('data-vivo');
-            var nueva  = doc2.querySelector('[data-vivo="' + nombre + '"]');
+            var n = vistas[nombre] = (vistas[nombre] || 0) + 1;
+            var nuevas = doc2.querySelectorAll('[data-vivo="' + nombre.replace(/["\\]/g, '\\$&') + '"]');
+            var nueva  = nuevas[n - 1];
             if (!nueva) { return; }
 
             // Se compara contra lo ÚLTIMO QUE MANDÓ EL SERVIDOR, no contra lo

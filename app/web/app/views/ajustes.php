@@ -11,7 +11,7 @@
 //    · $cuentas array: las casillas de cuentas_correo (id, nombre, remitente,
 //      activo, predeterminada).
 //  Además consulta por su cuenta datos_prueba_resumen(), modulos(),
-//  notif_tipos() y setting_get().
+//  ajustes_tipos_aviso() y setting_get().
 //
 //  Formularios: uno grande (accion=guardar, con el botón de borrar los datos
 //  de prueba adentro) y, al final, tres chicos para probar el correo y
@@ -20,11 +20,16 @@
 //  Todo dato que sale de la base o del usuario se imprime con e(); los
 //  números con (int).
 //
-//  Los «hint» de cada campo explican la regla, pero los límites (min, max,
-//  pattern, maxlength) los controla sólo el navegador: el servidor guarda lo
-//  que llegue.
+//  Los «hint» de cada campo explican la regla; los límites del navegador
+//  (min, max, pattern, maxlength) son una comodidad y el servidor los vuelve
+//  a controlar (ajustes_validar.php).
 // ============================================================
 /** @var ?array $aviso @var callable $s @var bool $smtp @var bool $imap @var string $cron @var array $cuentas */
+// ajustes_tipos_aviso() vive ahí (la página ya lo cargó; esto es por si la
+// vista se dibuja sola, como en test/render_test.php).
+require_once APP . '/ajustes_validar.php';
+// El modo guardado (no lo escrito en un formulario que no se pudo guardar).
+$enProduccion = (string) setting_get('app_entorno', 'testing') !== 'testing';
 ?>
 <div class="page-head">
     <div>
@@ -51,10 +56,10 @@
     <div class="card stat">
         <?php // Cualquier valor de app_entorno distinto de 'testing' se muestra (y se comporta) como Producción. ?>
         <span class="stat-label">Modo</span>
-        <span class="stat-value sm"><?= $s('app_entorno', 'testing') === 'testing' ? 'Prueba' : 'Producción' ?></span>
-        <span class="stat-foot"><?= $s('app_entorno', 'testing') === 'testing'
-            ? 'Los correos salen igual; lo de prueba son los datos'
-            : 'En marcha, con datos reales' ?></span>
+        <span class="stat-value sm"><?= $enProduccion ? 'Producción' : 'Prueba' ?></span>
+        <span class="stat-foot"><?= $enProduccion
+            ? 'En marcha, con datos reales'
+            : 'Los correos salen igual; lo de prueba son los datos' ?></span>
     </div>
     <div class="card stat">
         <span class="stat-label">Última corrida del cron</span>
@@ -76,11 +81,11 @@
                 <input name="app_nombre" value="<?= e($s('app_nombre', 'CRM INTELLIHELP')) ?>" maxlength="80" placeholder="CRM INTELLIHELP">
                 <i class="hint">Lo que se lee en la pestaña del navegador y en el pie de las pantallas.</i>
             </label>
-            <?php // Esta es la única traba contra «reiniciar todo»: cualquier administrador puede volver a «Prueba» desde acá, y el cambio no pide confirmación aparte. ?>
+            <?php // Es la traba contra «reiniciar todo»: volver a «Prueba» desde «Producción» exige además tildar la casilla de confirmación de abajo (el servidor lo controla) y queda con su propia línea en la auditoría. ?>
             <label class="fld"><span>Modo de trabajo</span>
                 <select name="app_entorno">
                     <option value="testing"    <?= $s('app_entorno', 'testing') === 'testing' ? 'selected' : '' ?>>Prueba (se puede reiniciar todo)</option>
-                    <option value="produccion" <?= $s('app_entorno') === 'produccion' ? 'selected' : '' ?>>Producción</option>
+                    <option value="produccion" <?= $s('app_entorno', 'testing') !== 'testing' ? 'selected' : '' ?>>Producción</option>
                 </select>
                 <i class="hint">
                     El sistema funciona igual en los dos modos: en «Prueba» los correos salen de
@@ -91,6 +96,16 @@
                 </i>
             </label>
         </div>
+        <?php if ($enProduccion): ?>
+            <label class="switch bloque mt-3">
+                <input type="checkbox" name="confirmar_prueba" value="1">
+                <span class="track"></span>
+                <span><strong>Confirmo volver a «Prueba»</strong><br>
+                    <span class="small muted">Hace falta sólo si arriba elegís «Prueba». En ese modo
+                    se puede reiniciar todo y borrar la base: tildalo sólo si de verdad querés
+                    salir de Producción. Queda registrado en la actividad.</span></span>
+            </label>
+        <?php endif; ?>
     </div>
 
     <div class="card form-card">
@@ -103,7 +118,7 @@
             <br><br>
             <strong>Contactos, Empresas y el registro de actividad están siempre.</strong> Son el
             núcleo: sin ellos no queda sistema.
-            <?php if ($s('app_entorno', 'testing') === 'testing'): ?>
+            <?php if (!$enProduccion): ?>
                 <br><br>En <strong>modo prueba está todo encendido igual</strong>, sin importar lo
                 que marques acá: es el lugar donde se termina lo que falta. Esto empieza a valer
                 cuando pases a Producción.
@@ -156,8 +171,8 @@
             // Está DENTRO del formulario grande y se distingue sólo por su
             // name/value. formnovalidate deja borrar aunque algún campo de
             // ajustes no pase la validación del navegador. Con data-confirmar,
-            // app.js confirma y envía con form.submit(), que no incluye el
-            // valor del botón: ver la nota en pages/ajustes.php.
+            // app.js confirma y envía con requestSubmit(botón), que manda su
+            // name/value (accion=limpiar_prueba) y respeta formnovalidate.
             ?>
             <div class="mt-3">
                 <button class="btn btn-ghost" name="accion" value="limpiar_prueba" formnovalidate
@@ -191,14 +206,14 @@
                 <input type="tel" inputmode="tel" name="empresa_telefono" value="<?= e($s('empresa_telefono')) ?>" maxlength="60" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios." placeholder="11 7700-6868">
                 <i class="hint">El fijo, para el bloque de datos de contacto del correo. El de WhatsApp va en el campo de al lado.</i>
             </label>
-            <?php // El hint pide sin «+», pero el pattern y campos.js lo aceptan: nada lo impide. ?>
+            <?php // Se puede escribir con «+», espacios o guiones: el servidor guarda sólo los dígitos (es lo que usa wa.me) y pide al menos ocho. ?>
             <label class="fld"><span>WhatsApp</span>
-                <input type="tel" inputmode="tel" name="empresa_whatsapp" value="<?= e($s('empresa_whatsapp')) ?>" maxlength="60" placeholder="5491150274827" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
-                <i class="hint">Sólo números, con código de país y sin el «+». Es el que usa el botón de WhatsApp.</i>
+                <input type="tel" inputmode="tel" name="empresa_whatsapp" value="<?= e($s('empresa_whatsapp')) ?>" maxlength="60" placeholder="5491150274827" pattern="<?= e(TELEFONO_PATRON) ?>" title="Con código de país, al menos ocho números. Se aceptan + ( ) - . y espacios.">
+                <i class="hint">Con código de país (54 9 11…). Se guarda sólo con los números, sin el «+». Es el que usa el botón de WhatsApp.</i>
             </label>
-            <?php // Campo de texto común, no type="email": no hay ninguna validación de formato, ni acá ni en el servidor. ?>
+            <?php // type="email": el navegador avisa antes, y el servidor lo valida igual. ?>
             <label class="fld wide"><span>Correo de contacto</span>
-                <input name="empresa_email" value="<?= e($s('empresa_email')) ?>" maxlength="190" placeholder="info@intellihelp.tech">
+                <input type="email" name="empresa_email" value="<?= e($s('empresa_email')) ?>" maxlength="190" placeholder="info@intellihelp.tech">
                 <i class="hint">El que se muestra en el correo para que te escriban. No es el mismo que la casilla desde la que se envía.</i>
             </label>
         </div>
@@ -222,13 +237,17 @@
             <div class="grid-fields">
                 <label class="fld wide"><span>Casilla por defecto</span>
                     <?php
-                    // Si ninguna casilla está marcada como predeterminada, el
-                    // navegador deja elegida la primera y «Guardar ajustes» la
-                    // convierte en la predeterminada sin que nadie la haya
-                    // elegido. Las inactivas también se ofrecen.
+                    // Si ninguna casilla está marcada como predeterminada, la
+                    // primera opción es «sin elegir» (valor 0, que la página
+                    // toma como «no cambiar»): guardar no convierte en
+                    // predeterminada una casilla que nadie eligió. Se ofrecen
+                    // sólo las activas, más la predeterminada actual si está
+                    // inactiva (para que siga a la vista).
+                    $hayPred = (bool) array_filter($cuentas, fn($x) => !empty($x['predeterminada']));
                     ?>
                     <select name="cuenta_predeterminada">
-                        <?php foreach ($cuentas as $cu): ?>
+                        <?php if (!$hayPred): ?><option value="0" selected>— Elegí una casilla —</option><?php endif; ?>
+                        <?php foreach ($cuentas as $cu): if (empty($cu['activo']) && empty($cu['predeterminada'])) continue; ?>
                             <option value="<?= (int)$cu['id'] ?>" <?= !empty($cu['predeterminada']) ? 'selected' : '' ?>>
                                 <?= e($cu['nombre']) ?> · <?= e($cu['remitente']) ?>
                                 <?= empty($cu['activo']) ? ' (inactiva)' : '' ?>
@@ -257,13 +276,14 @@
             Se agrupan: cinco cosas en diez minutos son un correo, no cinco.
         </p>
         <?php
-        // Un interruptor por tipo de alerta, salvo 'sistema', que no se
-        // ofrece. Como la página pone en '0' todo tipo que no llega en el
-        // POST, guardar esta pantalla apaga siempre los avisos de 'sistema'.
-        // Los valores por defecto (todo encendido menos 'rebote') tienen que
-        // coincidir con los de notif_enviar_pendientes() en notificaciones.php.
+        // Un interruptor por tipo de alerta de ajustes_tipos_aviso() (todos
+        // salvo 'sistema', que no se ofrece y queda encendido). La página
+        // guarda exactamente esa misma lista, así que guardar no toca
+        // avisar_sistema. Los valores por defecto (todo encendido menos
+        // 'rebote') tienen que coincidir con los de notif_enviar_pendientes()
+        // en notificaciones.php.
         ?>
-        <?php foreach (notif_tipos() as $k => $t): if ($k === 'sistema') continue; ?>
+        <?php foreach (ajustes_tipos_aviso() as $k => $t): ?>
             <label class="switch bloque mb-3">
                 <input type="checkbox" name="<?= e($t['ajuste']) ?>" value="1"
                        <?= (string) setting_get($t['ajuste'], $k === 'rebote' ? '0' : '1') === '1' ? 'checked' : '' ?>>
@@ -274,10 +294,9 @@
         <?php endforeach; ?>
         <div class="grid-fields">
             <?php
-            // Lista separada por comas, guardada sin validar. Al mandar los
-            // avisos se descartan las direcciones inválidas; si TODAS lo son,
-            // los avisos se marcan como enviados sin mandarse (no se cae a los
-            // administradores, eso pasa sólo con el campo vacío).
+            // Lista separada por comas. El servidor rechaza el guardado si
+            // alguna dirección no es válida, y al mandar los avisos, si no
+            // queda ninguna válida, se les avisa a los administradores.
             ?>
             <label class="fld wide"><span>A qué dirección avisamos</span>
                 <input name="avisar_email_a" value="<?= e($s('avisar_email_a')) ?>" maxlength="500"
@@ -291,30 +310,29 @@
     <div class="card form-card">
         <h2 class="sec">Ritmo por defecto de las campañas</h2>
         <?php
-        // Ningún campo de esta tarjeta es obligatorio y el servidor no los
-        // valida: se puede guardar vacío, o una pausa mínima mayor que la
-        // máxima. Vaciar «Días en la papelera» deja '' guardado, que
-        // campanas.php lee como 0 y lleva a 1 día (max(1, ...)).
+        // El servidor valida todo (ajustes_validar.php): enteros mayores que
+        // 0, pausa mínima ≤ máxima, papelera de 7 a 365 días. Un número vacío
+        // conserva el valor guardado.
         // La clave del cron se muestra en claro (sólo la ven administradores)
         // y viaja en la URL del cron por web.
         ?>
         <div class="grid-fields">
-            <label class="fld"><span>Pausa mínima (seg)</span><input type="number" name="campana_pausa_min" value="<?= e($s('campana_pausa_min', '25')) ?>" min="5">
+            <label class="fld"><span>Pausa mínima (seg)</span><input type="number" name="campana_pausa_min" value="<?= e($s('campana_pausa_min', '25')) ?>" min="5" max="3600">
                 <i class="hint">El valor con el que arranca cada campaña nueva. Después se puede cambiar campaña por campaña.</i>
             </label>
-            <label class="fld"><span>Pausa máxima (seg)</span><input type="number" name="campana_pausa_max" value="<?= e($s('campana_pausa_max', '45')) ?>" min="10">
-                <i class="hint">Ídem: la espera real es un número al azar entre el mínimo y este.</i>
+            <label class="fld"><span>Pausa máxima (seg)</span><input type="number" name="campana_pausa_max" value="<?= e($s('campana_pausa_max', '45')) ?>" min="10" max="3600">
+                <i class="hint">Ídem: la espera real es un número al azar entre el mínimo y este. No puede ser menor que la mínima.</i>
             </label>
-            <label class="fld"><span>Límite diario</span><input type="number" name="campana_limite_diario" value="<?= e($s('campana_limite_diario', '300')) ?>" min="1">
+            <label class="fld"><span>Límite diario</span><input type="number" name="campana_limite_diario" value="<?= e($s('campana_limite_diario', '300')) ?>" min="1" max="100000">
                 <i class="hint">Tope diario por defecto. Google corta cerca de los 2.000 por día en Workspace; conviene quedarse bien por debajo.</i>
             </label>
             <label class="fld"><span>Días en la papelera</span>
-                <input type="number" name="papelera_dias" value="<?= e($s('papelera_dias', '60')) ?>" min="1" max="365">
-                <i class="hint">Cuánto se conserva lo archivado antes de borrarlo definitivamente.</i>
+                <input type="number" name="papelera_dias" value="<?= e($s('papelera_dias', '60')) ?>" min="7" max="365">
+                <i class="hint">Cuánto se conserva lo archivado antes de borrarlo definitivamente. Entre 7 y 365 días; vacío deja el valor que había.</i>
             </label>
             <label class="fld"><span>Clave del cron por URL</span>
-                <input name="cron_clave" value="<?= e($s('cron_clave')) ?>" maxlength="60" placeholder="una clave larga y dificil de adivinar">
-                <i class="hint">Sólo hace falta si el hosting no permite ejecutar el cron por línea de comandos.</i>
+                <input name="cron_clave" value="<?= e($s('cron_clave')) ?>" minlength="24" maxlength="128" autocomplete="off" placeholder="una clave larga y dificil de adivinar">
+                <i class="hint">Sólo hace falta si el hosting no permite ejecutar el cron por línea de comandos. Al menos 24 caracteres; vacía, el cron por URL queda cerrado.</i>
             </label>
         </div>
     </div>
