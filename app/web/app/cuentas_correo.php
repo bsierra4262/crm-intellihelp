@@ -56,7 +56,7 @@ function cuentas_correo_listar(bool $soloActivas = false): array
     $w = 'WHERE cc.eliminado_en IS NULL' . ($soloActivas ? ' AND cc.activo = 1' : '');
     return q("SELECT cc.*, u.nombre AS usuario,
                      (SELECT COUNT(*) FROM envios e
-                      WHERE e.cuenta_correo_id = cc.id AND DATE(e.enviado_en) = CURDATE()) AS enviados_hoy
+                      WHERE e.cuenta_correo_id = cc.id AND e.enviado_en >= CURDATE()) AS enviados_hoy
               FROM cuentas_correo cc
               LEFT JOIN usuarios u ON u.id = cc.usuario_id
               $w ORDER BY cc.predeterminada DESC, cc.nombre")->fetchAll();
@@ -231,10 +231,13 @@ function cuenta_a_imap(array $c): array
  * ¿A la cuenta le queda cupo hoy? Cuenta los envíos con enviado_en de hoy
  * (fecha del servidor de base, que db.php alinea con la zona de la app)
  * contra `limite_diario`. Lo usa el despachador antes de cada correo.
+ * Se pide `enviado_en >= CURDATE()` (no hay envíos con fecha futura) y no
+ * DATE(enviado_en) = CURDATE(): así la cuenta sale del índice
+ * (cuenta_correo_id, enviado_en) de la migración 018.
  */
 function cuenta_tiene_cupo(array $c): bool
 {
-    $hoy = (int) qv('SELECT COUNT(*) FROM envios WHERE cuenta_correo_id = ? AND DATE(enviado_en) = CURDATE()',
+    $hoy = (int) qv('SELECT COUNT(*) FROM envios WHERE cuenta_correo_id = ? AND enviado_en >= CURDATE()',
                     [(int)$c['id']]);
     return $hoy < (int)$c['limite_diario'];
 }

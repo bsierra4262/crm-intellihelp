@@ -17,6 +17,7 @@
 --
 --  ADD COLUMN IF NOT EXISTS es sintaxis de MariaDB: en MySQL 8 esta
 --  sentencia falla. Requiere la migración 002 (que crea `cuentas_correo`).
+--  schema.sql ya incluye esto: una instalacion nueva no necesita correrla.
 -- ============================================================
 
 ALTER TABLE `cuentas_correo`

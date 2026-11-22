@@ -27,18 +27,57 @@ declare(strict_types=1);
 //    6.  una vez por día, borra los datos personales de las entradas de la web
 //        que ya no tienen contacto y limpia los contadores de límites vencidos
 //
-//  Cada paso va en su propio try/catch: si uno falla, se anota en la salida y
-//  en `actividad` (tipo 'error', acción 'cron.<paso>_error') y la corrida
-//  sigue con el siguiente. La salida del cron de hPanel va a /dev/null, así
-//  que esos registros en `actividad` (pantalla CRON) son el único rastro de
-//  un error: nadie recibe un aviso.
+//  Cada paso va en su propio try/catch: si uno falla, se reabre la conexión
+//  (por si lo que falló fue ella), se anota en la salida y en `actividad`
+//  (tipo 'error', acción 'cron.<paso>_error') y la corrida sigue con el
+//  siguiente. La salida del cron de hPanel va a /dev/null, así que esos
+//  registros en `actividad` (pantalla CRON) son el único rastro de un error:
+//  nadie recibe un aviso.
 //
 //  Ajustes que lee y escribe: `cron_clave` (para la llamada por URL),
 //  `cron_turno`, `cron_en_curso_desde`, `cron_ultima_corrida`,
-//  `papelera_ultima_purga`, `entradas_web_ultima_limpieza`, `papelera_dias`.
+//  `papelera_ultima_purga`, `papelera_intento_en`,
+//  `entradas_web_ultima_limpieza`, `entradas_web_intento_en`, `papelera_dias`.
 //
 //  Es seguro correrlo muchas veces: todo es idempotente y nada se duplica.
 // ============================================================
+
+// ---- Funciones propias del cron ----
+// Están arriba y sin efectos para poder probarlas (test/casos/e2.php define
+// CRON_SOLO_FUNCIONES antes de incluir el archivo y se queda sólo con ellas).
+
+/**
+ * ¿La clave que llegó por URL o cabecera es la configurada?
+ *
+ * Sin clave configurada se niega siempre: por defecto la vía web está
+ * cerrada. hash_equals compara en tiempo constante, así que no se puede ir
+ * adivinando la clave carácter por carácter midiendo cuánto tarda la
+ * respuesta.
+ */
+function cron_clave_valida(string $configurada, string $recibida): bool
+{
+    return $configurada !== '' && hash_equals($configurada, $recibida);
+}
+
+/**
+ * ¿Toca hacer hoy una tarea diaria (purga, limpieza de entradas web)?
+ *
+ * La marca del día se escribe recién cuando la tarea terminó bien. Si falló,
+ * se reintenta, pero no en cada corrida (serían 288 errores por día en la
+ * auditoría): se espera `$esperaSeg` desde el último intento.
+ *
+ * @param string $marca   fecha (AAAA-MM-DD) del último día en que terminó bien
+ * @param string $intento timestamp Unix del último intento, '' si no hubo
+ * @param string $hoy     fecha de hoy según la base (CURDATE())
+ * @param int    $ahora   timestamp Unix actual
+ */
+function cron_toca_diario(string $marca, string $intento, string $hoy, int $ahora, int $esperaSeg = 3600): bool
+{
+    if ($marca === $hoy) { return false; }
+    return $intento === '' || $ahora - (int) $intento >= $esperaSeg;
+}
+
+if (defined('CRON_SOLO_FUNCIONES')) { return; }
 
 // Se puede llamar también por HTTP (algunos paneles sólo ofrecen cron-URL).
 // En ese caso hace falta la clave que se configura en Ajustes.
@@ -58,14 +97,12 @@ if (!$bootstrap) {
 }
 require $bootstrap;
 
-// Por URL: /cron.php?clave=<cron_clave>. Sin clave configurada se niega
-// siempre, así que por defecto la vía web está cerrada. La clave viaja en la
-// URL, de modo que queda en los registros de acceso del servidor. Se compara
-// con hash_equals (tiempo constante) y Ajustes exige al menos 24 caracteres.
+// Por URL: la clave va en la cabecera `X-Cron-Clave` (preferible: no queda
+// en los registros de acceso del servidor) o, si el panel sólo permite una
+// dirección, en /cron.php?clave=<cron_clave> (esa sí queda registrada).
 if ($porWeb) {
-    $clave = (string) setting_get('cron_clave', '');
-    $dada  = $_GET['clave'] ?? '';
-    if ($clave === '' || !is_string($dada) || !hash_equals($clave, $dada)) {
+    $recibida = (string) ($_SERVER['HTTP_X_CRON_CLAVE'] ?? ($_GET['clave'] ?? ''));
+    if (!cron_clave_valida((string) setting_get('cron_clave', ''), $recibida)) {
         http_response_code(403);
         exit('Acceso denegado.');
     }
@@ -82,20 +119,21 @@ if ($porWeb) {
 // envío se toma además con un UPDATE condicionado a su estado, que es atómico y
 // no depende de ninguna conexión en particular.
 //
-// Trampa: los bloqueos con nombre de MariaDB son de TODO el servidor, no de
-// cada base, y producción y pruebas comparten el servidor. Este nombre fijo
-// ('crm_cron', sin la base adelante, a diferencia de los de agenda.php y
-// feriados.php) hace que la corrida de una instalación bloquee a la de la
-// otra: si las dos están programadas a la misma hora, una se saltea entera.
-if (!qv("SELECT GET_LOCK('crm_cron', 0)")) {
+// Los bloqueos con nombre de MariaDB son de TODO el servidor, no de cada
+// base, y producción y pruebas comparten el servidor. Por eso el nombre
+// lleva la base adelante (como los de agenda.php y feriados.php): con un
+// nombre fijo, la corrida de una instalación bloqueaba a la de la otra y, si
+// las dos estaban programadas a la misma hora, una se salteaba entera.
+if (!qv("SELECT GET_LOCK(CONCAT(DATABASE(), ':cron'), 0)")) {
     $msg = 'Ya hay una corrida en curso. Esta se saltea para no duplicar envíos.';
     if ($porWeb) { echo $msg . PHP_EOL; } else { fwrite(STDOUT, $msg . PHP_EOL); }
     exit(0);
 }
 // El bloqueo se suelta solo al cerrar la conexión, pero se libera explícito
-// por si el proceso sigue vivo.
+// por si el proceso sigue vivo. Si la conexión se reabrió por el camino, el
+// bloqueo ya se había perdido con la vieja y esto no hace nada.
 register_shutdown_function(static function (): void {
-    try { qv("SELECT RELEASE_LOCK('crm_cron')"); } catch (\Throwable $e) {}
+    try { qv("SELECT RELEASE_LOCK(CONCAT(DATABASE(), ':cron'))"); } catch (\Throwable $e) {}
 });
 
 // Hora de arranque, para el tiempo total que se imprime al final, y las
@@ -111,8 +149,10 @@ $lineas = [];
 // `app_settings.cron_turno` de ESTA base (no se cruza con la otra instalación)
 // y no depende de la conexión. Vence a los 600 s (cron_tomar_turno() en
 // campanas.php): si el proceso muere sin soltarlo, la corrida siguiente lo
-// retoma después de ese plazo. Una corrida que tardara más de 600 s
-// perdería el turno y podría solaparse con la siguiente.
+// retoma después de ese plazo. Para que una corrida lenta (la de 280 s más
+// pasos que esperan a Google o a la fuente de feriados) no pierda el turno
+// estando viva, cron_renovar_turno() lo vuelve a fechar después de cada
+// vuelta y de cada paso.
 if (!cron_tomar_turno()) {
     $msg = date('c') . ' · otra corrida sigue en curso, este turno se saltea' . PHP_EOL;
     if ($porWeb) { echo $msg; } else { fwrite(STDOUT, $msg); }
@@ -123,6 +163,21 @@ if (!cron_tomar_turno()) {
 register_shutdown_function(static function (): void {
     try { db_reanudar(); cron_soltar_turno(); } catch (\Throwable $e) {}
 });
+
+/**
+ * Vuelve a fechar el turno tomado, para que no venza mientras esta corrida
+ * sigue trabajando. Sólo lo toca si sigue siendo un turno tomado (distinto
+ * de '0'): no toma un turno que alguien soltó. Un error acá no corta nada.
+ */
+function cron_renovar_turno(): void
+{
+    try {
+        q("UPDATE app_settings SET valor = ? WHERE clave = 'cron_turno' AND valor <> '0' AND valor <> ''",
+          [(string) time()]);
+    } catch (\Throwable $e) {
+        // Sin conexión: el paso siguiente la reabre.
+    }
+}
 
 // Se deja anotado que la corrida ARRANCÓ, no sólo cuándo terminó. Una corrida
 // que manda correos dura varios minutos, y mientras tanto la pantalla mostraba
@@ -140,10 +195,10 @@ setting_set('cron_en_curso_desde', date('Y-m-d H:i:s'));
 //  atar el sistema a lo que ofrezca un desplegable ajeno es frágil.
 //
 //  Así que el script trabaja en vueltas de ~55 segundos hasta gastar su
-//  presupuesto (CRON_CORRIDA_SEG): da unas cinco vueltas, esté el cron cada
-//  uno o cada cinco minutos. Con el cron cada minuto, las corridas que
-//  arrancan mientras otra sigue viva encuentran el turno tomado y se van sin
-//  hacer nada. En los dos casos la casilla se mira
+//  presupuesto: cada corrida da siempre unas cinco vueltas (280 s), esté el
+//  cron cada uno o cada cinco minutos. Con el cron cada minuto, las corridas
+//  que arrancan mientras otra sigue viva encuentran el bloqueo o el turno
+//  tomado y se van sin hacer nada. En los dos casos la casilla se mira
 //  aproximadamente cada minuto, que es lo que hace que una respuesta aparezca
 //  al toque en vez de cinco minutos después.
 //
@@ -236,9 +291,23 @@ do {
     // Después de dormir, la conexión a la base puede estar muerta: este hosting
     // la cierra a los 20 segundos de inactividad.
     db_reanudar();
+    cron_renovar_turno();
 } while (microtime(true) < $finDeCorrida);
 
 if ($vueltas > 1) { $lineas[] = $vueltas . ' vueltas'; }
+cron_renovar_turno();
+
+// «Hoy» para las tareas diarias (pasos 5 y 6) lo dice la base, igual que
+// los plazos que esas tareas calculan con NOW(): así la marca del día y el
+// plazo usan siempre el mismo reloj. db.php ya alinea la zona de la sesión
+// de MariaDB con la de PHP al conectar, de modo que coincide con date(); si
+// la consulta fallara, se cae a date().
+try {
+    $hoy = (string) qv('SELECT CURDATE()');
+} catch (\Throwable $e) {
+    db_reanudar();
+    $hoy = date('Y-m-d');
+}
 
 // ---- 3. Reservas sin completar ----
 // La reserva que llega de la web responde apenas queda guardada; el evento de
@@ -271,13 +340,14 @@ try {
     $lineas[] = 'reservas ERROR: ' . $e->getMessage();
     log_app('cron.reservas_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
 }
+cron_renovar_turno();
 
 // ---- 3b. Recordatorios de reuniones ----
 // Correo al invitado de cada reserva confirmada que empieza en las próximas
 // 24 h y todavía no tiene `recordatorio_enviado_en`.
-// A diferencia de los otros pasos, este y los siguientes no llaman a
-// db_reanudar() en el catch: si la conexión se hubiera caído, el log_app()
-// del error fallaría también y el error no quedaría registrado.
+// Como en todos los pasos, el catch reabre la conexión antes de registrar:
+// si la que se cayó fue ella, el log_app() del error fallaría también y el
+// error no quedaría registrado.
 try {
     $n = agenda_recordatorios();
     $lineas[] = "agenda: $n recordatorios enviados";
@@ -285,9 +355,11 @@ try {
         log_app('cron.agenda', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
     }
 } catch (\Throwable $e) {
+    db_reanudar();
     $lineas[] = 'agenda ERROR: ' . $e->getMessage();
     log_app('cron.agenda_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
 }
+cron_renovar_turno();
 
 // ---- 3c. Feriados ----
 // Una vez por día (la primera corrida del día, o cuando lo sincronizado tiene
@@ -310,9 +382,11 @@ try {
         }
     }
 } catch (\Throwable $e) {
+    db_reanudar();
     $lineas[] = 'feriados ERROR: ' . $e->getMessage();
     log_app('cron.feriados_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
 }
+cron_renovar_turno();
 
 // ---- 4. Alertas por correo ----
 // Se agrupan en un solo correo por corrida: cinco reuniones agendadas en diez
@@ -325,41 +399,50 @@ try {
         log_app('cron.alertas', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
     }
 } catch (\Throwable $e) {
+    db_reanudar();
     $lineas[] = 'alertas ERROR: ' . $e->getMessage();
     log_app('cron.alertas_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
 }
+cron_renovar_turno();
 
 // ---- 5. Purga de la papelera ----
 // Es el único lugar del sistema que borra físicamente, y sólo lo que ya cumplió
 // su plazo. Se corre una vez por día para no castigar la base en cada pasada.
 //
-// La marca del día se escribe ANTES de purgar: si purgar_papelera() falla a
-// la mitad, ese día no se reintenta y lo que faltaba se borra al día
-// siguiente. Es a propósito del lado seguro (nunca dos purgas el mismo día),
-// pero un error acá se ve sólo en `actividad`.
-// date() usa la zona horaria de PHP (`app.timezone` de la configuración, UTC
-// si falta): «el día» cambia a la medianoche de esa zona. El plazo de la
-// purga, en cambio, lo calcula la base con NOW(), en la zona de MariaDB.
+// La marca del día (`papelera_ultima_purga`) se escribe DESPUÉS de purgar,
+// sólo si salió bien. Si purgar_papelera() falla, el error queda en
+// `actividad` y se reintenta una hora más tarde (`papelera_intento_en`), no
+// recién mañana. Purgar dos veces el mismo día no hace daño: la segunda sólo
+// encuentra lo que haya cumplido el plazo en el medio.
+// «Hoy» es $hoy, la fecha de la base (ver arriba), el mismo reloj con el que
+// la purga calcula el plazo con NOW().
 try {
-    if (date('Y-m-d') !== (string) setting_get('papelera_ultima_purga', '')) {
-        setting_set('papelera_ultima_purga', date('Y-m-d'));
+    if (cron_toca_diario((string) setting_get('papelera_ultima_purga', ''),
+                         (string) setting_get('papelera_intento_en', ''), $hoy, time())) {
+        setting_set('papelera_intento_en', (string) time());
         $borrados = purgar_papelera();
         // Los adjuntos van aparte: además de la fila, se borra el archivo del
         // disco (adjuntos_purgar en registros.php).
         $archivos = adjuntos_purgar();
         if ($archivos > 0) { $borrados['archivos'] = $archivos; }
+        setting_set('papelera_ultima_purga', $hoy);
+        setting_set('papelera_intento_en', '');
         $total = array_sum($borrados);
         $lineas[] = 'papelera: ' . ($total
             ? $total . ' eliminados definitivamente tras ' . dias_papelera() . ' días ('
               . implode(', ', array_map(fn($k, $v) => "$v $k", array_keys($borrados), $borrados)) . ')'
             : 'nada para purgar');
-    } else {
+    } elseif ((string) setting_get('papelera_ultima_purga', '') === $hoy) {
         $lineas[] = 'papelera: ya se purgó hoy';
+    } else {
+        $lineas[] = 'papelera: falló hace menos de una hora, se reintenta después';
     }
 } catch (\Throwable $e) {
+    db_reanudar();
     $lineas[] = 'papelera ERROR: ' . $e->getMessage();
     log_app('cron.papelera_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
 }
+cron_renovar_turno();
 
 // ---- 6. Entradas desde la web ----
 // Una vez por día, como la papelera:
@@ -368,15 +451,19 @@ try {
 //     la fecha quedan, que son los números del embudo (Ley 25.326: no se
 //     guarda lo que ya no hace falta);
 //   · se borran los contadores de límites ya vencidos.
-// Igual que en la papelera, la marca del día se pone antes de trabajar: si
-// algo falla, se reintenta recién mañana. El plazo de anonimización es el
-// mismo de la papelera (`papelera_dias`, 60 por defecto).
+// Igual que en la papelera, la marca del día se pone cuando terminó bien; si
+// algo falla, se reintenta una hora después (`entradas_web_intento_en`). El
+// plazo de anonimización es el mismo de la papelera (`papelera_dias`, 60 por
+// defecto).
 try {
     if (function_exists('entradas_web_anonimizar')
-        && date('Y-m-d') !== (string) setting_get('entradas_web_ultima_limpieza', '')) {
-        setting_set('entradas_web_ultima_limpieza', date('Y-m-d'));
+        && cron_toca_diario((string) setting_get('entradas_web_ultima_limpieza', ''),
+                            (string) setting_get('entradas_web_intento_en', ''), $hoy, time())) {
+        setting_set('entradas_web_intento_en', (string) time());
         $anon  = entradas_web_anonimizar((int) setting_get('papelera_dias', '60') ?: 60);
         $lims  = q('DELETE FROM api_limites WHERE vence_en < NOW()')->rowCount();
+        setting_set('entradas_web_ultima_limpieza', $hoy);
+        setting_set('entradas_web_intento_en', '');
         $lineas[] = "entradas web: $anon anonimizadas, $lims contadores vencidos";
         if ($anon) {
             log_app('cron.entradas_web', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
@@ -384,6 +471,7 @@ try {
     }
 } catch (\Throwable $e) {
     // Sin la migración 008 todavía no hay tablas: no es un error del cron.
+    db_reanudar();
     if (!($e instanceof \PDOException && $e->getCode() === '42S02')) {
         $lineas[] = 'entradas web ERROR: ' . $e->getMessage();
         log_app('cron.entradas_web_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);

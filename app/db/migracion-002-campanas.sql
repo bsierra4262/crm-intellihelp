@@ -5,15 +5,16 @@
 --  Es idempotente: se puede correr varias veces sin romper nada.
 --    mysql -u USUARIO -p BASE < app/db/migracion-002-campanas.sql
 --  o, en el servidor, con la config de cada instalacion:
---    python bin/deploy.py migrar app/db/migracion-002-campanas.sql [--pruebas]
+--    python bin/deploy.py migrar app/db/migracion-002-campanas.sql --pruebas|--produccion
 --
---  Nada de esto esta en schema.sql: una instalacion nueva la necesita igual.
+--  schema.sql ya incluye esto: una instalacion nueva no
+--  necesita correrla (si se corre igual, no cambia nada).
 --  Es la unica migracion que agrega columnas consultando information_schema
 --  y armando el ALTER con PREPARE (funciona en MySQL y en MariaDB); de la 005
 --  en adelante se usa ADD COLUMN IF NOT EXISTS, que es solo de MariaDB.
 --
 --  Ninguna de las columnas nuevas que apuntan a otra tabla (categoria_id,
---  cuenta_correo_id) tiene clave foranea ni indice.
+--  cuenta_correo_id) tiene clave foranea; los indices los agrega la 018.
 -- ============================================================
 
 SET NAMES utf8mb4;

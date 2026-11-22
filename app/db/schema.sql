@@ -1,10 +1,11 @@
 -- ============================================================
 --  CRM INTELLIHELP — esquema de base de datos
---  MariaDB 10.4+ / MySQL 8.0+  ·  utf8mb4
+--  MariaDB 10.5+ (el hosting usa MariaDB 11.8)  ·  utf8mb4
 --
 --  Uso:  mysql -u USUARIO -p BASE < app/db/schema.sql
---        (o `python bin/deploy.py schema [--pruebas]`, que sube este archivo y
---        lo importa con el cliente mysql del servidor)
+--        (o `python bin/deploy.py schema --pruebas|--produccion`, que sube
+--        este archivo y lo importa con el cliente mysql del servidor; se
+--        niega si la base ya tiene tablas)
 --
 --  Convenciones (valen para TODAS las tablas de negocio):
 --    · id            BIGINT UNSIGNED autoincremental
@@ -22,21 +23,20 @@
 --      indices nuevos. Para cambiar una tabla existente se escribe una
 --      migracion (app/db/migracion-NNN-….sql) y se aplica con
 --      `python bin/deploy.py migrar …`, que usa app/migrar.php.
---    · Incluye lo de las migraciones 008 (entradas_web, api_limites) y 009
---      (feriados), pero NO lo de las migraciones 002 a 007: las tablas
---      cuentas_correo, categorias, imagenes, notificaciones y mensajes, y las
---      columnas listas.categoria_id, plantillas.bloques/tipo/preajuste,
---      campanas.cuenta_correo_id/categoria_id, envios.cuenta_correo_id,
---      cuentas_correo.firma_html y contactos/cuentas.pendiente_norm,
---      aprobado_en, aprobado_por. Una instalacion nueva tiene que importar
---      este archivo Y DESPUES aplicar las migraciones 002 a 007 en orden; sin
---      ellas la aplicacion falla al abrir campanas, contactos y alertas.
---    · Los datos iniciales del final usan ON DUPLICATE KEY: los ajustes no se
---      pisan, pero el embudo 1 y las probabilidades de sus etapas SI se
---      vuelven a los valores de aca si se reimporta sobre una base en uso.
+--    · Incluye todo lo de las migraciones 002 a 009 y 018: una instalacion
+--      nueva hecha solo con este archivo queda igual que una que se armo con
+--      el esquema viejo y despues se migro (mismas tablas, columnas en el
+--      mismo orden, indices y datos iniciales). Esas migraciones NO hay que
+--      correrlas despues; si se corren igual, no cambian nada (son
+--      idempotentes). Una migracion nueva se suma aca tambien.
+--      Lo que vino de cada migracion esta marcado con «(migracion NNN)».
+--    · Los datos iniciales del final no pisan nada que ya exista: reimportar
+--      sobre una base en uso no cambia los ajustes, el embudo ni sus etapas.
+--      Solo los colores de las categorias vuelven a los de aca (no hay
+--      pantalla para cambiarlos).
 --    · La sintaxis de este archivo sirve en MariaDB y en MySQL 8; las
---      migraciones 005 a 007 usan ADD COLUMN/ADD INDEX IF NOT EXISTS, que es
---      solo de MariaDB (el hosting usa MariaDB).
+--      migraciones 005 a 009 y 018 usan ADD COLUMN/ADD INDEX IF NOT EXISTS,
+--      que es solo de MariaDB (el hosting usa MariaDB).
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -82,8 +82,8 @@ CREATE TABLE IF NOT EXISTS `usuarios` (
 -- carga el admin, el sistema guarda aca su propio estado: marcas del cron
 -- (`cron_turno`, `cron_ultima_corrida`, `papelera_ultima_purga`…), las marcas
 -- `migracion_NNN` que deja migrar.php y el estado de los feriados.
--- `app_entorno` ('testing' | 'produccion') es lo UNICO que impide que
--- app/reinicio.php vacie la base: ver la nota en los datos iniciales.
+-- `app_entorno` ('testing' | 'produccion') es una de las barreras de
+-- app/reinicio.php: ver la nota en los datos iniciales.
 CREATE TABLE IF NOT EXISTS `app_settings` (
   `clave`          VARCHAR(60) NOT NULL,
   `valor`          TEXT        DEFAULT NULL,
@@ -154,8 +154,10 @@ CREATE TABLE IF NOT EXISTS `api_tokens` (
 -- clientes y las entradas desde la web (cuenta_asegurar() en crm.php).
 -- `nombre` no es unico a proposito: dos empresas pueden llamarse igual; la
 -- deduplicacion se hace en la aplicacion. `cuit` se guarda solo con digitos.
--- La migracion 006/007 agrega `pendiente_norm`, `aprobado_en` y `aprobado_por`
--- (no estan aca: ver el encabezado).
+-- `pendiente_norm` (migracion 006): 1 = a la ficha le falta CUIT, tipo o
+-- sector; lo recalcula cuenta_guardar() en cada guardado. `aprobado_en` /
+-- `aprobado_por` (migracion 007): alguien la dio por buena igual (id de
+-- `usuarios`, sin clave foranea). Pendiente = pendiente_norm 1 Y sin aprobar.
 CREATE TABLE IF NOT EXISTS `cuentas` (
   `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`          VARCHAR(200) NOT NULL,
@@ -163,10 +165,13 @@ CREATE TABLE IF NOT EXISTS `cuentas` (
   `cuenta_padre_id` BIGINT UNSIGNED DEFAULT NULL,
   `tipo`            VARCHAR(40)  DEFAULT NULL,   -- Cliente / Prospecto / Socio / ...
   `sector`          VARCHAR(80)  DEFAULT NULL,
+  `pendiente_norm`  TINYINT(1)   NOT NULL DEFAULT 0,          -- (migracion 006)
+  `aprobado_en`     DATETIME     DEFAULT NULL,                -- (migracion 007)
+  `aprobado_por`    BIGINT UNSIGNED DEFAULT NULL,             -- (migracion 007)
   `sitio_web`       VARCHAR(255) DEFAULT NULL,
   `telefono`        VARCHAR(60)  DEFAULT NULL,
   `email`           VARCHAR(190) DEFAULT NULL,
-  `cuit`            VARCHAR(11)  DEFAULT NULL,   -- Argentina (modulo 11)
+  `cuit`          VARCHAR(11)  DEFAULT NULL,   -- Argentina (modulo 11)
   `condicion_iva`   VARCHAR(40)  DEFAULT NULL,
   `empleados`       INT UNSIGNED DEFAULT NULL,
   `ingresos_anuales` DECIMAL(16,2) DEFAULT NULL,
@@ -192,6 +197,9 @@ CREATE TABLE IF NOT EXISTS `cuentas` (
   KEY `ix_cuentas_elim`   (`eliminado_en`),
   KEY `ix_cuentas_cuit`   (`cuit`),
   KEY `fk_cuentas_padre`  (`cuenta_padre_id`),
+  -- Filtro «pendientes de normalizar» (migracion 007; reemplaza al
+  -- `ix_cta_pend` de la 006, que la 018 saca por repetido).
+  KEY `ix_cta_aprob`      (`pendiente_norm`, `aprobado_en`, `eliminado_en`),
   -- ON DELETE SET NULL: si la purga borra una cuenta, sus hijas y lo que
   -- apuntaba a ella quedan sueltas, no se borran en cascada. Por eso
   -- purgar_papelera() no borra una cuenta que todavia tiene contactos vivos.
@@ -207,8 +215,9 @@ CREATE TABLE IF NOT EXISTS `cuentas` (
 -- `nombre_completo` es una columna generada (se calcula sola, no se escribe).
 -- `email` NO es unico: la misma direccion puede estar en dos fichas, y el
 -- control de no mandar dos veces lo hace `envios` por campana.
--- Las migraciones 006/007 agregan `pendiente_norm`, `aprobado_en` y
--- `aprobado_por` (no estan aca: ver el encabezado).
+-- `pendiente_norm` (migracion 006): 1 = le falta nombre, apellido, correo o
+-- empresa; lo recalcula contacto_guardar(). `aprobado_en`/`aprobado_por`
+-- (migracion 007): igual que en `cuentas`.
 CREATE TABLE IF NOT EXISTS `contactos` (
   `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`         VARCHAR(120) DEFAULT NULL,
@@ -240,6 +249,9 @@ CREATE TABLE IF NOT EXISTS `contactos` (
   -- 1 = el correo rebota (lo marca el lector IMAP). Un rebote definitivo
   -- ademas da de baja la direccion en `desuscripciones` y archiva la ficha.
   `email_rebotado` TINYINT(1)   NOT NULL DEFAULT 0,
+  `pendiente_norm` TINYINT(1)   NOT NULL DEFAULT 0,      -- (migracion 006)
+  `aprobado_en`    DATETIME     DEFAULT NULL,            -- (migracion 007)
+  `aprobado_por`   BIGINT UNSIGNED DEFAULT NULL,         -- (migracion 007)
   `ultima_actividad_en` DATETIME DEFAULT NULL,
   `zoho_id`        VARCHAR(40)  DEFAULT NULL,
   `creado_por`     BIGINT UNSIGNED DEFAULT NULL,
@@ -256,6 +268,8 @@ CREATE TABLE IF NOT EXISTS `contactos` (
   KEY `ix_contactos_elim`   (`eliminado_en`),
   KEY `ix_contactos_nombre` (`apellido`, `nombre`),
   KEY `fk_contactos_reporta`(`reporta_a_id`),
+  -- (migracion 007; reemplaza al `ix_cont_pend` de la 006, que saca la 018)
+  KEY `ix_cont_aprob`       (`pendiente_norm`, `aprobado_en`, `eliminado_en`),
   CONSTRAINT `fk_contactos_cuenta`  FOREIGN KEY (`cuenta_id`)      REFERENCES `cuentas` (`id`)   ON DELETE SET NULL,
   CONSTRAINT `fk_contactos_prop`    FOREIGN KEY (`propietario_id`) REFERENCES `usuarios` (`id`)  ON DELETE SET NULL,
   CONSTRAINT `fk_contactos_reporta` FOREIGN KEY (`reporta_a_id`)   REFERENCES `contactos` (`id`) ON DELETE SET NULL
@@ -369,8 +383,8 @@ CREATE TABLE IF NOT EXISTS `notas` (
 -- nombre original, la ruta relativa, el tipo y el tamano. adjunto_borrar()
 -- (registros.php) borra el archivo del disco en el acto y solo marca la fila
 -- con `eliminado_en`: a diferencia del resto, un adjunto borrado no se puede
--- recuperar. Al reves, vaciar la tabla (app/reinicio.php) deja los archivos
--- en disco.
+-- recuperar. app/reinicio.php, al vaciar la tabla en pruebas, borra tambien
+-- los archivos.
 CREATE TABLE IF NOT EXISTS `adjuntos` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `entidad`    VARCHAR(30)     NOT NULL,
@@ -795,10 +809,10 @@ CREATE TABLE IF NOT EXISTS `google_tokens` (
 --  CAMPANAS DE CORREO  (motor Pulsemail llevado a web)
 -- ============================================================
 
--- Plantillas de correo de las campanas. La migracion 002 agrega `bloques`
--- (el JSON del editor visual), `tipo` ('visual' | 'html') y `preajuste` (la
--- clave del molde prearmado del que salio, que usa app/reinicio.php para
--- reescribirlas). `cuerpo_html` es lo que se manda; en las visuales se
+-- Plantillas de correo de las campanas. `bloques` (el JSON del editor
+-- visual), `tipo` ('visual' | 'html') y `preajuste` (la clave del molde
+-- prearmado del que salio, que usa app/reinicio.php para reescribirlas) son de
+-- la migracion 002. `cuerpo_html` es lo que se manda; en las visuales se
 -- regenera a partir de `bloques` al guardar.
 CREATE TABLE IF NOT EXISTS `plantillas` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -806,8 +820,11 @@ CREATE TABLE IF NOT EXISTS `plantillas` (
   `asunto`     VARCHAR(255) NOT NULL,
   `cuerpo_html` MEDIUMTEXT  NOT NULL,
   `cuerpo_texto` MEDIUMTEXT DEFAULT NULL,   -- alternativa en texto plano (anti-spam)
+  `bloques`    MEDIUMTEXT   DEFAULT NULL,   -- (migracion 002)
   `carpeta`    VARCHAR(80)  DEFAULT NULL,
-  `activo`     TINYINT(1)   NOT NULL DEFAULT 1,
+  `tipo`       ENUM('visual','html') NOT NULL DEFAULT 'visual',   -- (migracion 002)
+  `preajuste`  VARCHAR(40)  DEFAULT NULL,   -- (migracion 002)
+  `activo`    TINYINT(1)   NOT NULL DEFAULT 1,
   `creado_por` BIGINT UNSIGNED DEFAULT NULL,
   `creado_en`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `actualizado_en` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -816,18 +833,20 @@ CREATE TABLE IF NOT EXISTS `plantillas` (
   KEY `ix_plantillas_elim` (`eliminado_en`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Listas de destinatarios para las campanas. La migracion 002 agrega
--- `categoria_id` (segmento: RRHH, bancos, …), sin indice ni clave foranea.
+-- Listas de destinatarios para las campanas. `categoria_id` (segmento: RRHH,
+-- bancos, …) es de la migracion 002, sin clave foranea; su indice, de la 018.
 CREATE TABLE IF NOT EXISTS `listas` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`     VARCHAR(160) NOT NULL,
   `descripcion` TEXT        DEFAULT NULL,
+  `categoria_id` INT UNSIGNED DEFAULT NULL,   -- (migracion 002)
   `creado_por` BIGINT UNSIGNED DEFAULT NULL,
   `creado_en`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `actualizado_en` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `eliminado_en` DATETIME   DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `ix_listas_elim` (`eliminado_en`)
+  KEY `ix_listas_elim` (`eliminado_en`),
+  KEY `ix_listas_categoria` (`categoria_id`)   -- (migracion 018)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Un miembro puede ser un contacto, un posible cliente o un correo suelto
@@ -853,8 +872,9 @@ CREATE TABLE IF NOT EXISTS `lista_miembros` (
 
 -- Campanas de correo masivo. Las crea la pantalla de Campanas; el estado lo
 -- mueven la pantalla (programar, pausar, cancelar) y el despachador del cron
--- ('enviando' → 'completada'). La migracion 002 agrega `cuenta_correo_id` (la
--- casilla desde la que sale) y `categoria_id`, sin clave foranea.
+-- ('enviando' → 'completada'). `cuenta_correo_id` (la casilla desde la que
+-- sale) y `categoria_id` son de la migracion 002, sin clave foranea; sus
+-- indices, de la 018.
 CREATE TABLE IF NOT EXISTS `campanas` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`        VARCHAR(200) NOT NULL,
@@ -863,6 +883,8 @@ CREATE TABLE IF NOT EXISTS `campanas` (
                   NOT NULL DEFAULT 'borrador',
   `plantilla_id`  BIGINT UNSIGNED DEFAULT NULL,
   `lista_id`      BIGINT UNSIGNED DEFAULT NULL,
+  `cuenta_correo_id` INT UNSIGNED DEFAULT NULL,   -- (migracion 002)
+  `categoria_id`  INT UNSIGNED DEFAULT NULL,      -- (migracion 002)
   `propietario_id` BIGINT UNSIGNED DEFAULT NULL,
   `remitente_nombre` VARCHAR(160) DEFAULT NULL,
   `remitente_email`  VARCHAR(190) DEFAULT NULL,
@@ -894,6 +916,12 @@ CREATE TABLE IF NOT EXISTS `campanas` (
   PRIMARY KEY (`id`),
   KEY `ix_camp_estado` (`estado`),
   KEY `ix_camp_elim`   (`eliminado_en`),
+  -- Los de las claves foraneas, con el nombre que MariaDB les da solo: asi
+  -- quedan en el mismo orden que en una base migrada.
+  KEY `fk_camp_plantilla` (`plantilla_id`),
+  KEY `fk_camp_lista`     (`lista_id`),
+  KEY `ix_camp_cuenta`   (`cuenta_correo_id`),   -- (migracion 018)
+  KEY `ix_camp_categoria` (`categoria_id`),       -- (migracion 018)
   CONSTRAINT `fk_camp_plantilla` FOREIGN KEY (`plantilla_id`) REFERENCES `plantillas` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_camp_lista`     FOREIGN KEY (`lista_id`)     REFERENCES `listas` (`id`)     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -903,12 +931,14 @@ CREATE TABLE IF NOT EXISTS `campanas` (
 -- Cada envio se toma pasandolo de 'pendiente' a 'enviando' con un UPDATE
 -- condicionado al estado: es lo que impide que dos corridas del cron manden
 -- el mismo correo. `token` va en el enlace de baja y en el pixel de apertura.
--- La migracion 002 agrega `cuenta_correo_id` (la casilla que lo mando), sin
--- indice: las consultas de «enviados hoy por casilla» recorren la tabla.
+-- `cuenta_correo_id` (la casilla que lo mando) es de la migracion 002; el
+-- indice (casilla, enviado_en) de la 018 es el que usa la cuenta de «enviados
+-- hoy por casilla».
 CREATE TABLE IF NOT EXISTS `envios` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `campana_id`    BIGINT UNSIGNED NOT NULL,
-  `contacto_id`   BIGINT UNSIGNED DEFAULT NULL,
+  `cuenta_correo_id` INT UNSIGNED DEFAULT NULL,   -- (migracion 002)
+  `contacto_id`  BIGINT UNSIGNED DEFAULT NULL,
   `posible_cliente_id` BIGINT UNSIGNED DEFAULT NULL,
   `email`         VARCHAR(190) NOT NULL,
   `nombre`        VARCHAR(160) DEFAULT NULL,
@@ -934,6 +964,7 @@ CREATE TABLE IF NOT EXISTS `envios` (
   KEY `ix_envios_msgid`  (`message_id`),
   KEY `ix_envios_email`  (`email`),
   KEY `ix_envios_contacto` (`contacto_id`),
+  KEY `ix_envios_cuenta` (`cuenta_correo_id`, `enviado_en`),   -- (migracion 018)
   CONSTRAINT `fk_envios_campana` FOREIGN KEY (`campana_id`) REFERENCES `campanas` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -979,6 +1010,149 @@ CREATE TABLE IF NOT EXISTS `imap_estado` (
   PRIMARY KEY (`buzon`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Casillas de correo (migracion 002, + `firma_html` de la 005 y lo de la
+-- 018). Con varias casillas se pueden correr campanas en paralelo sin que se
+-- pisen el limite diario ni la reputacion entre ellas.
+-- La escribe la pantalla de Casillas (cuentas_correo.php); la leen el
+-- despachador (para mandar) y el lector IMAP (rebotes y respuestas).
+-- `smtp_pass`/`imap_pass` son contrasenas «de aplicacion» de Google cifradas
+-- con el secreto de la instalacion (cifrar()), que no se pueden volver a leer
+-- de ningun lado: por eso app/reinicio.php conserva esta tabla. `smtp_pass`
+-- tiene DEFAULT '' (018) porque el alta la graba en un UPDATE aparte.
+-- `firma_html` es la firma de la casilla (no la del usuario, que esta en
+-- `usuarios.firma_html`). `ultimo_error`/`verificada_en` los deja la prueba
+-- de conexion. `imap_ultimo_uid` quedo sin uso: la marca de lectura vive en
+-- `imap_estado`.
+-- Una direccion por casilla viva: `remitente_vivo` (018) es una columna
+-- calculada que vale el remitente mientras la casilla no esta dada de baja y
+-- NULL despues, asi que una casilla dada de baja no impide volver a cargar
+-- la misma direccion.
+CREATE TABLE IF NOT EXISTS `cuentas_correo` (
+  `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `nombre`         VARCHAR(120) NOT NULL,          -- "Comercial", "RRHH", "Carlos"
+  `remitente`      VARCHAR(190) NOT NULL,          -- direccion que ve el destinatario
+  `remitente_nombre` VARCHAR(160) DEFAULT NULL,
+  `firma_html`     TEXT DEFAULT NULL,              -- (migracion 005)
+  `responder_a`    VARCHAR(190) DEFAULT NULL,
+  -- Salida
+  `smtp_host`      VARCHAR(120) NOT NULL DEFAULT 'smtp.gmail.com',
+  `smtp_port`      INT UNSIGNED NOT NULL DEFAULT 587,
+  `smtp_seguridad` ENUM('tls','ssl') NOT NULL DEFAULT 'tls',
+  `smtp_user`      VARCHAR(190) NOT NULL,
+  `smtp_pass`      VARCHAR(255) NOT NULL DEFAULT '',
+  -- Entrada (rebotes y respuestas). Si se deja vacia se usa la de salida.
+  `imap_host`      VARCHAR(120) DEFAULT 'imap.gmail.com',
+  `imap_port`      INT UNSIGNED DEFAULT 993,
+  `imap_user`      VARCHAR(190) DEFAULT NULL,
+  `imap_pass`      VARCHAR(255) DEFAULT NULL,
+  `imap_ultimo_uid` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  -- Ritmo propio de la cuenta: cada casilla tiene su tope diario.
+  `limite_diario`  INT UNSIGNED NOT NULL DEFAULT 300,
+  `usuario_id`     BIGINT UNSIGNED DEFAULT NULL,   -- duenio, si es personal
+  `activo`         TINYINT(1)   NOT NULL DEFAULT 1,
+  `predeterminada` TINYINT(1)   NOT NULL DEFAULT 0,
+  `ultimo_error`   VARCHAR(255) DEFAULT NULL,
+  `verificada_en`  DATETIME     DEFAULT NULL,
+  `creado_en`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `actualizado_en` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `eliminado_en`   DATETIME     DEFAULT NULL,
+  `remitente_vivo` VARCHAR(190)                    -- (migracion 018)
+      GENERATED ALWAYS AS (IF(`eliminado_en` IS NULL, `remitente`, NULL)) VIRTUAL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_cuenta_remitente_viva` (`remitente_vivo`),
+  KEY `ix_cc_activo` (`activo`, `eliminado_en`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Segmentos de las listas y campanas (migracion 002): RRHH, petroleras,
+-- bancos… No hay pantalla para crearlos: salen de los datos iniciales del
+-- final. Por eso app/reinicio.php conserva la tabla.
+CREATE TABLE IF NOT EXISTS `categorias` (
+  `id`     INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `nombre` VARCHAR(80) NOT NULL,
+  `color`  CHAR(7)     NOT NULL DEFAULT '#663399',
+  `orden`  INT         NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_categorias_nombre` (`nombre`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Imagenes de las campanas (migracion 002). Se guardan en el servidor y se
+-- sirven por URL publica: incrustarlas en el correo engorda el mensaje y
+-- Gmail recorta a los 102 KB de HTML. `archivo` es el nombre en disco
+-- (unico); `nombre`, el original que subio la persona.
+CREATE TABLE IF NOT EXISTS `imagenes` (
+  `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `nombre`     VARCHAR(255) NOT NULL,
+  `archivo`    VARCHAR(120) NOT NULL,
+  `mime`       VARCHAR(60)  NOT NULL,
+  `bytes`      INT UNSIGNED NOT NULL DEFAULT 0,
+  `ancho`      INT UNSIGNED DEFAULT NULL,
+  `alto`       INT UNSIGNED DEFAULT NULL,
+  `creado_por` BIGINT UNSIGNED DEFAULT NULL,
+  `creado_en`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_imagenes_archivo` (`archivo`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Alertas del sistema (migracion 003). Las crea notificar() (respuesta a una
+-- campana, reunion agendada, rebote, fin de campana); la campana de la barra
+-- superior las muestra y las marca leidas, y el cron manda por correo las
+-- que tienen `email_en` vacio, agrupadas en un solo mensaje por corrida.
+-- `usuario_id` NULL = para todo el equipo.
+CREATE TABLE IF NOT EXISTS `notificaciones` (
+  `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `usuario_id`   BIGINT UNSIGNED DEFAULT NULL,
+  `tipo`         VARCHAR(40)  NOT NULL,       -- respuesta | reunion | rebote | campana | sistema
+  `titulo`       VARCHAR(200) NOT NULL,
+  `detalle`      VARCHAR(500) DEFAULT NULL,
+  `entidad`      VARCHAR(40)  DEFAULT NULL,   -- adonde lleva el clic
+  `entidad_id`   BIGINT UNSIGNED DEFAULT NULL,
+  `url`          VARCHAR(255) DEFAULT NULL,
+  -- «Visto en pantalla» y «avisado por correo» son dos cosas distintas.
+  `leida_en`     DATETIME DEFAULT NULL,
+  `email_en`     DATETIME DEFAULT NULL,
+  `creada_en`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_notif_usuario` (`usuario_id`, `leida_en`, `id`),
+  KEY `idx_notif_pendiente_email` (`email_en`, `id`),
+  KEY `idx_notif_creada` (`creada_en`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Conversaciones (migracion 004): las respuestas que entran (las guarda el
+-- lector IMAP, 'entrante') y lo que se contesta desde el CRM ('saliente').
+-- Ninguna columna de ids tiene clave foranea: si la purga borra el contacto
+-- o la campana, los mensajes quedan apuntando a nada. `cuenta_correo_id` es
+-- INT como `cuentas_correo.id` (la 018 lo corrigio: era BIGINT).
+-- `uq_msg`: el Message-ID evita guardar dos veces el mismo correo al releer
+-- la casilla; un correo SIN Message-ID queda con NULL y ese si se puede
+-- repetir (los NULL no chocan en un UNIQUE).
+CREATE TABLE IF NOT EXISTS `mensajes` (
+  `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `contacto_id`  BIGINT UNSIGNED DEFAULT NULL,
+  `envio_id`     BIGINT UNSIGNED DEFAULT NULL,
+  `campana_id`   BIGINT UNSIGNED DEFAULT NULL,
+  `cuenta_correo_id` INT UNSIGNED DEFAULT NULL,
+  `direccion`    ENUM('entrante','saliente') NOT NULL,
+  `de`           VARCHAR(190) NOT NULL,
+  `de_nombre`    VARCHAR(160) DEFAULT NULL,
+  `para`         VARCHAR(190) NOT NULL,
+  `asunto`       VARCHAR(400) DEFAULT NULL,
+  `cuerpo_texto` MEDIUMTEXT   DEFAULT NULL,
+  `cuerpo_html`  MEDIUMTEXT   DEFAULT NULL,
+  -- Las tres cabeceras que pegan la respuesta al mensaje original.
+  `message_id`   VARCHAR(255) DEFAULT NULL,
+  `in_reply_to`  VARCHAR(255) DEFAULT NULL,
+  `referencias`  TEXT         DEFAULT NULL,
+  `fecha`        DATETIME     NOT NULL,
+  `usuario_id`   BIGINT UNSIGNED DEFAULT NULL,   -- quien contesto, si salio de aca
+  `leido_en`     DATETIME     DEFAULT NULL,
+  `creado_en`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_msg` (`message_id`),
+  KEY `ix_msg_contacto` (`contacto_id`, `fecha`),
+  KEY `ix_msg_envio` (`envio_id`),
+  KEY `ix_msg_sin_leer` (`leido_en`, `direccion`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- ============================================================
 --  MIGRACION / IMPORTACION
@@ -1011,11 +1185,12 @@ CREATE TABLE IF NOT EXISTS `import_lotes` (
 -- ON DUPLICATE KEY UPDATE `valor` = `valor`: si el ajuste ya existe no se
 -- toca, asi que reimportar el esquema no pisa lo que cargo el admin.
 --
--- `app_entorno` arranca en 'testing'. Mientras diga 'testing',
--- `php reinicio.php --hacerlo` vacia contactos, empresas, negocios y
--- campanas sin pedir nada mas. Una instalacion que va a tener datos reales
--- tiene que pasarse a 'produccion' (Ajustes → Modo de trabajo) antes de
--- cargar el primer dato.
+-- `app_entorno` arranca en 'testing'. Una instalacion que va a tener datos
+-- reales tiene que pasarse a 'produccion' (Ajustes → Modo de trabajo) antes
+-- de cargar el primer dato: en 'testing' las campanas no tienen las
+-- protecciones de produccion. app/reinicio.php, ademas de 'testing', exige
+-- que la instalacion sea la de pruebas (carpeta crm-pruebas o base
+-- *_pruebas) y una confirmacion escrita.
 INSERT INTO `app_settings` (`clave`, `valor`) VALUES
   ('app_nombre',      'CRM INTELLIHELP'),
   ('app_entorno',     'testing'),
@@ -1042,19 +1217,44 @@ INSERT INTO `app_settings` (`clave`, `valor`) VALUES
   ('feriados_jurisdiccion', 'CABA'),
   ('feriados_sincronizado_en', ''),
   ('feriados_intento_en', ''),
-  ('feriados_ultimo_error', '')
+  ('feriados_ultimo_error', ''),
+  -- Datos de la empresa para las plantillas (migracion 002).
+  ('empresa_nombre',   'INTELLIHELP'),
+  ('empresa_web',      'intellihelp.tech'),
+  ('empresa_telefono', ''),
+  ('empresa_email',    ''),
+  ('empresa_whatsapp', ''),
+  -- Que alertas se avisan por correo y a quien (migracion 003; vacio = a
+  -- todos los administradores activos).
+  ('avisar_respuesta', '1'),
+  ('avisar_reunion',   '1'),
+  ('avisar_rebote',    '0'),
+  ('avisar_campana',   '1'),
+  ('avisar_email_a',   '')
 ON DUPLICATE KEY UPDATE `valor` = `valor`;
+
+-- Segmentos (migracion 002). Reimportar solo vuelve los colores a estos.
+INSERT INTO `categorias` (`nombre`, `color`, `orden`) VALUES
+  ('Recursos Humanos', '#663399', 1),
+  ('Energia y Petroleo', '#B0561F', 2),
+  ('Bancos y Finanzas', '#1F6F9C', 3),
+  ('Laboratorios y Quimica', '#5F8A12', 4),
+  ('Tecnologia', '#7C3AED', 5),
+  ('Industria', '#8A6D3B', 6),
+  ('Control de accesos', '#0F766E', 7),
+  ('General', '#6F6A7D', 99)
+ON DUPLICATE KEY UPDATE `color` = VALUES(`color`);
 
 -- Embudo por defecto. Las probabilidades salen de la propuesta de
 -- md/ZOHO-CRM-REFERENCIA.md y se pueden cambiar desde la app.
--- Cuidado al reimportar sobre una base en uso: aca el ON DUPLICATE KEY SI
--- pisa. El embudo 1 vuelve a llamarse «Ventas» y las etapas que coinciden por
--- (embudo, nombre) vuelven a estas probabilidades, perdiendo lo cambiado en
--- la app. Las etapas que se renombraron no coinciden y se agregan de nuevo.
+-- Reimportar sobre una base en uso no pisa nada: si el embudo 1 o una etapa
+-- con el mismo (embudo, nombre) ya existen, quedan como estan (antes volvian
+-- a estos nombres y probabilidades). Las etapas que se renombraron en la app
+-- no coinciden y se agregan de nuevo.
 -- (app/reinicio.php siembra otro embudo, de 5 etapas, cuando no hay ninguno.)
 INSERT INTO `embudos` (`id`, `nombre`, `activo`, `predeterminado`, `orden`) VALUES
   (1, 'Ventas', 1, 1, 0)
-ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`);
+ON DUPLICATE KEY UPDATE `id` = `id`;
 
 INSERT INTO `etapas` (`embudo_id`, `nombre`, `probabilidad`, `tipo`, `color`, `orden`) VALUES
   (1, 'Calificacion',      10, 'abierta', '#8B6BB7', 1),
@@ -1064,8 +1264,9 @@ INSERT INTO `etapas` (`embudo_id`, `nombre`, `probabilidad`, `tipo`, `color`, `o
   (1, 'A firmar',          80, 'abierta', '#7FA828', 5),
   (1, 'Ganado',           100, 'ganada',  '#9CC930', 6),
   (1, 'Perdido',            0, 'perdida', '#A12A1E', 7)
-ON DUPLICATE KEY UPDATE `probabilidad` = VALUES(`probabilidad`);
+ON DUPLICATE KEY UPDATE `id` = `id`;
 
--- Se vuelven a prender las claves foraneas apagadas al principio. Despues
--- de este archivo, en una instalacion nueva, siguen las migraciones 002 a 007.
+-- Se vuelven a prender las claves foraneas apagadas al principio. Una
+-- instalacion nueva no necesita nada mas: las migraciones hasta la 009 y la
+-- 018 ya estan incluidas arriba.
 SET FOREIGN_KEY_CHECKS = 1;

@@ -78,4 +78,17 @@ return [
         'allowed_domain' => 'intellihelp.tech',                   // hd: sólo cuentas del dominio
         'auto_provision' => true,                                 // crear usuarios nuevos con rol 'comercial'
     ],
+    // Sólo en la config de PRUEBAS (crm-pruebas.php): los datos de personas
+    // reales que reinicio.php usa para sembrar los contactos de prueba. No van
+    // en el código porque el repositorio es público. Cada uno se puede dejar
+    // también como ajuste `pruebas_<clave>`; lo que falte no se siembra.
+    // 'pruebas' => [
+    //     'responsable'      => 'usuario@intellihelp.tech',  // dueño de los datos de prueba
+    //     'correo_externo'   => 'alguien@gmail.com',         // casilla de otro proveedor, para contestar
+    //     'correo_interno'   => '',                          // vacío = el correo del responsable
+    //     'telefono_externo' => '',
+    //     'telefono_interno' => '',
+    //     'empresa_telefono' => '',
+    //     'empresa_whatsapp' => '',
+    // ],
 ];

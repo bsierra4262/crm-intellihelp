@@ -8,10 +8,9 @@ declare(strict_types=1);
 //  crm-pruebas/—, así que usa la configuración y la base que le corresponden,
 //  sin pedir credenciales a nadie. Lo llama `deploy.py migrar`.
 //
-//  No se importa con `deploy.py schema`: ese camino arma el comando de mysql
-//  con la contraseña de la base y toma el nombre de una variable que por
-//  defecto apunta a PRODUCCIÓN, así que una migración «de prueba» podría
-//  terminar en los datos reales.
+//  No se aplica con `deploy.py schema`: ese camino necesita la contraseña de
+//  la base y sólo acepta una base vacía (instalación nueva). Este, en
+//  cambio, usa la conexión que ya tiene la instalación.
 //
 //  Uso:
 //      php migrar.php <archivo.sql>              aplica
@@ -34,7 +33,8 @@ declare(strict_types=1);
 //    · No entiende DELIMITER: una migración con procedimientos o triggers
 //      (que llevan «;» adentro del cuerpo) se cortaría mal.
 //    · El «prueba/producción» que imprime sale del ajuste `app_entorno` de la
-//      base conectada; es informativo, no frena nada.
+//      base conectada (sin la fila, «producción»); es informativo, no frena
+//      nada.
 //
 //  Ubicación: en el repositorio vive en app/ y el núcleo en app/web/app/; en
 //  el servidor, deploy.py lo deja en la raíz de la instalación, junto a app/.
@@ -47,6 +47,11 @@ if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit("Esto se ejecuta por línea de comandos.\n");
 }
+
+// Las pruebas (test/casos/e2.php) incluyen este archivo sólo para usar
+// migrar_sentencias(): las funciones de abajo se declaran igual (PHP las
+// registra al compilar el archivo) y acá se corta antes de conectar a nada.
+if (defined('MIGRAR_SOLO_FUNCIONES')) { return; }
 
 $raiz = is_file(__DIR__ . '/web/app/bootstrap.php') ? __DIR__ . '/web' : __DIR__;
 require $raiz . '/app/bootstrap.php';
@@ -157,7 +162,9 @@ function migrar_resumen(string $s): string
 $nombre     = basename($archivo);
 $sentencias = migrar_sentencias((string) file_get_contents($archivo));
 $base       = (string) qv('SELECT DATABASE()');
-$entorno    = (string) setting_get('app_entorno', 'testing');
+// Sin la fila `app_entorno` se informa como producción: es lo prudente, y
+// es lo mismo que hace reinicio.php.
+$entorno    = (string) setting_get('app_entorno', 'produccion');
 
 echo "Migración: $nombre\n";
 echo "Base: $base (" . ($entorno === 'testing' ? 'prueba' : 'producción') . ")\n";
@@ -179,11 +186,23 @@ if ($simular) {
 // Se corren todas, aunque alguna falle, y al final se informa cuáles. Van por
 // exec() en la misma conexión, así que las variables de sesión (@sql) y los
 // PREPARE de una sentencia sirven para la siguiente (la migración 002 lo usa).
+//
+// Cada sentencia se manda como texto (preparación emulada) y se consume su
+// resultado. Con exec(), una sentencia que devuelve filas —el EXECUTE de la
+// 002 cuando la columna ya existe corre un 'SELECT 1'— dejaba el resultado
+// sin leer y todas las siguientes fallaban con «Cannot execute queries while
+// other unbuffered queries are active»: la 002 no se podía repetir. Y sin la
+// emulación, PREPARE/EXECUTE no se pueden mandar como sentencia preparada.
+db()->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
 $ok = 0;
 $fallas = [];
 foreach ($sentencias as $n => $s) {
     try {
-        db()->exec($s);
+        $st = db()->query($s);
+        if ($st !== false) {
+            if ($st->columnCount() > 0) { $st->fetchAll(); }
+            $st->closeCursor();
+        }
         $ok++;
     } catch (\Throwable $e) {
         $fallas[] = sprintf('  %2d. %s → %s', $n + 1, migrar_resumen($s), $e->getMessage());

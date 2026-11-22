@@ -15,7 +15,7 @@ Comprueba lo que tiene que ser cierto sí o sí después de correr
   5. Provincias y países quedaron normalizados.
   6. Los archivos parciales suman exactamente el total.
 
-Uso:  python test/verificar_unificacion.py [carpeta]
+Uso:  python test/verificar_unificacion.py [carpeta] [--minimo-zoho N]
 """
 # ============================================================
 #  Notas que no entran en la ayuda de arriba:
@@ -24,10 +24,9 @@ Uso:  python test/verificar_unificacion.py [carpeta]
 #    mano en la maquina de desarrollo, despues del unificador, contra los CSV
 #    de «Documentacion a consultar/CSV/» (datos reales, fuera de git).
 #  · Codigo de salida: 0 si todo paso, 1 si algo fallo o falta la salida.
-#  · Repite a proposito algunas reglas del unificador (plano, _tokens,
-#    misma_persona, la lista de provincias) en vez de importarlas: si se
-#    cambian alla, hay que cambiarlas aca, o la verificacion juzga con otra
-#    regla.
+#  · Las reglas (plano, misma_persona, la lista de provincias, la deteccion
+#    de codificacion y separador) se importan del unificador: si se cambian
+#    alla, la verificacion juzga con la misma regla nueva.
 #  · Precision sobre el punto 3 de la ayuda: lo que se comprueba es que
 #    ningun CORREO de Zoho se pierda. Un contacto de Zoho sin correo no se
 #    controla.
@@ -37,31 +36,27 @@ from __future__ import annotations
 import csv
 import io
 import os
-import re
 import sys
-import unicodedata
 from collections import Counter, defaultdict
 
-csv.field_size_limit(10_000_000)
-
-for _f in (sys.stdout, sys.stderr):
-    try:
-        _f.reconfigure(encoding="utf-8", errors="replace")
-    except AttributeError:
-        pass
-
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CSV_DIR = os.path.join(RAIZ, "Documentacion a consultar", "CSV")
-SALIDA = os.path.join(CSV_DIR, "Normalizada completa")
-BASE_ZOHO = os.path.join(CSV_DIR, "DB Zoho.csv")
+sys.path.insert(0, os.path.join(RAIZ, "bin"))
+# Las mismas reglas del unificador. Al importarlo ya se agranda el limite de
+# campo del modulo csv y la salida pasa a UTF-8.
+import unificar_listas as U  # noqa: E402
 
-PROVINCIAS_OK = {
-    "Ciudad de Buenos Aires", "Buenos Aires", "Catamarca", "Chaco", "Chubut", "Córdoba",
-    "Corrientes", "Entre Ríos", "Formosa", "Jujuy", "La Pampa", "La Rioja", "Mendoza",
-    "Misiones", "Neuquén", "Río Negro", "Salta", "San Juan", "San Luis", "Santa Cruz",
-    "Santa Fe", "Santiago del Estero", "Tierra del Fuego", "Tucumán",
-}
-RE_EMAIL = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
+CSV_DIR = U.CSV_DIR
+SALIDA = U.DIR_SALIDA
+BASE_ZOHO = U.BASE_ZOHO
+
+PROVINCIAS_OK = set(U.PROVINCIAS)
+RE_EMAIL = U.RE_EMAIL
+plano = U.plano
+
+# Piso de contactos de Zoho que tienen que quedar marcados como existentes.
+# 13000 sale de la base de la migracion (13.573 contactos menos sus
+# duplicados internos); con otra base se cambia con --minimo-zoho N.
+MINIMO_ZOHO = 13000
 
 # Contadores globales de comprobaciones (T) y fallidas (F), y los nombres de
 # las que fallaron para el resumen final.
@@ -82,32 +77,10 @@ def ok(nombre: str, cond: bool, detalle: str = "") -> None:
         print(f"  [XX] {nombre}  {detalle}")
 
 
-# Copia de plano() y _tokens() del unificador: minusculas, sin acentos, sin
-# espacios de mas; y las palabras significativas de un nombre.
-def plano(s: str) -> str:
-    s = unicodedata.normalize("NFKD", (s or "").strip().lower())
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    return re.sub(r"\s+", " ", s)
-
-
-def _tokens(v: str) -> set[str]:
-    p = re.sub(r"[^\wáéíóúñü ]", " ", plano(v))
-    fuera = {"sr", "sra", "srta", "dr", "dra", "ing", "lic", "cr", "cra", "clor", "mg", "arq"}
-    return {t for t in p.split() if len(t) > 1 and t not in fuera}
-
-
 def misma_persona(a: dict, b: dict) -> bool:
-    """Misma regla que usa el unificador, para juzgar un correo repetido."""
-    ap1 = re.sub(r"[^\w ]", "", plano(a["Apellidos"])).strip()
-    ap2 = re.sub(r"[^\w ]", "", plano(b["Apellidos"])).strip()
-    if ap1 and ap2 and not (ap1.startswith(ap2) or ap2.startswith(ap1)):
-        return False
-    n1, n2 = _tokens(a["Nombre"]), _tokens(b["Nombre"])
-    if not n1 or not n2:
-        return True
-    if n1 & n2:
-        return True
-    return any(x.startswith(y) or y.startswith(x) for x in n1 for y in n2)
+    """La regla del unificador, aplicada a dos filas del CSV de salida."""
+    return U.misma_persona({"nombre": a["Nombre"], "apellido": a["Apellidos"]},
+                           {"nombre": b["Nombre"], "apellido": b["Apellidos"]})
 
 
 # Lee un CSV de salida del unificador (UTF-8 con BOM, separador «;»).
@@ -117,35 +90,39 @@ def leer(ruta: str) -> list[dict]:
 
 
 # Todos los correos validos de la base de Zoho (principal, secundario y
-# terciario). Asume separador «,»: el unificador detecta el separador y este
-# no, asi que con un DB Zoho.csv separado por «;» devolveria un conjunto vacio
-# y la comprobacion «no se perdio nada» pasaria sin controlar nada.
-# A diferencia de norm_email(), no saca <> ni comillas antes de validar: esas
-# direcciones quedan afuera del control.
-# Si ninguna codificacion sirve, devuelve un conjunto vacio (mismo efecto).
-def leer_zoho_emails(ruta: str) -> set[str]:
-    for cod in ("utf-8-sig", "cp1252"):
-        try:
-            with io.open(ruta, encoding=cod, newline="") as f:
-                r = csv.DictReader(f)
-                out = set()
-                for fila in r:
-                    for col in ("Correo electrónico", "Correo electrónico secundario",
-                                "Correo electrónico terciario"):
-                        v = (fila.get(col) or "").strip().lower()
-                        if RE_EMAIL.match(v):
-                            out.add(v)
-                return out
-        except UnicodeDecodeError:
-            continue
-    return set()
+# terciario), normalizados igual que en el unificador (norm_email). La
+# codificacion y el separador se detectan con la misma funcion que usa el
+# unificador: antes se asumia «,» y, con un archivo separado por «;», el
+# conjunto quedaba vacio y «no se perdio nada» pasaba sin controlar nada.
+# Devuelve None si no hay ninguna columna de correo, para que el control
+# falle en vez de pasar en falso.
+def leer_zoho_emails(ruta: str) -> set[str] | None:
+    cod, sep = U.detectar_formato(ruta)
+    cols = ("Correo electrónico", "Correo electrónico secundario", "Correo electrónico terciario")
+    with io.open(ruta, encoding=cod, newline="") as f:
+        r = csv.DictReader(f, delimiter=sep)
+        if not any(c in (r.fieldnames or []) for c in cols):
+            return None
+        out = set()
+        for fila in r:
+            for col in cols:
+                v = U.norm_email(fila.get(col) or "")
+                if v:
+                    out.add(v)
+        return out
 
 
 # Corre todas las comprobaciones sobre la carpeta de salida (la del
 # argumento o la por defecto) e imprime el resumen. La base de Zoho se lee
 # siempre de la ruta por defecto, aunque se pase otra carpeta.
 def main() -> int:
-    carpeta = sys.argv[1] if len(sys.argv) > 1 else SALIDA
+    args = sys.argv[1:]
+    minimo = MINIMO_ZOHO
+    if "--minimo-zoho" in args:
+        i = args.index("--minimo-zoho")
+        minimo = int(args[i + 1])
+        del args[i:i + 2]
+    carpeta = args[0] if args else SALIDA
     unificados = os.path.join(carpeta, "contactos-unificados.csv")
     if not os.path.isfile(unificados):
         print(f"No existe {unificados}. Corré primero: python bin/unificar_listas.py")
@@ -218,17 +195,16 @@ def main() -> int:
     print(f"   ·  homónimos sin empresa cargada, no se fusionan por precaución: {sin_emp}")
 
     print("\n== No se perdió nada de Zoho ==")
-    emails_zoho = leer_zoho_emails(BASE_ZOHO)
+    emails_zoho = leer_zoho_emails(BASE_ZOHO) if os.path.isfile(BASE_ZOHO) else None
+    ok("se pudieron leer los correos de la base de Zoho", bool(emails_zoho), f"({BASE_ZOHO})")
+    emails_zoho = emails_zoho or set()
     en_final = set(cuenta)
     perdidos = emails_zoho - en_final
-    ok("todo correo que estaba en Zoho sigue en la base final", not perdidos,
+    ok("todo correo que estaba en Zoho sigue en la base final", bool(emails_zoho) and not perdidos,
        f"({len(perdidos)} perdidos de {len(emails_zoho)}) {list(perdidos)[:3]}")
-    # 13000 es un piso fijo, sacado del tamano de la base de Zoho de la
-    # migracion (13.573 contactos menos sus duplicados internos). Con otra
-    # base hay que ajustarlo.
     marcados = sum(1 for r in filas if r["Estado en el CRM"] == "Ya estaba en el CRM")
-    ok("los contactos de Zoho quedaron marcados como existentes", marcados >= 13000,
-       f"({marcados})")
+    ok("los contactos de Zoho quedaron marcados como existentes", marcados >= minimo,
+       f"({marcados}, piso {minimo})")
 
     print("\n== Calidad de los datos ==")
     invalidos = [e for e in cuenta if not RE_EMAIL.match(e)]

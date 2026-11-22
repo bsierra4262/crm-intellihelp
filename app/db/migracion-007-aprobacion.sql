@@ -23,10 +23,11 @@
 --
 --  Índices: `ix_cont_aprob`/`ix_cta_aprob` empiezan por `pendiente_norm`, así
 --  que cubren también lo que hacían `ix_cont_pend`/`ix_cta_pend` de la 006,
---  que quedan redundantes.
+--  que quedan redundantes (la migracion 018 los saca).
 --
 --  ADD COLUMN / ADD INDEX IF NOT EXISTS es sintaxis de MariaDB (en MySQL 8
---  falla). Requiere la 006. No esta en schema.sql.
+--  falla). Requiere la 006. schema.sql ya incluye esto: una instalacion nueva no
+--  necesita correrla (si se corre igual, no cambia nada).
 -- ============================================================
 
 ALTER TABLE `contactos`
