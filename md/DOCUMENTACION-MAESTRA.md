@@ -532,6 +532,13 @@ Reglas que se auditan de raíz (no se parchan):
 
 > Cada cambio se registra acá, del más nuevo al más viejo.
 
+- **2026-11-22** — Auditoría completa y comentarios en todo el código. Cada archivo (PHP, vistas,
+  JS, CSS, SQL, Python, pruebas) lleva encabezado, docblock por función y el porqué de la lógica
+  no obvia; se corrigieron los comentarios que no coincidían con el código. El código no cambió
+  (verificado pieza por pieza, y las pruebas dan igual que antes: 418/418 y 331/331). Los hallazgos
+  (1 crítico, 25 altos, 78 medios, 142 bajos), con sus prioridades, están en
+  [AUDITORIA.md](AUDITORIA.md). En esta pasada no se arregló ninguno.
+
 - **2026-11-08** — Feriados automáticos en la agenda. Tabla `feriados` (migración 009) que se
   sincroniza sola una vez por día, y al vuelo si faltan datos o tienen más de 24 h, con el
   calendario oficial de ArgentinaDatos: agrega los decretados, reubica los trasladables, quita
