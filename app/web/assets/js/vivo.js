@@ -296,7 +296,17 @@
      */
     function consultar() {
         if (doc.hidden) { return; }          // nadie está mirando la pantalla
-        fetch(base + 'api-campana' + (idFicha ? '?id=' + encodeURIComponent(idFicha) : ''), {
+        // En la ficha se piden sólo las filas de la cola que están en pantalla
+        // (la página de 50), no la cola entera: con miles de destinatarios
+        // cada consulta traía miles de filas.
+        var consulta = '';
+        if (idFicha) {
+            var ids = Array.prototype.map.call(doc.querySelectorAll('[data-envio]'), function (tr) {
+                return tr.getAttribute('data-envio');
+            }).slice(0, 100);
+            consulta = '?id=' + encodeURIComponent(idFicha) + '&envios=' + ids.join(',');
+        }
+        fetch(base + 'api-campana' + consulta, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         }).then(function (r) {
             if (!r.ok) { throw new Error('http ' + r.status); }

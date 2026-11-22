@@ -5,9 +5,11 @@ require_admin();
 // ============================================================
 //  Ruta: /imagenes  (sólo administradores; módulo «campanas»).
 //  Galería de imágenes para las plantillas: subir y borrar.
-//    · POST con accion=borrar → borra el archivo y la fila de `imagenes`.
-//      No se fija si alguna plantilla la usa: esos correos quedan con la
-//      imagen rota (el aviso lo dice).
+//    · POST con accion=borrar → borra el archivo y la fila de `imagenes`,
+//      salvo que alguna plantilla la use (también las de la papelera, que se
+//      pueden restaurar): en ese caso no se borra y se dice cuáles. Los
+//      correos ya entregados que la mostraban sí quedan con la imagen rota
+//      (el aviso de confirmación lo dice).
 //    · POST con archivo → valida y guarda.
 //  Validación de la subida: el tipo se decide por getimagesize() (el
 //  contenido real, no la extensión ni el tipo que manda el navegador); sólo
@@ -29,7 +31,14 @@ if (is_post()) {
 
     if (($_POST['accion'] ?? '') === 'borrar') {
         $im = q1('SELECT * FROM imagenes WHERE id = ?', [(int)($_POST['id'] ?? 0)]);
-        if ($im) {
+        // ¿La usa alguna plantilla? `archivo` es hexadecimal + extensión, sin
+        // comodines de LIKE, así que se puede buscar tal cual.
+        $usan = $im ? q('SELECT nombre FROM plantillas WHERE bloques LIKE ? OR cuerpo_html LIKE ? ORDER BY nombre LIMIT 6',
+                        ['%' . $im['archivo'] . '%', '%' . $im['archivo'] . '%'])->fetchAll(PDO::FETCH_COLUMN) : [];
+        if ($im && $usan) {
+            flash('No se borró: la usan las plantillas «' . implode('», «', $usan) . '». '
+                . 'Sacala de esas plantillas primero.', 'error');
+        } elseif ($im) {
             // `archivo` lo generó el propio sistema (hexadecimal + extensión),
             // así que no puede apuntar fuera de la carpeta.
             @unlink($dir . '/' . $im['archivo']);

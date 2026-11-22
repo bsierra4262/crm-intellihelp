@@ -6,7 +6,7 @@
 //    $aviso  [tipo, texto] con el resultado de la última subida, o null.
 //    $rows   filas de `imagenes` con el nombre del autor, más nuevas primero.
 //  Cada imagen muestra su URL pública (ruta `img`), que es la que se pega en
-//  el bloque «Imagen» del editor; borrar no revisa si alguna plantilla la usa.
+//  el bloque «Imagen» del editor; borrar se niega si alguna plantilla la usa.
 // ============================================================
 ?>
 <?php /** @var ?array $aviso @var array $rows */ ?>
@@ -69,7 +69,7 @@
                     <input type="hidden" name="id" value="<?= (int)$im['id'] ?>">
                     <button class="act danger" title="Eliminar" data-peligro
                             data-confirmar-titulo="Eliminar la imagen"
-                            data-confirmar="Si alguna plantilla la está usando, ahí va a quedar un hueco."
+                            data-confirmar="Si alguna plantilla la usa, no se borra. Los correos ya enviados que la mostraban van a quedar con un hueco."
                             data-confirmar-ok="Eliminar"><?= icon('papelera', 16) ?></button>
                 </form>
             </div>

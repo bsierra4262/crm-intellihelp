@@ -41,10 +41,11 @@ $envios = q("SELECT * FROM envios $where ORDER BY FIELD(estado,'error','rebotado
 
 // Vista previa real: se arma el mensaje con el primer destinatario de la cola.
 // Se arma sin cuenta, así que remitente y Reply-To pueden diferir de los del
-// envío real. Su HTML se pinta tal cual dentro de la página del CRM (ver la
-// vista), con los datos del destinatario sin escapar.
+// envío real. Los datos del destinatario van escapados y la vista lo muestra
+// en un iframe aislado (sandbox), no dentro de la página del CRM.
 $muestra = q('SELECT * FROM envios WHERE campana_id = ? ORDER BY id LIMIT 1', [$id])->fetch() ?: null;
-$vista   = $muestra ? campana_armar_mensaje($c, $muestra) : null;
+// Sin el píxel de apertura: mirar la campaña no es que el destinatario la abrió.
+$vista   = $muestra ? campana_armar_mensaje($c, $muestra, null, false) : null;
 
 render('campana-ver', [
     'c'       => $c,
@@ -53,6 +54,9 @@ render('campana-ver', [
     'f'       => $fEnvios,
     'vista'   => $vista,
     'testing' => es_testing(),
+    // Iniciar y cancelar: el creador, el responsable o un admin. Los demás
+    // no ven esos botones (y campana-accion igual lo controla).
+    'puedeGestionar' => campana_puede_gestionar($c, auth_user()),
     'motivos' => q("SELECT motivo, COUNT(*) n FROM envios WHERE campana_id = ? AND estado = 'omitido'
                     GROUP BY motivo ORDER BY n DESC", [$id])->fetchAll(),
     // Aperturas: el dato se venía guardando y no se mostraba en ningún lado.

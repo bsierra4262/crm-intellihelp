@@ -31,11 +31,13 @@ declare(strict_types=1);
 //  _parr), los colores por _c(), las alineaciones por _al() y los enlaces
 //  por _url(). Lo único que no se valida es el `src` de imágenes y logos
 //  (sólo se escapa). Las variables {{...}} quedan en el HTML y se
-//  reemplazan DESPUÉS, sin escapar, en render_plantilla().
+//  reemplazan DESPUÉS en render_plantilla(), que en modo HTML escapa los
+//  valores (un nombre con `<` llega como texto, no como etiqueta).
 //
-//  Trampa: el archivo declara strict_types, así que un bloque que llegue del
-//  navegador con un número o una lista donde se espera texto (alineación,
-//  color) hace saltar un TypeError en vez de usar el valor por defecto.
+//  Los bloques llegan del navegador como JSON y pueden traer cualquier tipo
+//  en cualquier campo: _bloque_limpio() deja sólo textos antes de dibujar,
+//  así un número o una lista donde se espera texto cae al valor por defecto
+//  en vez de hacer saltar un TypeError (el archivo declara strict_types).
 // ============================================================
 
 /** Ancho del correo. 600 px es el estándar que entra en todos los clientes. */
@@ -113,9 +115,10 @@ function bloques_ajustes_defecto(): array
  * Color seguro: sólo acepta hexadecimal (#rgb a #rrggbbaa); cualquier otra
  * cosa devuelve $def. Es lo que impide meter CSS arbitrario en un style.
  */
-function _c(?string $v, string $def): string
+function _c($v, string $def): string
 {
-    $v = trim((string)$v);
+    if (!is_string($v)) { return $def; }
+    $v = trim($v);
     return preg_match('/^#[0-9a-fA-F]{3,8}$/', $v) ? $v : $def;
 }
 
@@ -163,8 +166,26 @@ function _parr(string $texto, bool $enlazar = true): string
     return nl2br($html, false);
 }
 
+/**
+ * Un bloque tal como llegó del navegador, con todos sus campos pasados a
+ * texto: los números y booleanos se convierten y las listas u objetos se
+ * descartan. El JSON del editor lo arma el navegador y un POST a mano puede
+ * mandar cualquier cosa; sin esto, con strict_types, un `alineacion: 3`
+ * cortaba el render entero con un TypeError.
+ */
+function _bloque_limpio(array $b): array
+{
+    $out = [];
+    foreach ($b as $k => $v) {
+        if (is_string($v))                       { $out[$k] = $v; }
+        elseif (is_int($v) || is_float($v))      { $out[$k] = (string)$v; }
+        elseif (is_bool($v))                     { $out[$k] = $v ? '1' : ''; }
+    }
+    return $out;
+}
+
 /** Alineación válida (left, center o right); otra cosa devuelve $def. */
-function _al(?string $v, string $def = 'left'): string
+function _al($v, string $def = 'left'): string
 {
     return in_array($v, ['left', 'center', 'right'], true) ? $v : $def;
 }
@@ -179,16 +200,21 @@ function _al(?string $v, string $def = 'left'): string
  * Lo que no trae esquema se completa como https:// (www.ejemplo.com) y lo
  * que parece un correo (tiene @ y ninguna barra) como mailto:. El resultado
  * todavía hay que escaparlo con e() al meterlo en un atributo.
- * Cualquier variable pasa ({{nombre}} incluida), no sólo las que son
- * enlaces como {{agenda}} o {{baja}}.
+ * Como enlace sólo pasan las variables que SON enlaces y salen del sistema
+ * ({{agenda}}, {{baja}}, {{empresa_web}}). Las que traen datos del
+ * destinatario ({{nombre}}, {{empresa}}…) se descartan: un posible cliente
+ * que cargó `javascript:…` como nombre en el formulario web terminaría
+ * siendo el destino del botón.
  */
-function _url(?string $v): string
+function _url($v): string
 {
-    $v = trim((string)$v);
+    $v = is_string($v) ? trim($v) : '';
     if ($v === '') { return ''; }
 
     // Las variables se resuelven después del render; se dejan pasar tal cual.
-    if (preg_match('/^\{\{[a-z_]+\}\}$/i', $v)) { return $v; }
+    if (preg_match('/^\{\{[a-z_]+\}\}$/i', $v)) {
+        return in_array(strtolower($v), ['{{agenda}}', '{{baja}}', '{{empresa_web}}'], true) ? $v : '';
+    }
 
     // Se mira el esquema sin espacios ni caracteres de control, que es como se
     // suele disfrazar un `java\tscript:`.
@@ -228,6 +254,7 @@ function _fila(string $contenido, string $padding = '0 44px'): string
  */
 function bloque_html(array $b, array $a, array $ctx): string
 {
+    $b   = _bloque_limpio($b);
     $f   = CORREO_FUENTE;
     $tip = (string)($b['tipo'] ?? '');
 
@@ -356,8 +383,8 @@ function bloque_html(array $b, array $a, array $ctx): string
             ], $a, $ctx);
 
         case 'whatsapp':
-            // Con `?:` un teléfono vacío cae al de la empresa. La versión en
-            // texto (bloques_texto) usa `??` y en ese caso no lo pone.
+            // Con `?:` un teléfono vacío cae al de la empresa; la versión en
+            // texto (bloques_texto) hace lo mismo.
             $tel = preg_replace('/\D/', '', (string)(($b['telefono'] ?? '') ?: ($ctx['empresa_whatsapp'] ?? '')));
             if ($tel === '') { return ''; }
             $mens = trim((string)($b['mensaje'] ?? '')) ?: 'Hola, me interesa conocer más sobre sus soluciones.';
@@ -525,15 +552,17 @@ function bloques_render(array $bloques, array $ajustes = [], array $ctx = []): s
  * No es un adorno: un correo sólo-HTML es una señal clásica de spam, y hay
  * clientes que directamente muestran esta versión.
  *
- * No es simétrica con bloque_html(): no incluye encabezado, imagen ni
- * espacio (no tienen texto), y en la firma sin nombre cargado no pone
- * {{remitente}} como sí hace la versión HTML. Las variables quedan sin
- * resolver, igual que en el HTML.
+ * No incluye encabezado, imagen ni espacio (no tienen texto). En lo demás
+ * sigue a bloque_html(): el WhatsApp vacío cae al de la empresa y la firma
+ * sin nombre cargado pone {{remitente}}. Las variables quedan sin resolver,
+ * igual que en el HTML.
  */
 function bloques_texto(array $bloques, array $ctx = []): string
 {
     $out = [];
     foreach ($bloques as $b) {
+        if (!is_array($b)) { continue; }
+        $b = _bloque_limpio($b);
         $t = (string)($b['tipo'] ?? '');
         switch ($t) {
             case 'hero':
@@ -564,7 +593,7 @@ function bloques_texto(array $bloques, array $ctx = []): string
                 $out[] = '';
                 break;
             case 'whatsapp':
-                $tel = preg_replace('/\D/', '', (string)($b['telefono'] ?? ($ctx['empresa_whatsapp'] ?? '')));
+                $tel = preg_replace('/\D/', '', (string)(($b['telefono'] ?? '') ?: ($ctx['empresa_whatsapp'] ?? '')));
                 if ($tel !== '') {
                     $out[] = (trim((string)($b['texto'] ?? '')) ?: 'WhatsApp') . ': +' . $tel;
                     $out[] = '';
@@ -586,7 +615,7 @@ function bloques_texto(array $bloques, array $ctx = []): string
                 break;
             case 'firma':
                 $out[] = trim((string)($b['cierre'] ?? 'Saludos cordiales,'));
-                $q = trim((string)($b['firma'] ?? ''));
+                $q = trim((string)($b['firma'] ?? '{{remitente}}'));
                 if ($q !== '') { $out[] = $q; }
                 $c = trim((string)($b['cargo'] ?? ''));
                 if ($c !== '') { $out[] = $c; }
@@ -633,10 +662,9 @@ function palabras_riesgosas(): array
  *
  * Conviene llamarla con el HTML y el texto YA renderizados con datos de
  * ejemplo (como hacen plantilla-form y plantilla-vista): así el tamaño y las
- * palabras se miden como le van a llegar a una persona. Ojo: el chequeo de
- * personalización busca «{{nombre}}» en ese HTML, que ya viene reemplazado,
- * así que en la práctica sólo lo da por personalizado si el asunto tiene
- * alguna variable.
+ * palabras se miden como le van a llegar a una persona. La personalización
+ * no se puede ver en ese HTML (las variables ya están reemplazadas), así que
+ * se busca en los bloques crudos y en el asunto.
  *
  * @param array  $bloques los bloques, para avisar de los que no se dibujan.
  * @param string $asunto  el asunto (con variables o sin ellas).
@@ -655,6 +683,7 @@ function bloques_verificar(array $bloques, string $asunto, string $html, string 
     // desaparece del correo sin decir nada: quien lo armó lo ve en la lista de
     // la izquierda, no lo ve en la vista previa y no entiende por qué. Se avisa
     // acá, que es donde se mira antes de mandar.
+    $bloques = array_values(array_map('_bloque_limpio', array_filter($bloques, 'is_array')));
     foreach ($bloques as $i => $b) {
         $n = $i + 1;
         $tipo = (string)($b['tipo'] ?? '');
@@ -759,7 +788,10 @@ function bloques_verificar(array $bloques, string $asunto, string $html, string 
     }
 
     // --- Personalización ---
-    if (!str_contains($html, '{{nombre}}') && !str_contains($asuntoLimpio, '{{')) {
+    // Sólo cuentan las variables del destinatario: {{remitente}} (la firma
+    // por defecto) o {{baja}} no hacen que el correo parezca escrito a mano.
+    $crudo = $asuntoLimpio . ' ' . implode(' ', array_map(fn($b) => implode(' ', $b), $bloques));
+    if (!preg_match('/\{\{(nombre|apellido|nombre_completo|empresa|cargo|email)\}\}/', $crudo)) {
         $avisos[] = ['El correo no está personalizado',
             'Usar {{nombre}} o {{empresa}} mejora bastante la tasa de respuesta y baja el riesgo de que lo marquen como masivo.'];
     }

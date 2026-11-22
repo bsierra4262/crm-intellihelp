@@ -139,8 +139,10 @@ setting_set('cron_en_curso_desde', date('Y-m-d H:i:s'));
 //  atar el sistema a lo que ofrezca un desplegable ajeno es frágil.
 //
 //  Así que el script trabaja en vueltas de ~55 segundos hasta gastar su
-//  presupuesto. Con el cron cada minuto da una vuelta y sale; con el cron cada
-//  cinco da cinco vueltas seguidas. En los dos casos la casilla se mira
+//  presupuesto (CRON_CORRIDA_SEG): da unas cinco vueltas, esté el cron cada
+//  uno o cada cinco minutos. Con el cron cada minuto, las corridas que
+//  arrancan mientras otra sigue viva encuentran el turno tomado y se van sin
+//  hacer nada. En los dos casos la casilla se mira
 //  aproximadamente cada minuto, que es lo que hace que una respuesta aparezca
 //  al toque en vez de cinco minutos después.
 //

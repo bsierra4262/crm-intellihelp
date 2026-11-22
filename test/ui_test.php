@@ -1015,8 +1015,9 @@ echo "== El avance mide lo resuelto, no sólo lo entregado ==\n";
 // Una campaña que entregó 3 y rebotó 3 terminó su trabajo con los 6: no queda
 // nada en la cola. Mostrar «3 de 6» hacía parecer que se había quedado a mitad
 // de camino. «Entregados» sigue siendo 3, que es lo que de verdad llegó.
+// El listado los cuenta en una sola consulta agrupada (campanas_cifras).
 ok('la consulta cuenta los resueltos',
-   str_contains($campanas, "e.estado NOT IN ('pendiente','enviando','omitido')) AS procesados"));
+   str_contains($campanas, "WHEN estado NOT IN ('pendiente','enviando','omitido') THEN 1 ELSE 0 END) AS procesados"));
 ok('la ficha también', substr_count($campanas, 'AS procesados') >= 2);
 $campF2 = (string) @file_get_contents($WEB . '/app/views/campanas.php');
 ok('el listado muestra el avance con los resueltos', str_contains($campF2, '$hechos'));
@@ -1076,7 +1077,8 @@ ok('el avance se actualiza después de cada correo',
 // guardadas: si el proceso se corta a mitad esas columnas quedan viejas y la
 // pantalla miente. La cola no puede mentir.
 ok('el listado cuenta sobre la cola, no sobre un contador guardado',
-   str_contains($campanas, "AND e.estado = 'enviado') AS enviados"));
+   str_contains($campanas, "WHEN estado = 'enviado' THEN 1 ELSE 0 END) AS enviados")
+   && str_contains($campanas, 'FROM envios WHERE campana_id IN ($ph) GROUP BY campana_id'));
 ok('la ficha de la campaña también',
    str_contains($campanas, 'AND e.estado = "enviado") AS enviados'));
 // Con la cola vacía la campaña tiene que cerrarse en la misma corrida, no en la

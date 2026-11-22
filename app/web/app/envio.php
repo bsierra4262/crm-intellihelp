@@ -31,8 +31,14 @@ declare(strict_types=1);
 //     un espacio en la cuarta posición (fin de respuesta multilínea). Si el
 //     servidor no contesta en 30 s, fgets devuelve false y la respuesta llega
 //     vacía o a medias: eso se interpreta como error, no como cuelgue.
-//   · Un 5xx sólo se trata como definitivo en el RCPT. En MAIL FROM y al
-//     cerrar el DATA cualquier rechazo vuelve como 'error' (temporal).
+//   · Un 5xx es definitivo en cualquier paso (smtp_clasificar_fallo): en el
+//     RCPT es 'rechazado' (la casilla no existe) y en MAIL FROM o en el DATA
+//     es 'fallido' (el servidor no acepta ese mensaje o ese remitente; no es
+//     culpa del destinatario). La excepción son los topes de envío que
+//     algunos proveedores contestan con 5xx (Gmail: 550 5.4.5): ésos se
+//     reintentan. Si después de mandar el mensaje entero el servidor no
+//     contesta, vuelve 'dudoso': pudo haberlo recibido y reintentar lo
+//     duplicaría.
 // ============================================================
 
 /**
@@ -89,6 +95,61 @@ function smtp_configurado(): bool
 function nuevo_message_id(string $dominio = 'intellihelp.tech'): string
 {
     return '<' . bin2hex(random_bytes(12)) . '.' . time() . '@' . $dominio . '>';
+}
+
+/**
+ * Asunto codificado para la cabecera Subject (RFC 2047).
+ *
+ * Va en base64 y partido en «palabras codificadas» de 75 caracteres como
+ * máximo, cortando siempre entre caracteres UTF-8 completos (una letra con
+ * tilde no puede quedar partida entre dos palabras). Las palabras se separan
+ * con un salto y un espacio (plegado de cabecera), que el cliente descarta
+ * al mostrar el asunto.
+ */
+function mime_asunto(string $asunto): string
+{
+    if ($asunto === '') { return '=?UTF-8?B??='; }
+    // 75 - strlen('=?UTF-8?B?') - strlen('?=') = 63 caracteres de base64:
+    // entran 45 bytes de texto por palabra (múltiplo de 3, sin relleno).
+    $palabras = [];
+    $actual   = '';
+    $letras   = preg_split('//u', $asunto, -1, PREG_SPLIT_NO_EMPTY) ?: str_split($asunto);
+    foreach ($letras as $car) {
+        if ($actual !== '' && strlen($actual . $car) > 45) {
+            $palabras[] = $actual;
+            $actual = '';
+        }
+        $actual .= $car;
+    }
+    if ($actual !== '') { $palabras[] = $actual; }
+    return implode("\r\n ", array_map(fn($p) => '=?UTF-8?B?' . base64_encode($p) . '?=', $palabras));
+}
+
+/**
+ * Qué hacer con una respuesta de error del servidor SMTP.
+ *
+ * Es pura (no habla con nadie) para poder probarla sola.
+ *
+ * @param string $fase      'rcpt' (el destinatario) o cualquier otra
+ *                          ('mail', 'data', 'fin').
+ * @param string $respuesta lo que contestó el servidor, tal cual.
+ * @return string 'rechazado' (5xx en el RCPT: la casilla no existe),
+ *                'fallido' (5xx en otro paso: el servidor no acepta el
+ *                mensaje o el remitente; no se reintenta, pero tampoco es
+ *                culpa del destinatario) o 'error' (temporal: 4xx, sin
+ *                respuesta o un tope de envío contestado con 5xx).
+ */
+function smtp_clasificar_fallo(string $fase, string $respuesta): string
+{
+    $r = ltrim($respuesta);
+    if (!str_starts_with($r, '5')) { return 'error'; }
+    // Algunos proveedores contestan con 5xx cuando se llegó al tope de envíos
+    // del día (Gmail: «550 5.4.5 Daily user sending limit exceeded»). No es
+    // un rechazo del mensaje: mañana sale. Se trata como temporal.
+    if (preg_match('/\b5\.4\.5\b|quota|limit exceeded|rate limit|too many/i', $r)) {
+        return 'error';
+    }
+    return $fase === 'rcpt' ? 'rechazado' : 'fallido';
 }
 
 /**
@@ -154,15 +215,17 @@ function smtp_abrir(?string &$err = null, ?array $cfg = null)
     $ok  = static fn(string $r, string $code) => str_starts_with(ltrim($r), $code);
 
     if (!$ok($leer(), '220')) { $err = 'El servidor SMTP no saludó.'; fclose($fp); return null; }
-    // La respuesta del EHLO no se revisa: si el servidor no lo acepta, falla
-    // el paso siguiente con un mensaje menos claro.
-    $cmd('EHLO intellihelp.tech');
+    // El EHLO se revisa: si el servidor no lo acepta, decirlo acá es más
+    // claro que el error que daría el paso siguiente.
+    $r = $cmd('EHLO intellihelp.tech');
+    if (!$ok($r, '250')) { $err = 'El servidor no aceptó el saludo EHLO: ' . trim($r); fclose($fp); return null; }
     if ($seg === 'tls') {
         if (!$ok($cmd('STARTTLS'), '220')) { $err = 'STARTTLS rechazado.'; fclose($fp); return null; }
         if (!stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
             $err = 'No se pudo negociar TLS.'; fclose($fp); return null;
         }
-        $cmd('EHLO intellihelp.tech');
+        $r = $cmd('EHLO intellihelp.tech');
+        if (!$ok($r, '250')) { $err = 'El servidor no aceptó el saludo EHLO tras el TLS: ' . trim($r); fclose($fp); return null; }
     }
     if (!$ok($cmd('AUTH LOGIN'), '334')) { $err = 'El servidor no aceptó AUTH LOGIN.'; fclose($fp); return null; }
     $cmd(base64_encode((string)$c['user']));
@@ -192,16 +255,25 @@ function smtp_cerrar($fp): void
  * @param string|null $err se llena con el motivo si no sale.
  * @param array|null  $cfg la cuenta de la sesión, para el remitente por
  *                         defecto; null = smtp_cfg().
+ * @param callable|null $alEntregar se llama justo antes de mandar el mensaje
+ *                         (el servidor ya aceptó el DATA). El despachador la
+ *                         usa para anotar que ese envío llegó hasta acá: si el
+ *                         proceso muere después, el correo pudo haber salido y
+ *                         no se reintenta solo.
  * @return string 'enviado' | 'rechazado' (5xx en el RCPT del destinatario o
- *                dirección inválida: no reintentar) | 'error' (cualquier
- *                otra cosa: quien llama decide si reintenta).
+ *                dirección inválida: no reintentar) | 'fallido' (5xx en
+ *                MAIL FROM o en el DATA: no reintentar, pero no es culpa del
+ *                destinatario) | 'dudoso' (se mandó el mensaje entero y no
+ *                llegó respuesta: pudo haber salido, reintentar duplicaría)
+ *                | 'error' (temporal: quien llama decide si reintenta).
  *
- * Después de un 'error' la sesión puede quedar en un estado intermedio (por
- * ejemplo, a mitad de un DATA): quien llama la cierra y abre otra.
+ * Después de cualquier cosa que no sea 'enviado' o 'rechazado' la sesión
+ * puede quedar en un estado intermedio (por ejemplo, a mitad de un DATA):
+ * quien llama la cierra y abre otra.
  * Reply-To, In-Reply-To y References se copian tal cual a las cabeceras:
  * quien llama tiene que garantizar que no traigan saltos de línea.
  */
-function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null): string
+function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null, ?callable $alEntregar = null): string
 {
     if (!is_resource($fp)) { $err = 'La conexión SMTP no está abierta.'; return 'error'; }
 
@@ -225,7 +297,7 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
     $cc = array_values(array_filter(array_map('normalizar_email', (array)($msg['cc'] ?? [])), 'email_valido'));
 
     $r = $cmd('MAIL FROM:<' . $de . '>');
-    if (!$ok($r, '250')) { $err = 'MAIL FROM rechazado: ' . trim($r); return 'error'; }
+    if (!$ok($r, '250')) { $err = 'MAIL FROM rechazado: ' . trim($r); $cmd('RSET'); return smtp_clasificar_fallo('mail', $r); }
 
     $r = $cmd('RCPT TO:<' . $para . '>');
     if (!$ok($r, '250') && !$ok($r, '251')) {
@@ -233,7 +305,7 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
         // error temporal. No tiene sentido reintentar.
         $err = 'Destinatario rechazado: ' . trim($r);
         $cmd('RSET');
-        return str_starts_with(ltrim($r), '5') ? 'rechazado' : 'error';
+        return smtp_clasificar_fallo('rcpt', $r);
     }
     // Las copias se agregan sin mirar la respuesta: una copia rechazada no
     // frena el envío al destinatario.
@@ -242,7 +314,7 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
     }
 
     $r = $cmd('DATA');
-    if (!$ok($r, '354')) { $err = 'DATA rechazado: ' . trim($r); $cmd('RSET'); return 'error'; }
+    if (!$ok($r, '354')) { $err = 'DATA rechazado: ' . trim($r); $cmd('RSET'); return smtp_clasificar_fallo('data', $r); }
 
     $limite    = '=_ith_' . bin2hex(random_bytes(10));
     $messageId = (string)($msg['message_id'] ?? nuevo_message_id());
@@ -252,9 +324,9 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
     $cab .= 'To: ' . (!empty($msg['para_nombre']) ? mime_nombre((string)$msg['para_nombre']) . ' ' : '') . '<' . $para . ">\r\n";
     if ($cc) { $cab .= 'Cc: ' . implode(', ', array_map(fn($x) => '<' . $x . '>', $cc)) . "\r\n"; }
     if (!empty($msg['responder_a'])) { $cab .= 'Reply-To: <' . $msg['responder_a'] . ">\r\n"; }
-    // El asunto va siempre en base64 y en una sola «palabra codificada». La
-    // norma pide cortarla a 75 caracteres; los clientes la toleran larga.
-    $cab .= 'Subject: =?UTF-8?B?' . base64_encode((string)($msg['asunto'] ?? '')) . "?=\r\n";
+    // El asunto va siempre en base64, partido en palabras de 75 caracteres
+    // como pide la norma (mime_asunto).
+    $cab .= 'Subject: ' . mime_asunto((string)($msg['asunto'] ?? '')) . "\r\n";
     $cab .= 'Message-ID: ' . $messageId . "\r\n";
     // Sin estas dos, una respuesta escrita desde el CRM le llega al destinatario
     // como un correo suelto en vez de aparecer pegada a la conversación que él
@@ -317,11 +389,21 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
     // Dot-stuffing: una línea que arranca con "." cerraría el DATA antes de tiempo.
     $cuerpo = preg_replace('/^\./m', '..', $cuerpo);
 
+    // Desde acá el mensaje puede llegar aunque después se pierda la respuesta:
+    // quien llama lo anota antes de mandarlo. Si anotarlo falla, el envío
+    // sigue igual.
+    if ($alEntregar) {
+        try { $alEntregar(); } catch (\Throwable $e) { }
+    }
     // Si se pierde esta respuesta (tiempo de espera), el servidor pudo haber
-    // aceptado el mensaje igual: devolver 'error' acá puede terminar en un
-    // reintento y en un correo duplicado.
+    // aceptado el mensaje igual: por eso una respuesta vacía vuelve 'dudoso' y
+    // no 'error', para que nadie lo reintente solo y lo duplique.
     $r = $cmd($cab . "\r\n" . $cuerpo . "\r\n.");
-    if (!$ok($r, '250')) { $err = 'El servidor rechazó el mensaje: ' . trim($r); return 'error'; }
+    if (trim($r) === '') {
+        $err = 'El servidor no confirmó la recepción del mensaje (no hubo respuesta): puede haber llegado.';
+        return 'dudoso';
+    }
+    if (!$ok($r, '250')) { $err = 'El servidor rechazó el mensaje: ' . trim($r); return smtp_clasificar_fallo('fin', $r); }
     return 'enviado';
 }
 

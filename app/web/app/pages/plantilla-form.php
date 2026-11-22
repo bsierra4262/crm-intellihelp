@@ -8,7 +8,8 @@ require_login();
 //    · GET sin id: plantilla nueva, vacía o copiada de un preajuste
 //      (plantillas_preajustes(), en preajustes.php).
 //    · POST: valida nombre y asunto, guarda con plantilla_guardar() (que
-//      genera el HTML desde los bloques) y vuelve al mismo formulario.
+//      genera el HTML desde los bloques; un `tipo=html` que llegue se
+//      ignora) y vuelve al mismo formulario.
 //  Además arma una primera vista previa y el control de entregabilidad con
 //  datos de ejemplo; después el editor (assets/js/editor.js) los actualiza
 //  pidiéndoselos a plantilla-vista.
@@ -77,7 +78,7 @@ $ejemplo = [
     'empresa_web' => $ctx['empresa_web'],
     'agenda' => url_abs('r/ejemplo/demo'), 'baja' => url_abs('baja?t=ejemplo'),
 ];
-$vista  = render_plantilla($html, $ejemplo);
+$vista  = render_plantilla($html, $ejemplo, true);
 $asunto = render_plantilla((string)($p['asunto'] ?? ''), $ejemplo);
 $chequeo = bloques_verificar($datos['bloques'], (string)($p['asunto'] ?? ''), $vista,
                              render_plantilla($texto, $ejemplo), contexto_marca());

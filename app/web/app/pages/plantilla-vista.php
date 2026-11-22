@@ -6,10 +6,11 @@ require_login();
 //  Ruta: /plantilla-vista  (con sesión; módulo «campanas»).
 //  Lee `plantillas` (sólo en GET); no escribe nada.
 //
-//  Ojo con el GET: devuelve el `cuerpo_html` guardado tal cual, como página
-//  del mismo dominio del CRM (sólo con X-Frame-Options). Si una plantilla
-//  tiene HTML con scripts (tipo 'html', que se guarda sin sanear), corren
-//  con la sesión de quien la abra.
+//  El GET devuelve el `cuerpo_html` guardado como página del dominio del
+//  CRM, así que va con la cabecera `Content-Security-Policy: sandbox`: el
+//  navegador lo trata como de otro origen y sin scripts. Una plantilla vieja
+//  de tipo 'html' (que se guardaba sin sanear) no puede correr nada con la
+//  sesión de quien la abra. Las variables se reemplazan escapadas.
 // ============================================================
 //
 // Dos usos:
@@ -36,7 +37,7 @@ if (is_post()) {
     $aj    = is_array($datos['ajustes'] ?? null) ? $datos['ajustes'] : [];
     $asunto = (string)($_POST['asunto'] ?? '');
 
-    $html  = render_plantilla(bloques_render($lista, $aj, $ctx), $ejemplo);
+    $html  = render_plantilla(bloques_render($lista, $aj, $ctx), $ejemplo, true);
     $texto = render_plantilla(bloques_texto($lista, $ctx), $ejemplo);
 
     // json_out termina el pedido.
@@ -57,4 +58,7 @@ if (!$p) {
 
 header('Content-Type: text/html; charset=utf-8');
 header('X-Frame-Options: SAMEORIGIN');
-echo render_plantilla((string)$p['cuerpo_html'], $ejemplo);
+// Sin allow-scripts ni allow-same-origin: el correo se ve, pero no ejecuta
+// nada ni puede leer la sesión del CRM.
+header('Content-Security-Policy: sandbox');
+echo render_plantilla((string)$p['cuerpo_html'], $ejemplo, true);

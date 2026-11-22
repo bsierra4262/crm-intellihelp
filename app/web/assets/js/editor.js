@@ -23,9 +23,9 @@
 // #preview, #chequeoCuerpo y #chequeoResumen.
 //
 // Seguridad: todo lo que escribe el usuario pasa por escapar() antes de ir a
-// innerHTML. La vista previa se carga en un iframe por srcdoc; ese iframe no
-// tiene sandbox, así que el HTML que arma el servidor corre con el origen
-// del CRM (bloques.php escapa los textos y descarta las URL peligrosas).
+// innerHTML. La vista previa se carga en un iframe por srcdoc con sandbox
+// vacío (en views/plantilla-form.php): sin scripts y con un origen propio,
+// así que ni un HTML malicioso podría tocar la sesión del CRM.
 (function () {
     'use strict';
 
