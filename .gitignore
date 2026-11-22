@@ -25,8 +25,11 @@
 
 # --- Secretos reales (aunque estén dentro de app/): NUNCA subir ---
 app/server-config/config.php
+app/server-config/crm-pruebas.php
 app/web/app/config.local.php
 bin/deploy.local.json
+# Claves de servidores aceptadas con `deploy.py --aceptar-clave-nueva` (de esta maquina).
+bin/deploy.known_hosts
 /.env
 
 # --- Datos reales de la empresa: la base comercial no va al repositorio ---

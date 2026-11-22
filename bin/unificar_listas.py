@@ -52,8 +52,9 @@ Uso
 #    empresa se aplica a TODAS las filas (segunda pasada de deduplicar()), no
 #    solo a las que no tienen correo.
 #  · Al fusionar dos filas de Zoho entre si, queda el `ID de registro` de la
-#    primera; el de la otra no aparece en ningun archivo de salida (tampoco
-#    en duplicados.csv). Ver deduplicar().
+#    primera y los de las otras van a la columna «IDs de Zoho fusionados» (y
+#    a duplicados.csv): asi se puede reenlazar lo que en Zoho colgaba de la
+#    ficha absorbida (notas, negocios).
 #  · La verificacion de la salida esta en test/verificar_unificacion.py.
 # ============================================================
 from __future__ import annotations
@@ -66,6 +67,7 @@ import re
 import sys
 import unicodedata
 from collections import Counter, defaultdict
+from itertools import combinations
 
 # Las descripciones de Zoho pueden ser muy largas: el limite por defecto del
 # modulo csv (128 KB por campo) corta la lectura con error.
@@ -229,12 +231,13 @@ def titulizar(v: str) -> str:
 
 
 # Terminaciones que no distinguen una empresa de otra: tipos societarios y
-# palabras como «group» o «argentina». Ojo: por esto «Telecom Argentina» y
-# «Telecom» dan la misma clave, y dos personas homonimas en ellas se fusionan.
+# palabras como «group». «argentina» ya NO está: hacía que «Telecom Argentina»
+# y «Telecom» dieran la misma clave y dos homónimos de una y otra se
+# fusionaran. Es preferible dejar un duplicado que juntar a dos personas.
 SUFIJOS_EMPRESA = (
     " s.a.", " sa", " s.r.l.", " srl", " s.a.s.", " sas", " s.a", " sociedad anonima",
     " inc", " inc.", " llc", " ltd", " ltda", " limited", " corp", " corp.", " co.",
-    " gmbh", " b.v.", " bv", " nv", " plc", " group", " grupo", " argentina",
+    " gmbh", " b.v.", " bv", " nv", " plc", " group", " grupo",
 )
 
 
@@ -242,8 +245,8 @@ def clave_empresa(v: str) -> str:
     """Nombre de empresa reducido a su forma comparable (sin tipo societario)."""
     p = plano(v)
     p = re.sub(r"[.,]", "", p)
-    # Se repite hasta que no quede ninguna: «Acme Argentina S.A.» pierde
-    # primero «sa» y despues «argentina».
+    # Se repite hasta que no quede ninguna: «Acme Group S.A.» pierde
+    # primero «sa» y despues «group».
     cambio = True
     while cambio:
         cambio = False
@@ -261,29 +264,36 @@ def clave_empresa(v: str) -> str:
 
 def abrir_csv(ruta: str):
     """Abre un CSV detectando codificación y separador. Devuelve un DictReader."""
-    codificacion = None
-    # La codificacion se decide mirando solo los primeros 16 K caracteres. Si
-    # el archivo es UTF-8 al principio y tiene bytes de otra codificacion mas
-    # adelante, se abre como UTF-8 con errors="replace" y esos caracteres
-    # quedan como «�» sin ningun aviso. latin-1 nunca falla: es el ultimo
-    # recurso.
+    codificacion, sep = detectar_formato(ruta)
+    # Devuelve tambien el archivo abierto: quien llama tiene que cerrarlo
+    # (los leer_* lo hacen con `with fh:`). Sin errors="replace": la
+    # codificacion ya se probo con el archivo entero.
+    f = io.open(ruta, encoding=codificacion, newline="")
+    return csv.DictReader(f, delimiter=sep), f, codificacion, sep
+
+
+def detectar_formato(ruta: str) -> tuple[str, str]:
+    """Codificación y separador de un CSV.
+
+    La codificación se prueba decodificando el archivo ENTERO (antes se miraban
+    solo los primeros 16 K: un archivo UTF-8 al principio y con bytes cp1252
+    más adelante se abría como UTF-8 y esos caracteres quedaban como «�» sin
+    aviso). latin-1 nunca falla: es el último recurso. El separador es el que
+    más aparece en la línea de encabezados.
+    """
+    with io.open(ruta, "rb") as f:
+        crudo = f.read()
     for cod in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
         try:
-            with io.open(ruta, encoding=cod, newline="") as f:
-                muestra = f.read(16384)
-            codificacion = cod
+            texto = crudo.decode(cod)
             break
         except UnicodeDecodeError:
             continue
-    if codificacion is None:
+    else:  # pragma: no cover (latin-1 decodifica cualquier cosa)
         raise RuntimeError(f"No se pudo determinar la codificación de {ruta}")
-    # Separador: el que mas aparece en la linea de encabezados.
-    primera = muestra.splitlines()[0] if muestra else ""
+    primera = texto.splitlines()[0] if texto else ""
     sep = ";" if primera.count(";") > primera.count(",") else ","
-    # Devuelve tambien el archivo abierto: quien llama tiene que cerrarlo
-    # (los leer_* lo hacen con `with fh:`).
-    f = io.open(ruta, encoding=codificacion, newline="", errors="replace")
-    return csv.DictReader(f, delimiter=sep), f, codificacion, sep
+    return cod, sep
 
 
 # Calidad del correo: primero lo verificado. Es lo que evita que una campaña
@@ -330,7 +340,7 @@ def ficha_vacia() -> dict:
         "correos": [], "telefonos": [], "localidad": "", "provincia": "", "pais": "",
         "sector": "", "sitio_web": "", "linkedin": "", "linkedin_empresa": "",
         "empleados": "", "descripcion": "", "propietario": "", "creado_en": "",
-        "zoho_id": "", "origen": set(),
+        "zoho_id": "", "zoho_ids_fusionados": [], "origen": set(),
     }
 
 
@@ -525,16 +535,15 @@ def casillas_compartidas(fichas: list[dict]) -> set[str]:
             if len(por_email[c["email"]]) < 12:      # con 12 alcanza para decidir
                 por_email[c["email"]].append(f)
 
-    # Cada ficha se compara solo con la primera del grupo, no todas contra
-    # todas. Si la primera es ambigua (por ejemplo, solo apellido), puede
-    # «parecerse» a dos personas que entre si son distintas, y la casilla no
-    # se marca como compartida: esas dos personas terminan fusionadas.
+    # Todas contra todas (con 12 fichas como mucho son 66 comparaciones). Antes
+    # se comparaba cada una solo con la primera: si la primera era ambigua (por
+    # ejemplo, solo apellido), se «parecia» a dos personas distintas entre si,
+    # la casilla no se marcaba y esas dos personas terminaban fusionadas.
     compartidas = set()
     for email, grupo in por_email.items():
         if len(grupo) < 2:
             continue                                  # una sola ficha: nada que decidir
-        base = grupo[0]
-        if any(not misma_persona(base, otra) for otra in grupo[1:]):
+        if any(not misma_persona(a, b) for a, b in combinations(grupo, 2)):
             compartidas.add(email)
             continue
         # Con una casilla de tipo `info@` o `administracion@` no alcanza con que
@@ -549,8 +558,15 @@ def casillas_compartidas(fichas: list[dict]) -> set[str]:
 
 def fusionar(destino: dict, extra: dict) -> None:
     """Vuelca `extra` sobre `destino` sin pisar lo que ya tiene valor."""
-    # Gana el primer valor no vacio. Incluye `zoho_id`: si se fusionan dos
-    # filas de Zoho, el id de la segunda se pierde aca sin dejar rastro.
+    # Gana el primer valor no vacio. `zoho_id` incluido: si se fusionan dos
+    # filas de Zoho, el id de la segunda (y los que ella ya traia fusionados)
+    # se guarda en `zoho_ids_fusionados`, para no perder el enlace.
+    otros = ([extra["zoho_id"]] if extra["zoho_id"] else []) + extra.get("zoho_ids_fusionados", [])
+    for zid in otros:
+        if zid and zid != destino["zoho_id"] and zid not in destino["zoho_ids_fusionados"]:
+            destino.setdefault("zoho_ids_fusionados", []).append(zid)
+    if not destino["zoho_id"] and destino["zoho_ids_fusionados"]:
+        destino["zoho_id"] = destino["zoho_ids_fusionados"].pop(0)
     for campo in ("nombre", "apellido", "empresa", "cargo", "departamento", "localidad",
                   "provincia", "pais", "sector", "sitio_web", "linkedin", "linkedin_empresa",
                   "empleados", "propietario", "creado_en", "zoho_id"):
@@ -616,8 +632,8 @@ def deduplicar(fichas: list[dict], registro: list[dict]) -> tuple[list[dict], se
 
     # Primera pasada: por correo (salvo las casillas compartidas) y por perfil
     # de LinkedIn. `registro` recibe una linea por cada coincidencia, no por
-    # ficha: una ficha que comparte dos correos con otra deja dos lineas, asi
-    # que los conteos por motivo del RESUMEN pueden superar a los fusionados.
+    # ficha (una ficha que comparte dos correos con otra deja dos lineas); por
+    # eso cada linea lleva `_ficha`, y el RESUMEN cuenta fichas distintas.
     for i, f in enumerate(fichas):
         uf.buscar(i)
         for c in f["correos"]:
@@ -628,7 +644,8 @@ def deduplicar(fichas: list[dict], registro: list[dict]) -> tuple[list[dict], se
                 uf.unir(por_email[em], i)
                 registro.append({"motivo": "mismo correo", "clave": em,
                                  "se_fusiona": f'{f["nombre"]} {f["apellido"]} · {f["empresa"]}',
-                                 "origen": " + ".join(sorted(f["origen"]))})
+                                 "origen": " + ".join(sorted(f["origen"])),
+                                 "zoho_id": f["zoho_id"], "_ficha": i})
             else:
                 por_email[em] = i
 
@@ -640,7 +657,8 @@ def deduplicar(fichas: list[dict], registro: list[dict]) -> tuple[list[dict], se
                 uf.unir(por_linkedin[li], i)
                 registro.append({"motivo": "mismo perfil de LinkedIn", "clave": li,
                                  "se_fusiona": f'{f["nombre"]} {f["apellido"]} · {f["empresa"]}',
-                                 "origen": " + ".join(sorted(f["origen"]))})
+                                 "origen": " + ".join(sorted(f["origen"])),
+                                 "zoho_id": f["zoho_id"], "_ficha": i})
             else:
                 por_linkedin[li] = i
 
@@ -657,7 +675,8 @@ def deduplicar(fichas: list[dict], registro: list[dict]) -> tuple[list[dict], se
                 uf.unir(por_nombre[k], i)
                 registro.append({"motivo": "mismo nombre y empresa", "clave": k,
                                  "se_fusiona": f'{f["nombre"]} {f["apellido"]} · {f["empresa"]}',
-                                 "origen": " + ".join(sorted(f["origen"]))})
+                                 "origen": " + ".join(sorted(f["origen"])),
+                                 "zoho_id": f["zoho_id"], "_ficha": i})
         else:
             por_nombre[k] = i
 
@@ -693,6 +712,9 @@ COLUMNAS = [
     "Localidad", "Provincia", "País para correspondencia", "Sector", "Página Web",
     "LinkedIn Personal", "LinkedIn Empresa", "Empleados", "Descripción",
     "Propietario de Contacto", "Hora de creación", "Estado en el CRM", "Origen de la lista",
+    # Los `ID de registro` de Zoho de las fichas que se fusionaron en esta
+    # (separados por coma): sin esto se perdia el enlace a sus notas y negocios.
+    "IDs de Zoho fusionados",
 ]
 
 
@@ -748,6 +770,7 @@ def a_fila(f: dict, estado_crm: str) -> dict:
         "Hora de creación": f["creado_en"],
         "Estado en el CRM": estado_crm,
         "Origen de la lista": " + ".join(sorted(f["origen"])),
+        "IDs de Zoho fusionados": ", ".join(f.get("zoho_ids_fusionados", [])),
     }
 
 
@@ -756,7 +779,10 @@ def escribir(ruta: str, filas: list[dict], columnas: list[str]) -> None:
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
     # BOM + separador ';' porque el equipo abre estos archivos con Excel en español.
     with io.open(ruta, "w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=columnas, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+        # extrasaction="ignore": las claves internas (las que empiezan con «_»,
+        # como `_ficha` del registro de duplicados) no van al archivo.
+        w = csv.DictWriter(f, fieldnames=columnas, delimiter=";", quoting=csv.QUOTE_MINIMAL,
+                           extrasaction="ignore")
         w.writeheader()
         for fila in filas:
             w.writerow(fila)
@@ -816,9 +842,11 @@ def main() -> int:
     registro_dup: list[dict] = []
     unicas, compartidas = deduplicar(zoho + nuevas, registro_dup)
 
-    # Cuenta lineas del registro cuya ficha absorbida venia solo de Zoho. Es
-    # una aproximacion: una ficha que coincide por dos correos suma dos.
-    dup_zoho = sum(1 for d in registro_dup if d["origen"] == "DB Zoho")
+    # Fichas de Zoho que quedaron absorbidas por otra de Zoho. Zoho va primero,
+    # asi que cada grupo con alguna ficha de Zoho tiene de base una de Zoho:
+    # las demas de Zoho son las absorbidas. Se cuentan fichas, no lineas del
+    # registro (antes una ficha que coincidia por dos correos sumaba dos).
+    dup_zoho = len(zoho) - sum(1 for f in unicas if "DB Zoho" in f["origen"])
     print(f"\n  Filas leídas en total: {len(zoho) + len(nuevas)}")
     print(f"  Después de fusionar duplicados: {len(unicas)}"
           f"  (se fusionaron {len(zoho) + len(nuevas) - len(unicas)})")
@@ -858,9 +886,10 @@ def main() -> int:
     escribir(os.path.join(args.salida, "contactos-en-zoho.csv"),
              [r for r in finales if r["Estado en el CRM"] == "Ya estaba en el CRM"], COLUMNAS)
     escribir(os.path.join(args.salida, "duplicados.csv"), registro_dup,
-             ["motivo", "clave", "se_fusiona", "origen"])
+             ["motivo", "clave", "se_fusiona", "origen", "zoho_id"])
 
-    motivos = Counter(d["motivo"] for d in registro_dup)
+    # Fichas distintas por motivo (no lineas del registro).
+    motivos = Counter(m for m, _ in {(d["motivo"], d["_ficha"]) for d in registro_dup})
     empresas = len({clave_empresa(r["Nombre de Cuenta"]) for r in finales
                     if r["Nombre de Cuenta"]})
     sectores = Counter(r["Sector"] for r in finales if r["Sector"])

@@ -13,7 +13,8 @@
 --  superior las muestra y las marca leidas, y el cron (paso «Alertas por
 --  correo», notif_enviar_pendientes()) manda por correo las que tienen
 --  `email_en` vacio, agrupadas en un solo mensaje por corrida.
---  No esta en schema.sql: una instalacion nueva la necesita igual.
+--  schema.sql ya incluye esto: una instalacion nueva no
+--  necesita correrla (si se corre igual, no cambia nada).
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS notificaciones (

@@ -14,14 +14,14 @@
 --
 --  Quién escribe: el lector IMAP guarda las respuestas que entran
 --  ('entrante') y la pantalla de Conversación guarda lo que se contesta desde
---  el CRM ('saliente'). No esta en schema.sql: una instalacion nueva la
---  necesita igual.
+--  el CRM ('saliente'). schema.sql ya incluye esto: una instalacion nueva no
+--  necesita correrla (si se corre igual, no cambia nada).
 --
 --  Ninguna columna de ids tiene clave foranea: si la purga borra el contacto
 --  o la campana, los mensajes quedan con el id apuntando a nada (no se
 --  pierden, pero tampoco se borran). `cuenta_correo_id` es BIGINT aunque
 --  `cuentas_correo.id` es INT: no rompe nada sin clave foranea, pero
---  impediria agregarla tal cual.
+--  impediria agregarla tal cual (la migracion 018 lo pasa a INT).
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS `mensajes` (

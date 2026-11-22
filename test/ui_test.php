@@ -366,8 +366,9 @@ ok('la importación ya no manda esa clave', !preg_match("/'no_email'\s*=>\s*0/",
 ok('el lector de la casilla no da por leído lo que no pudo leer',
    strpos($imapPhp, "\$maxUid = max(\$maxUid, \$uid);") > strpos($imapPhp, "if (!\$h['ok'])"));
 // Dos corridas solapadas mandaban el mismo correo dos veces.
-ok('el cron no se pisa consigo mismo', str_contains($cronPhp, "GET_LOCK('crm_cron'"));
-ok('y suelta el bloqueo al terminar', str_contains($cronPhp, "RELEASE_LOCK('crm_cron'"));
+// El nombre lleva la base adelante: producción y pruebas comparten servidor.
+ok('el cron no se pisa consigo mismo', str_contains($cronPhp, "GET_LOCK(CONCAT(DATABASE(), ':cron'), 0)"));
+ok('y suelta el bloqueo al terminar', str_contains($cronPhp, "RELEASE_LOCK(CONCAT(DATABASE(), ':cron'))"));
 
 echo "== Lo que la pantalla promete, se puede hacer ==\n";
 // La pantalla de baja promete el alta de nuevo y no había forma de darla.
@@ -1094,7 +1095,7 @@ ok('y los deja listos para volver a probar',
    str_contains($rein, 'eliminado_en = NULL, no_email = 0, email_rebotado = 0'));
 // Borrar la fila de la base no saca la reunión del calendario de Google.
 ok('el reinicio limpia también Google Calendar',
-   str_contains($rein, "'/calendars/primary/events/'") && str_contains($rein, 'sendUpdates=none'),
+   str_contains($rein, "gcal_borrar_evento((int)\$r['usuario_id'], (string)\$r['gcal_event_id'], 'primary', 'none')"),
    '→ si no, quedan reuniones fantasma avisando de algo que ya no existe');
 
 echo "== Hora del sistema ==\n";

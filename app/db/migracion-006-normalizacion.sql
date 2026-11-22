@@ -24,16 +24,19 @@
 --  sobre las fichas viejas.
 --
 --  ADD COLUMN / ADD INDEX IF NOT EXISTS es sintaxis de MariaDB (en MySQL 8
---  falla). No esta en schema.sql: una instalacion nueva la necesita igual.
+--  falla). schema.sql ya incluye esto: una instalacion nueva no
+--  necesita correrla (si se corre igual, no cambia nada).
 -- ============================================================
 
+-- Los indices `ix_cont_pend`/`ix_cta_pend` que creaba esta migracion ya no
+-- se crean: `ix_cont_aprob`/`ix_cta_aprob` (007) los cubren y la 018 los saca.
+-- Si se dejaban aca, volver a correr la 006 despues de la 018 los traia de
+-- vuelta.
 ALTER TABLE `contactos`
-  ADD COLUMN IF NOT EXISTS `pendiente_norm` TINYINT(1) NOT NULL DEFAULT 0 AFTER `email_rebotado`,
-  ADD INDEX IF NOT EXISTS `ix_cont_pend` (`pendiente_norm`, `eliminado_en`);
+  ADD COLUMN IF NOT EXISTS `pendiente_norm` TINYINT(1) NOT NULL DEFAULT 0 AFTER `email_rebotado`;
 
 ALTER TABLE `cuentas`
-  ADD COLUMN IF NOT EXISTS `pendiente_norm` TINYINT(1) NOT NULL DEFAULT 0 AFTER `sector`,
-  ADD INDEX IF NOT EXISTS `ix_cta_pend` (`pendiente_norm`, `eliminado_en`);
+  ADD COLUMN IF NOT EXISTS `pendiente_norm` TINYINT(1) NOT NULL DEFAULT 0 AFTER `sector`;
 
 -- Lo que ya estaba cargado se clasifica con la misma regla, para que el filtro
 -- diga la verdad desde el primer día y no sólo sobre lo que se cargue de ahora
