@@ -51,18 +51,28 @@ $rows  = q("SELECT r.*, t.nombre AS tipo, u.nombre AS usuario
 // con lo que dice la propia reserva.
 $llego = [];
 try {
-    // raiz: id de la reserva => id de la primera de su cadena. Es una consulta
-    // por cada salto hacia atrás (hasta 20 por fila): con pocas
-    // reprogramaciones no pesa, pero son consultas en bucle.
-    $raiz = [];
+    // raiz: id de la reserva => id de la primera de su cadena. Se sube un
+    // salto por vuelta para todas las filas de la página juntas: una consulta
+    // por nivel de reprogramación (hasta 20), no una por fila y salto.
+    $raiz  = [];
+    $prev  = [];
     foreach ($rows as $r) {
-        $id   = (int)$r['id'];
-        $prev = (int)($r['reprogramada_de'] ?? 0);
-        for ($i = 0; $prev > 0 && $i < 20; $i++) {
-            $id   = $prev;
-            $prev = (int) qv('SELECT reprogramada_de FROM agenda_reservas WHERE id = ?', [$prev]);
+        $raiz[(int)$r['id']] = (int)$r['id'];
+        $prev[(int)$r['id']] = (int)($r['reprogramada_de'] ?? 0);
+    }
+    for ($i = 0; $i < 20; $i++) {
+        $buscar = array_values(array_unique(array_filter($prev)));
+        if (!$buscar) { break; }
+        $ph = implode(', ', array_fill(0, count($buscar), '?'));
+        $padres = [];
+        foreach (q("SELECT id, reprogramada_de FROM agenda_reservas WHERE id IN ($ph)", $buscar)->fetchAll() as $f) {
+            $padres[(int)$f['id']] = (int)($f['reprogramada_de'] ?? 0);
         }
-        $raiz[(int)$r['id']] = $id;
+        foreach ($prev as $rid => $p) {
+            if ($p <= 0) { continue; }
+            $raiz[$rid] = $p;
+            $prev[$rid] = $padres[$p] ?? 0;
+        }
     }
     if ($raiz) {
         $ids = array_values(array_unique($raiz));

@@ -21,9 +21,11 @@ declare(strict_types=1);
 //  Escribe (a través de agenda.php): agenda_reservas, contactos, cuentas,
 //  actividades, entradas_web, api_limites. Módulo: 'agenda'.
 //
-//  Trampa: el tipo se busca por el id que viene en el formulario con
-//  agenda_tipo_get(), que no mira si el dueño sigue activo (la página
-//  /r/<usuario>/<tipo> sí). El token del formulario está atado a ese id.
+//  El tipo se busca por el id que viene en el formulario con
+//  agenda_tipo_get(), y se exige, como en la página /r/<usuario>/<tipo>, que
+//  esté publicado y que su dueño siga activo: con una página abierta desde
+//  antes (el token dura 2 h) no se reserva con alguien dado de baja. El token
+//  del formulario está atado a ese id.
 // ============================================================
 $bodyClass = 'publica';
 
@@ -40,7 +42,7 @@ if (!modulo_activo('agenda') || !agenda_esquema_listo()) {
 }
 
 $tipo = agenda_tipo_get((int)($_POST['tipo_id'] ?? 0));
-if (!$tipo || (int)$tipo['activo'] !== 1) {
+if (!$tipo || (int)$tipo['activo'] !== 1 || (int)($tipo['usuario_activo'] ?? 1) !== 1) {
     render('agenda-error', ['titulo' => 'Agenda no disponible',
         'mensaje' => 'El enlace ya no está activo.', 'bodyClass' => $bodyClass], 'Agenda');
     exit;

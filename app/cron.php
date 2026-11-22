@@ -254,6 +254,15 @@ try {
             log_app('cron.reservas', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
         }
     }
+    // Lo que Google no aceptó al mover o cancelar una reunión (la base ya
+    // tiene el cambio): se reintenta mover o borrar el evento.
+    if (function_exists('agenda_sincronizar_google')) {
+        $n = agenda_sincronizar_google();
+        if ($n) {
+            $lineas[] = "reservas: $n eventos de Google corregidos";
+            log_app('cron.reservas', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
+        }
+    }
 } catch (\Throwable $e) {
     db_reanudar();
     $lineas[] = 'reservas ERROR: ' . $e->getMessage();
