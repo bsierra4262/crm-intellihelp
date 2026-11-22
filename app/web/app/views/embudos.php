@@ -6,10 +6,12 @@
 //  un campo `accion`. Recibe:
 //    $lista   todos los embudos, activos o no
 //    $etapas  etapas agrupadas por embudo_id
-//    $uso     negocios vivos por etapa_id (decide el aviso de borrado)
+//    $uso     negocios por etapa_id, contando los de la papelera
 //    $aviso   [tipo, mensaje] del último POST, o null
 //
-//  No hay formulario para renombrar ni desactivar un embudo existente.
+//  Cada embudo tiene su formulario para renombrarlo o desactivarlo (el
+//  predeterminado no se puede desactivar). Después de cada POST la página
+//  redirige acá mismo, así que recargar no repite la acción.
 // ============================================================
 ?>
 <?php /** @var array $lista @var array $etapas @var array $uso @var ?array $aviso */ ?>
@@ -64,6 +66,24 @@
             <?php endif; ?>
         </div>
 
+        <form method="post" class="urow mb-3">
+            <?= csrf_field() ?>
+            <input type="hidden" name="accion" value="embudo_guardar">
+            <input type="hidden" name="id" value="<?= $id ?>">
+            <input name="nombre" value="<?= e($emb['nombre']) ?>" maxlength="80" required class="w-lg"
+                   aria-label="Nombre del embudo" placeholder="Ventas, Licitaciones…">
+            <?php if ($emb['predeterminado']): ?>
+                <input type="hidden" name="activo" value="1">
+            <?php else: ?>
+                <label class="switch" title="Embudo activo: apagado no se ofrece en el tablero ni en los negocios nuevos">
+                    <input type="checkbox" name="activo" value="1" <?= $emb['activo'] ? 'checked' : '' ?>>
+                    <span class="track"></span>
+                    <span>Activo</span>
+                </label>
+            <?php endif; ?>
+            <button class="btn btn-ghost btn-sm"><?= icon('ok', 15) ?>Guardar</button>
+        </form>
+
         <?php /* El formulario de cada fila va FUERA de la tabla y los campos lo
                  referencian con `form="..."`. Un <form> adentro de un <tr> es HTML
                  inválido: el navegador lo saca de la tabla al interpretarlo, y
@@ -117,8 +137,8 @@
                         </td>
                         <td data-label="Negocios" class="prio-2"><?= (int)($uso[$eid] ?? 0) ?></td>
                         <td class="acts" data-label="Acciones">
-                            <?php // Ojo con el título: apagar una etapa también saca del tablero los negocios que están en ella (embudo_kanban sólo arma columnas para las etapas activas). ?>
-                            <label class="switch" title="Etapa activa: si la apagas deja de ofrecerse en los negocios nuevos">
+                            <?php // Apagada, la etapa no se ofrece para mover ni en los negocios nuevos; los que ya están en ella siguen en el tablero, en una columna marcada «desactivada». ?>
+                            <label class="switch" title="Etapa activa: si la apagás deja de ofrecerse para mover negocios y en los nuevos; los que ya están en ella siguen a la vista">
                                 <input form="et<?= $eid ?>" type="checkbox" name="activo" value="1" <?= $et['activo'] ? 'checked' : '' ?>>
                                 <span class="track"></span>
                             </label>
@@ -127,8 +147,8 @@
                             <button form="etdel<?= $eid ?>" class="act danger" title="Borrar la etapa" data-peligro
                                     data-confirmar-titulo="Borrar la etapa"
                                     data-confirmar="<?= ($uso[$eid] ?? 0) > 0
-                                        ? 'Hay ' . (int)$uso[$eid] . ' negocio(s) en esta etapa: no se va a poder borrar hasta que los muevas.'
-                                        : 'La etapa se borra definitivamente.' ?>"
+                                        ? 'Hay ' . (int)$uso[$eid] . ' negocio(s) en esta etapa (contando los de la papelera): no se va a poder borrar hasta que los muevas.'
+                                        : 'La etapa se borra definitivamente. Los recorridos que pasaron por ella la van a mostrar como «Etapa eliminada».' ?>"
                                     data-confirmar-ok="Borrar"><?= icon('papelera', 16) ?></button>
                         </td>
                     </tr>

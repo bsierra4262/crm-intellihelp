@@ -48,13 +48,14 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
                 <tr>
                     <td data-label="Vendedor"><strong><?= e($p['nombre']) ?></strong></td>
                     <td data-label="Objetivo" class="num"><?= (float)$p['objetivo'] > 0 ? money((float)$p['objetivo']) : '—' ?></td>
-                    <td data-label="Ganado" class="num strong"><?= money((float)$p['ganado']) ?></td>
+                    <?php // Pronóstico separado por moneda (pronostico() de negocios.php): el cumplimiento compara sólo pesos, la moneda de la cuota. ?>
+                    <td data-label="Ganado" class="num strong"><?= montos_por_moneda(['ARS' => $p['ganado'], 'USD' => $p['ganado_usd'] ?? 0]) ?></td>
                     <td data-label="Cumplimiento" class="num">
                         <?= $cumple === null ? '—' : '<span class="badge ' . ($cumple >= 100 ? 'badge-ok' : ($cumple >= 60 ? 'badge-pend' : 'badge-rej')) . '">' . $cumple . ' %</span>' ?>
                     </td>
-                    <td data-label="Abierto" class="num prio-2"><?= money((float)$p['abierto']) ?></td>
-                    <td data-label="Ponderado" class="num prio-2"><?= money((float)$p['ponderado']) ?></td>
-                    <td data-label="Perdido" class="num prio-3"><?= money((float)$p['perdido']) ?></td>
+                    <td data-label="Abierto" class="num prio-2"><?= montos_por_moneda(['ARS' => $p['abierto'], 'USD' => $p['abierto_usd'] ?? 0]) ?></td>
+                    <td data-label="Ponderado" class="num prio-2"><?= montos_por_moneda(['ARS' => $p['ponderado'], 'USD' => $p['ponderado_usd'] ?? 0]) ?></td>
+                    <td data-label="Perdido" class="num prio-3"><?= montos_por_moneda(['ARS' => $p['perdido'], 'USD' => $p['perdido_usd'] ?? 0]) ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>

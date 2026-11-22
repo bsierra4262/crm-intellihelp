@@ -11,17 +11,18 @@
 //    $id         int    0 en un alta
 //    $errores    array  campo => mensaje
 //    $usuarios   array  usuarios activos, para el responsable
-//    $contactos  array  hasta 3000 contactos, por apellido
-//    $cuentas    array  hasta 3000 empresas, por nombre
-//    $negocios   array  los 1000 negocios más nuevos
+//    $contactos  array  sólo el contacto vinculado (cero o una fila
+//                       {id, nombre, detalle}); el resto se busca al escribir
+//    $cuentas    array  ídem, la empresa vinculada
+//    $negocios   array  ídem, el negocio vinculado
 //
 //  El script del final oculta los campos que no aplican al tipo (atributo
 //  `data-solo`). Ocultos igual viajan en el POST; actividad_guardar() es la
 //  que descarta lo que no corresponde (por ejemplo, `inicia_el` en una tarea).
 //
-//  Trampa importante: si el contacto, la empresa o el negocio vinculados no
-//  están en las listas recortadas (la base tiene más de 13.000 contactos),
-//  el selector queda en «Ninguno» y al guardar el vínculo se pierde.
+//  Contacto, empresa y negocio llevan data-buscar: buscador.js los convierte
+//  en campos que buscan al escribir, y como el desplegable siempre trae el
+//  valor vinculado, guardar sin tocarlos no lo pierde.
 //  El posible cliente viaja en un campo oculto, sin selector.
 //  El formulario no manda `volver`: la página siempre vuelve a `actividades`.
 // ============================================================
@@ -134,28 +135,28 @@ $tipo = $a['tipo'] ?? 'tarea';
         <h2 class="sec">Con quién</h2>
         <div class="grid-fields">
             <label class="fld wide"><span>Contacto</span>
-                <select name="contacto_id">
+                <select name="contacto_id" data-buscar="contacto" data-nativo="1" data-placeholder="Escribí el nombre o el correo…">
                     <option value="">— Ninguno —</option>
                     <?php foreach ($contactos as $c): ?>
-                        <option value="<?= (int)$c['id'] ?>" <?= (string)($a['contacto_id'] ?? '') === (string)$c['id'] ? 'selected' : '' ?>><?= e($c['nombre_completo']) ?></option>
+                        <option value="<?= (int)$c['id'] ?>" selected><?= e($c['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Con quién es. Al elegirlo, la actividad aparece en la ficha de esa persona.</i>
             </label>
             <label class="fld wide"><span>Empresa</span>
-                <select name="cuenta_id">
+                <select name="cuenta_id" data-buscar="cuenta" data-nativo="1" data-placeholder="Escribí el nombre de la empresa…">
                     <option value="">— Ninguna —</option>
                     <?php foreach ($cuentas as $c): ?>
-                        <option value="<?= (int)$c['id'] ?>" <?= (string)($a['cuenta_id'] ?? '') === (string)$c['id'] ? 'selected' : '' ?>><?= e($c['nombre']) ?></option>
+                        <option value="<?= (int)$c['id'] ?>" selected><?= e($c['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">La empresa, si la actividad no es con una persona en particular.</i>
             </label>
             <label class="fld wide"><span>Negocio</span>
-                <select name="negocio_id">
+                <select name="negocio_id" data-buscar="negocio" data-nativo="1" data-placeholder="Escribí el nombre del negocio…">
                     <option value="">— Ninguno —</option>
                     <?php foreach ($negocios as $n): ?>
-                        <option value="<?= (int)$n['id'] ?>" <?= (string)($a['negocio_id'] ?? '') === (string)$n['id'] ? 'selected' : '' ?>><?= e($n['nombre']) ?></option>
+                        <option value="<?= (int)$n['id'] ?>" selected><?= e($n['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">El negocio al que empuja esta actividad, si aplica.</i>

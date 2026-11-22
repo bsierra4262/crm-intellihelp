@@ -72,16 +72,17 @@ if (is_post()) {
     $a = array_merge($a ?? [], $d);
 }
 
-// Listas recortadas para los selectores: un vínculo que quede fuera de estos
-// límites no se puede mostrar y se pierde al guardar (ver la vista).
+// Contacto, empresa y negocio: los selectores llevan sólo el valor vinculado
+// (buscar_opcion_actual de crm.php) y el resto se busca al escribir
+// (buscador.js). Así un vínculo nunca queda fuera de la lista ni se pierde al
+// guardar.
 
 render('actividad-form', [
     'a'         => $a,
     'id'        => $id,
     'errores'   => $errores,
     'usuarios'  => users_activos(),
-    'contactos' => q('SELECT id, nombre_completo FROM contactos WHERE eliminado_en IS NULL
-                      ORDER BY apellido, nombre LIMIT 3000')->fetchAll(),
-    'cuentas'   => q('SELECT id, nombre FROM cuentas WHERE eliminado_en IS NULL ORDER BY nombre LIMIT 3000')->fetchAll(),
-    'negocios'  => q('SELECT id, nombre FROM negocios WHERE eliminado_en IS NULL ORDER BY creado_en DESC LIMIT 1000')->fetchAll(),
+    'contactos' => buscar_opcion_actual('contacto', $a['contacto_id'] ?? null),
+    'cuentas'   => buscar_opcion_actual('cuenta', $a['cuenta_id'] ?? null),
+    'negocios'  => buscar_opcion_actual('negocio', $a['negocio_id'] ?? null),
 ], $id ? 'Editar actividad' : 'Nueva actividad');

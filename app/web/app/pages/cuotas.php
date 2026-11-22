@@ -21,28 +21,24 @@ require_admin();
 // guión y el porcentaje de cumplimiento nunca se podía calcular.
 
 $periodo = (string)($_GET['periodo'] ?? date('Y-m'));
-// El formato se valida pero no el mes: «2026-13» pasa la expresión y después
-// strtotime() devuelve false (ver auditoría).
-if (!preg_match('/^\d{4}-\d{2}$/', $periodo)) { $periodo = date('Y-m'); }
+// Formato y mes (01 a 12): «2026-13» vuelve al mes actual.
+if (!periodo_valido($periodo)) { $periodo = date('Y-m'); }
 
 $aviso = null;
 
 if (is_post()) {
     verify_csrf();
-    $periodo = preg_match('/^\d{4}-\d{2}$/', (string)($_POST['periodo'] ?? ''))
-             ? (string)$_POST['periodo'] : date('Y-m');
+    $periodo = periodo_valido((string)($_POST['periodo'] ?? '')) ? (string)$_POST['periodo'] : date('Y-m');
     $n = 0;
     foreach ((array)($_POST['objetivo'] ?? []) as $usuarioId => $valor) {
         $usuarioId = (int)$usuarioId;
-        // Se acepta «1.500.000» y «1500000,50»: es como se escribe un importe acá.
-        // Ojo: el campo de la vista es type="number" y el navegador manda punto
-        // decimal («1500000.5»); al sacar los puntos ese valor queda multiplicado.
-        $limpio = str_replace(['.', ' '], '', trim((string)$valor));
-        $limpio = str_replace(',', '.', $limpio);
-        $monto  = $limpio === '' ? 0.0 : (float)$limpio;
+        // importe_parsear() entiende tanto lo que manda el campo type="number"
+        // («1500000.5») como lo escrito a mano («1.500.000» o «1500000,50»).
+        $monto  = (float)(importe_parsear($valor) ?? 0.0);
 
         if ($monto > 0) {
-            // La moneda se guarda siempre en ARS, aunque lo ganado sume negocios en USD.
+            // La cuota es siempre en pesos; lo ganado en dólares se muestra aparte
+            // y no cuenta para el cumplimiento.
             q('INSERT INTO cuotas (usuario_id, periodo, objetivo, moneda) VALUES (?, ?, ?, ?)
                ON DUPLICATE KEY UPDATE objetivo = VALUES(objetivo)',
               [$usuarioId, $periodo, $monto, 'ARS']);
@@ -63,20 +59,24 @@ foreach (q('SELECT usuario_id, objetivo FROM cuotas WHERE periodo = ?', [$period
     $cargadas[(int)$r['usuario_id']] = (float)$r['objetivo'];
 }
 
-// Lo ganado en el período, para comparar contra el objetivo sin salir de acá.
+// Lo ganado en el período, para comparar contra el objetivo sin salir de acá,
+// separado por moneda: usuario_id => ['ARS' => …, 'USD' => …].
 $ganado = [];
 // Se compara por rango y no con DATE_FORMAT: la función devuelve un texto con
 // otro cotejamiento que el del parámetro y MySQL se niega a compararlos. De
 // paso, el rango puede usar el índice de la fecha en vez de recorrer la tabla.
 // Lo ganado se cuenta por fecha ESTIMADA de cierre, igual que pronostico().
 $desde = $periodo . '-01';
-$hasta = date('Y-m-01', strtotime($desde . ' +1 month'));
-foreach (q("SELECT n.propietario_id, SUM(n.importe) total
+$hasta = date('Y-m-01', (int) strtotime($desde . ' +1 month'));
+foreach (q("SELECT n.propietario_id, n.moneda, SUM(n.importe) total
             FROM negocios n JOIN etapas e ON e.id = n.etapa_id
             WHERE n.eliminado_en IS NULL AND e.tipo = 'ganada'
               AND n.fecha_cierre >= ? AND n.fecha_cierre < ?
-            GROUP BY n.propietario_id", [$desde, $hasta])->fetchAll() as $r) {
-    $ganado[(int)$r['propietario_id']] = (float)$r['total'];
+            GROUP BY n.propietario_id, n.moneda", [$desde, $hasta])->fetchAll() as $r) {
+    $uid = (int)$r['propietario_id'];
+    $ganado[$uid] ??= array_fill_keys(NEGOCIO_MONEDAS, 0.0);
+    $mon = in_array($r['moneda'], NEGOCIO_MONEDAS, true) ? $r['moneda'] : 'ARS';
+    $ganado[$uid][$mon] += (float)$r['total'];
 }
 
 render('cuotas', compact('usuarios', 'cargadas', 'ganado', 'periodo', 'aviso'), 'Objetivos de venta');

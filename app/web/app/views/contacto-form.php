@@ -11,7 +11,9 @@
 //    $id       int         0 en un alta
 //    $errores  array       campo => mensaje, de la validación del servidor
 //    $usuarios array       usuarios activos, para el propietario
-//    $cuentas  array       id y nombre de las empresas (hasta 3000)
+//    $cuentas  array       sólo la empresa vinculada (cero o una fila
+//                          {id, nombre, detalle}); las demás se buscan al
+//                          escribir (buscador.js, por el data-buscar)
 //
 //  Trampas:
 //    · el `required` de los campos es una comodidad del navegador; la regla
@@ -98,13 +100,13 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
             </label>
 
             <label class="fld<?= $falta('cuenta_id') ?> wide"><span>Empresa <i class="req">*</i></span>
-                <select name="cuenta_id" required>
+                <select name="cuenta_id" required data-buscar="cuenta" data-nativo="1" data-placeholder="Escribí el nombre de la empresa…">
                     <option value="">— Elegí una empresa —</option>
                     <?php foreach ($cuentas as $cu): ?>
-                        <option value="<?= (int)$cu['id'] ?>" <?= (string)($c['cuenta_id'] ?? '') === (string)$cu['id'] ? 'selected' : '' ?>><?= e($cu['nombre']) ?></option>
+                        <option value="<?= (int)$cu['id'] ?>" selected><?= e($cu['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
-                <i class="hint">La empresa donde trabaja. Si todavía no está cargada, usá el campo de abajo.</i>
+                <i class="hint">La empresa donde trabaja. Escribí parte del nombre y elegila; si todavía no está cargada, usá el campo de abajo.</i>
             </label>
             <?php // La página crea la empresa con cuenta_asegurar() sólo si el selector de arriba llega vacío. ?>
             <label class="fld wide"><span>…o crear una empresa nueva</span>
