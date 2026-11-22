@@ -27,10 +27,10 @@ declare(strict_types=1);
 //      contra el código desplegado en esa instalación:
 //        CRM_SRC=/ruta/al/crm/app php run_tests.php
 //
-//  Necesita mbstring y openssl (cifrado de tokens). Con pdo_sqlite corre el
-//  bloque de base en memoria; sin pdo_sqlite ese bloque se saltea con un aviso
-//  y el resto sigue (OJO: en ese caso el total de pruebas baja y la corrida
-//  igual termina en verde).
+//  Necesita mbstring, openssl (cifrado de tokens) y pdo_sqlite (el bloque de
+//  base en memoria). Sin pdo_sqlite la corrida falla (código 1); para
+//  saltear ese bloque a sabiendas se define CRM_TEST_SIN_BASE=1 y queda un
+//  aviso en lugar de la falla.
 //
 //  Salida: una línea [OK]/[XX] por prueba y el resumen «N pruebas · N
 //  correctas · N fallidas». Código de salida 0 si todo pasó, 1 si algo falló.
@@ -105,18 +105,23 @@ $T = 0; $F = 0; $fallos = [];
 /**
  * Registra una prueba booleana e imprime [OK] o [XX].
  *
- * Ojo: varias llamadas de abajo le pasan un tercer argumento con un detalle
- * (tamaño, conteo). PHP lo acepta pero la función lo IGNORA: ese detalle
- * nunca se imprime.
+ * El tercer argumento es opcional: un detalle (tamaño, conteo, lo que se
+ * obtuvo) que se imprime debajo SÓLO si la prueba falla, para diagnosticar
+ * sin volver a correr. Las llamadas de dos argumentos siguen igual.
  *
- * @param string $nombre qué se comprueba, en lenguaje de negocio
- * @param bool   $cond   true si la comprobación pasó
+ * @param string $nombre  qué se comprueba, en lenguaje de negocio
+ * @param bool   $cond    true si la comprobación pasó
+ * @param mixed  $detalle texto o número a mostrar si falla ('' = nada)
  */
-function ok(string $nombre, bool $cond): void {
+function ok(string $nombre, bool $cond, mixed $detalle = ''): void {
     global $T, $F, $fallos;
     $T++;
-    if ($cond) { echo "  [OK] $nombre\n"; }
-    else { $F++; $fallos[] = $nombre; echo "  [XX] $nombre\n"; }
+    if ($cond) { echo "  [OK] $nombre\n"; return; }
+    $F++;
+    $fallos[] = $nombre;
+    $det = is_scalar($detalle) ? (string)$detalle : (string)json_encode($detalle, JSON_UNESCAPED_UNICODE);
+    echo "  [XX] $nombre\n";
+    if ($det !== '') { echo "       → $det\n"; }
 }
 /**
  * Igualdad estricta (===). El nombre impreso lleva el valor esperado y el
@@ -340,8 +345,15 @@ contiene('queda como texto',                  $sucio, '&lt;script&gt;');
 foreach (['javascript:alert(1)', 'JaVaScRiPt:alert(1)', "java\tscript:alert(1)",
           'data:text/html,<script>x</script>', 'vbscript:msgbox'] as $malo) {
     $url = bloques_render([['tipo' => 'boton', 'texto' => 'X', 'enlace' => $malo]], [], $ctxE);
-    ok('descarta el enlace «' . recortar($malo, 22) . '»',
-       !str_contains($url, 'href') || !preg_match('/javascript|vbscript|data:text/i', $url));
+    // Se miran los href uno por uno, decodificados y sin blancos ni
+    // caracteres de control, que es como lee el esquema un navegador: así
+    // «java\tscript:» también da positivo (con /javascript/ sobre el HTML
+    // crudo, esa variante pasaba aunque el enlace quedara). Se busca en todo
+    // el valor, no sólo al principio, para atrapar el `https://` pegado.
+    preg_match_all('/\bhref\s*=\s*(["\'])(.*?)\1/is', $url, $hrefs);
+    $peligrosos = array_filter($hrefs[2], static fn($h) => preg_match('/(javascript|vbscript|data):/i',
+        (string)preg_replace('/[\x00-\x20]+/', '', html_entity_decode($h, ENT_QUOTES | ENT_HTML5, 'UTF-8'))) === 1);
+    ok('descarta el enlace «' . recortar($malo, 22) . '»', !$peligrosos, implode(' | ', $peligrosos));
 }
 $buena = bloques_render([['tipo' => 'boton', 'texto' => 'X', 'enlace' => 'intellihelp.tech/agenda']], [], $ctxE);
 contiene('completa el https:// en un enlace suelto', $buena, 'https://intellihelp.tech/agenda');
@@ -908,13 +920,24 @@ ok('el cron sincroniza una vez por día calendario', feriados_toca($ah, '2026-11
 //  Corre contra una base SQLite en memoria con las mismas tablas, para no
 //  necesitar el servidor. Las pocas cosas de MariaDB que usan estas
 //  consultas (NOW(), INTERVAL, <=>, ON DUPLICATE KEY) se traducen al vuelo.
-//  Si el PHP no tiene pdo_sqlite, el bloque se saltea y lo dice.
+//  Si el PHP no tiene pdo_sqlite, la corrida falla (ver abajo).
 // ------------------------------------------------------------
 echo "== Base en memoria: idempotencia, duplicados y límite de envíos ==\n";
-// También se saltea si q() ya existe (alguien cargó db.php antes):
-// redeclararla sería un error fatal. El aviso sólo menciona pdo_sqlite.
-if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
-    echo "  (salteada: este PHP no tiene pdo_sqlite)\n";
+// No puede correr si falta pdo_sqlite o si q() ya existe (alguien cargó
+// db.php antes: redeclararla sería un error fatal). En los dos casos la
+// corrida FALLA, porque saltearse este bloque deja sin probar la
+// idempotencia, los límites y las reservas y aun así daba verde. Para
+// saltearlo a propósito (un PHP sin pdo_sqlite donde se sabe que falta), se
+// define CRM_TEST_SIN_BASE=1 y queda sólo un aviso.
+$__motivoSinBase = !extension_loaded('pdo_sqlite') ? 'este PHP no tiene pdo_sqlite'
+    : (function_exists('q') ? 'q() ya estaba definida (se cargó db.php antes)' : '');
+if ($__motivoSinBase !== '') {
+    if (getenv('CRM_TEST_SIN_BASE') === '1') {
+        echo "  (salteada a pedido, CRM_TEST_SIN_BASE=1: $__motivoSinBase)\n";
+    } else {
+        ok('el bloque con base corre', false,
+           "$__motivoSinBase; para saltearlo a propósito, definir CRM_TEST_SIN_BASE=1");
+    }
 } else {
     /**
      * Conexión a la SQLite en memoria; la primera llamada crea las tablas que
