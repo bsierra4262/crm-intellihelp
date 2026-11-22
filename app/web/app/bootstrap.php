@@ -31,24 +31,50 @@ declare(strict_types=1);
 // configuración de producción y se conectaría a la base real.
 //
 // Producción sigue funcionando igual: no existe `crm_config/crm.php` (el
-// nombre que le tocaría por la carpeta `crm/`), así que cae en
-// `crm_config/config.php`, la de siempre.
+// archivo que le tocaría por la carpeta `crm/`, dentro de la carpeta de
+// configuraciones del hosting), así que cae en `crm_config/config.php`, la
+// de siempre.
 //
 // La variable de entorno CRM_CONFIG, si alguien la define, gana sobre todo lo
 // demás (el .htaccess ya no la fija, ver ahí por qué). Los candidatos se
-// prueban en orden y se usa el primero que existe; la ruta del hosting está
-// escrita a mano con el usuario de Hostinger.
+// prueban en orden y se usa el primero que existe.
+//
+// La carpeta de configuraciones del hosting (`crm_config/`, al lado de
+// `domains/`) no está escrita con el usuario del hosting: sale de, en orden,
+//   · la variable de entorno CRM_CONFIG_DIR, si alguien la define;
+//   · la carpeta personal deducida de la ruta de este archivo o de la raíz
+//     web (/home/<usuario>/domains/… → /home/<usuario>/crm_config), que da
+//     la misma carpeta que antes estaba escrita a mano;
+//   · la variable HOME del proceso (en consola, por ejemplo).
 $configFile = $_SERVER['CRM_CONFIG'] ?? (getenv('CRM_CONFIG') ?: '');
 if (!$configFile || !is_file($configFile)) {
     $carpeta = basename(dirname(__DIR__));                  // crm, crm-pruebas, …
-    foreach ([
-        '/home/u566451014/crm_config/' . $carpeta . '.php', // config propia de ESTA instalación
-        '/home/u566451014/crm_config/config.php',           // Hostinger (producción)
-        dirname(__DIR__, 2) . '/server-config/config.php',  // repo: app/server-config/config.php
-        dirname(__DIR__) . '/config.local.php',             // local
-    ] as $cand) {
+    $dirsConfig = [];
+    $dirEnv = $_SERVER['CRM_CONFIG_DIR'] ?? (getenv('CRM_CONFIG_DIR') ?: '');
+    if ($dirEnv !== '') { $dirsConfig[] = rtrim((string)$dirEnv, '/'); }
+    // La ruta de este archivo y, por si el hosting resolviera un enlace en
+    // __DIR__, la raíz web que informa el servidor: las dos empiezan con la
+    // carpeta personal (/home/<usuario>/domains/…).
+    foreach ([__DIR__, (string)($_SERVER['DOCUMENT_ROOT'] ?? '')] as $rutaInst) {
+        if (preg_match('#^(/home/[^/]+)/#', str_replace('\\', '/', $rutaInst), $mHome)) {
+            $dirsConfig[] = $mHome[1] . '/crm_config';
+        }
+    }
+    $home = getenv('HOME') ?: ($_SERVER['HOME'] ?? '');
+    if (is_string($home) && $home !== '' && $home !== '/') { $dirsConfig[] = rtrim($home, '/') . '/crm_config'; }
+    $candidatos = [];
+    foreach (array_unique($dirsConfig) as $d) {
+        $candidatos[] = $d . '/' . $carpeta . '.php';         // config propia de ESTA instalación
+        $candidatos[] = $d . '/config.php';                   // Hostinger (producción)
+    }
+    $candidatos[] = dirname(__DIR__, 2) . '/server-config/config.php';  // repo: app/server-config/config.php
+    $candidatos[] = dirname(__DIR__) . '/config.local.php';             // local
+    foreach ($candidatos as $cand) {
         if (is_file($cand)) { $configFile = $cand; break; }
     }
+    // Todo esto corre en el ámbito global, el mismo de los controladores: no
+    // se dejan variables sueltas que una página pudiera leer sin querer.
+    unset($dirsConfig, $dirEnv, $rutaInst, $mHome, $home, $candidatos, $d, $cand);
 }
 if (!$configFile || !is_file($configFile)) {
     http_response_code(500);
@@ -82,6 +108,9 @@ define('BASE_PATH', $basePath);
 // quedar fuera del web root. El último respaldo (`storage` al lado de la
 // carpeta de la instalación) en Hostinger cae dentro de public_html, o sea,
 // servido por HTTP: por eso el config de cada instalación lo define siempre.
+// Por si alguna vez faltara, adjunto_guardar() deja un .htaccess que niega
+// todo en la carpeta de adjuntos y nunca guarda en disco una extensión
+// ejecutable (adjunto_ext_disco en registros.php).
 // APP_ENV ('prod' | 'dev') sólo decide si los errores se muestran en pantalla.
 define('STORAGE', $_SERVER['CRM_STORAGE'] ?? ($CONFIG['app']['storage'] ?? (dirname(WEBROOT) . '/storage')));
 define('APP_ENV', $CONFIG['app']['env'] ?? 'prod');
@@ -226,14 +255,16 @@ if (PHP_SAPI !== 'cli' && !str_starts_with(current_route(), 'api/v1/')) {
         $abs     = $ahora - (int)($_SESSION['login_en']         ?? $ahora);
         $venIdle = $idleTtl > 0 && $idle > $idleTtl;
         $venAbs  = $absTtl  > 0 && $abs  > $absTtl;
-        // Un TTL en 0 desactiva ese control. El texto del detalle dice
-        // «10 min» y «8 h» fijos aunque la configuración diga otra cosa.
+        // Un TTL en 0 desactiva ese control. El texto del detalle dice los
+        // tiempos que están configurados (10 min y 8 h por defecto).
         if ($venIdle || $venAbs) {
             $motivo = $venIdle ? 'inactividad' : 'expiro';
             $uid    = (int)$_SESSION['uid'];
             try {
                 log_app('sesion.cierre_auto', ['tipo' => 'auth', 'usuario_id' => $uid,
-                    'detalle' => 'Cierre automático por ' . ($venIdle ? 'inactividad (10 min)' : 'sesión máxima (8 h)')]);
+                    'detalle' => 'Cierre automático por ' . ($venIdle
+                        ? 'inactividad (' . duracion_legible($idleTtl) . ')'
+                        : 'sesión máxima (' . duracion_legible($absTtl) . ')')]);
             } catch (\Throwable $e) {}
             auth_logout();
             // Los endpoints que responden JSON reciben 440 para que el cliente

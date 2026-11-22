@@ -6,10 +6,10 @@
 //  hace una consulta por fila) y último acceso. Cada fila es un formulario
 //  a usuario-guardar.
 //
-//  Ojo con el HTML: el <form> se abre en la celda «Rol» y se cierra en la
-//  última celda. No es HTML válido; funciona porque el navegador asocia los
-//  campos al formulario abierto, pero cualquier cambio en la estructura de
-//  la tabla puede dejar el selector o el botón fuera del formulario.
+//  El <form> de cada fila vive entero en la última celda (id «fu<id>»); el
+//  selector de rol y la casilla de activo se le asocian con form="fu<id>".
+//  Así el HTML es válido y la estructura de la tabla puede cambiar sin dejar
+//  campos fuera del formulario.
 // ============================================================
 ?>
 <?php /** @var array $rows */ ?>
@@ -48,17 +48,17 @@
                         </div>
                     </td>
                     <td data-label="Rol">
-                        <form class="inline-form urow" method="post" action="<?= e(url('usuario-guardar')) ?>" id="fu<?= (int)$u['id'] ?>">
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
-                            <select name="rol">
+                        <?php // El formulario vive entero en la última celda; el rol y el
+                              // estado se le asocian con el atributo form="…" (un <form>
+                              // que abre en una celda y cierra en otra es HTML inválido). ?>
+                            <select name="rol" form="fu<?= (int)$u['id'] ?>" aria-label="Rol">
                                 <option value="comercial" <?= $u['rol'] === 'comercial' ? 'selected' : '' ?>>Comercial</option>
                                 <option value="admin"     <?= $u['rol'] === 'admin'     ? 'selected' : '' ?>>Administrador</option>
                             </select>
                     </td>
                     <td data-label="Estado">
                             <label class="switch">
-                                <input type="checkbox" name="activo" value="1" <?= (int)$u['activo'] === 1 ? 'checked' : '' ?>>
+                                <input type="checkbox" name="activo" value="1" form="fu<?= (int)$u['id'] ?>" <?= (int)$u['activo'] === 1 ? 'checked' : '' ?>>
                                 <span class="track"></span><span class="small">Activo</span>
                             </label>
                     </td>
@@ -69,6 +69,9 @@
                     </td>
                     <td data-label="Último acceso" class="prio-3"><?= $u['ultimo_acceso'] ? fecha_hora($u['ultimo_acceso']) : 'nunca' ?></td>
                     <td class="acts" data-label="Guardar">
+                        <form class="inline-form" method="post" action="<?= e(url('usuario-guardar')) ?>" id="fu<?= (int)$u['id'] ?>">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
                             <button class="act" title="Guardar"><?= icon('ok', 16) ?></button>
                         </form>
                     </td>

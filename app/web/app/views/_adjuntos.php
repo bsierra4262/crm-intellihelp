@@ -5,7 +5,9 @@
  * Se incluye desde las fichas, que definen $adjEntidad y $adjId; lee la
  * lista con adjuntos_de(). Subir y borrar van los dos a adjunto-subir
  * (accion=borrar para borrar). La descarga va por la ruta adjunto?id=.
- * El borrado elimina el archivo del disco en el acto: no hay papelera.
+ * Borrar es lógico: el archivo va a la papelera (solapa Archivos) y el cron
+ * lo purga pasado el plazo. El botón sólo aparece para el autor del archivo
+ * o un administrador (el servidor igual lo controla).
  *
  * La tabla y el comentario que la menciona existían desde el principio, pero no
  * había ninguna pantalla para subir nada: era un cajón vacío al que nadie podía
@@ -17,6 +19,8 @@
  * @var int    $adjId
  */
 $adjLista = adjuntos_de($adjEntidad, $adjId);
+$adjUid   = current_user_id();
+$adjAdmin = auth_is_admin();
 ?>
 <div class="card">
     <div class="card-head"><h2>Archivos</h2>
@@ -34,15 +38,17 @@ $adjLista = adjuntos_de($adjEntidad, $adjId);
                     <?= icon('nota', 15) ?> <?= e($a['nombre']) ?>
                 </a>
                 <span class="small muted nowrap"><?= e(peso_legible((int)$a['bytes'])) ?></span>
+                <?php if (puede_borrar_adjunto($a, $adjUid, $adjAdmin)): ?>
                 <form class="inline-form" method="post" action="<?= e(url('adjunto-subir')) ?>">
                     <?= csrf_field() ?>
                     <input type="hidden" name="accion" value="borrar">
                     <input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
                     <button class="act danger" title="Borrar el archivo" data-peligro
                             data-confirmar-titulo="Borrar el archivo"
-                            data-confirmar="Se borra «<?= e($a['nombre']) ?>» definitivamente. Esto no va a la papelera."
+                            data-confirmar="«<?= e($a['nombre']) ?>» va a la papelera. Un administrador puede restaurarlo durante <?= (int) dias_papelera() ?> días."
                             data-confirmar-ok="Borrar"><?= icon('papelera', 15) ?></button>
                 </form>
+                <?php endif; ?>
             </div>
         <?php endforeach; ?>
     <?php endif; ?>

@@ -87,6 +87,33 @@ function redirect(string $path): void
     exit;
 }
 
+/**
+ * ¿El pedido salió de una página de este mismo sitio (o lo escribió la
+ * persona en la barra de direcciones)?
+ *
+ * Sirve para lo que no puede llevar token CSRF porque es una navegación por
+ * GET (el cierre de sesión que dispara idle.js). Mira primero
+ * `Sec-Fetch-Site`, que pone el navegador y una página no puede falsificar:
+ * 'same-origin' (la navegó un script o un enlace propio) o 'none' (dirección
+ * escrita, favorito) cuentan; 'same-site' y 'cross-site' no. Si el navegador
+ * no la manda (muy viejo, o un intermediario la quitó), se compara el host
+ * del Referer con el del pedido.
+ *
+ * @return bool|null true/false, o null si no hay forma de saberlo
+ */
+function pedido_mismo_origen(array $srv): ?bool
+{
+    $sfs = strtolower(trim((string)($srv['HTTP_SEC_FETCH_SITE'] ?? '')));
+    if ($sfs !== '') {
+        return in_array($sfs, ['same-origin', 'none'], true);
+    }
+    $ref = (string)($srv['HTTP_REFERER'] ?? '');
+    if ($ref === '') { return null; }
+    $hostRef = strtolower((string) parse_url($ref, PHP_URL_HOST));
+    $host    = strtolower((string) preg_replace('/:\d+$/', '', (string)($srv['HTTP_HOST'] ?? '')));
+    return $hostRef !== '' && $hostRef === $host;
+}
+
 /** Método HTTP actual. */
 function method(): string
 {
@@ -118,9 +145,9 @@ function finish_request(): void
  * el cliente real viaja en X-Forwarded-For / CF-Connecting-IP.
  *
  * Ojo: le cree a cualquier cabecera, que el visitante puede inventar. Para
- * todo lo que decide algo (límites, auditoría) se usa ip_confiable().
- * Todavía la usan pages/baja.php, pages/px.php y campanas.php para guardar
- * la IP de visitantes sin sesión.
+ * todo lo que decide algo (límites, auditoría) se usa ip_confiable(), y para
+ * guardar la IP de alguien sin sesión, log_ip() (actividad.php), que la deja
+ * como hash. No se usa para nada nuevo: queda por compatibilidad.
  */
 function client_ip(): ?string
 {
@@ -241,15 +268,58 @@ function csrf_field(): string
  * Sólo mira $_POST: no sirve para pedidos JSON que manden el token en una
  * cabecera. Si la sesión venció entre que se abrió el formulario y se
  * envió, también falla (la sesión nueva tiene otro token).
+ *
+ * Para que no se pierda lo escrito, la respuesta no es una línea de texto: es
+ * una pantalla que explica qué pasó, muestra lo que se había escrito para
+ * poder copiarlo y ofrece volver atrás. Los pedidos en segundo plano
+ * (fetch/XHR) reciben JSON.
  */
 function verify_csrf(): void
 {
     $ok = isset($_POST['_csrf'], $_SESSION['_csrf'])
         && hash_equals($_SESSION['_csrf'], (string)($_POST['_csrf'] ?? ''));
-    if (!$ok) {
-        http_response_code(419);
-        exit('Token de seguridad inválido. Volvé atrás y reintentá.');
+    if ($ok) { return; }
+
+    http_response_code(419);
+    $ajax = (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest')
+         || str_contains((string)($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json');
+    if ($ajax || !function_exists('render') || !defined('APP') || !is_file(APP . '/views/error.php')) {
+        header('Content-Type: application/json; charset=utf-8');
+        exit(json_encode(['ok' => false, 'error' => 'token_invalido',
+            'mensaje' => 'La página estuvo abierta mucho tiempo. Recargala y volvé a intentar.'], JSON_UNESCAPED_UNICODE));
     }
+    render('error', [
+        'codigo'      => 419,
+        'titulo'      => 'No pudimos guardar: la página estuvo abierta mucho tiempo',
+        'mensaje'     => 'Por seguridad, cada página abierta tiene un permiso que vence con la sesión. '
+                       . 'Lo que escribiste no se guardó, pero está acá abajo para que lo copies. '
+                       . 'Volvé atrás, recargá la página y pegalo de nuevo.',
+        'campos'      => csrf_campos_escritos($_POST),
+        'volverAtras' => true,
+    ], 'No se pudo guardar');
+    exit;
+}
+
+/**
+ * Lo que la persona escribió en un formulario rechazado por el token, para
+ * mostrárselo y que no lo pierda: sólo los campos de texto con contenido, sin
+ * los ocultos de uso interno (los que empiezan con «_») ni los ids.
+ *
+ * @return array<string,string> nombre del campo => texto (recortado a 20.000)
+ */
+function csrf_campos_escritos(array $post): array
+{
+    $out = [];
+    foreach ($post as $k => $v) {
+        $k = (string)$k;
+        if ($k === '' || $k[0] === '_' || in_array($k, ['id', 'accion', 'entidad', 'entidad_id', 'volver'], true)) { continue; }
+        if (is_array($v)) { $v = implode(', ', array_filter(array_map(fn($x) => is_scalar($x) ? (string)$x : '', $v))); }
+        $v = trim((string)$v);
+        if ($v === '') { continue; }
+        $out[$k] = mb_substr($v, 0, 20000);
+        if (count($out) >= 30) { break; }
+    }
+    return $out;
 }
 
 // ---- Mensajes flash ----
@@ -508,6 +578,85 @@ function money($n, string $moneda = 'ARS'): string
 {
     $sim = $moneda === 'USD' ? 'US$' : '$';
     return $sim . ' ' . number_format((float)$n, 2, ',', '.');
+}
+
+/**
+ * Importes agrupados por moneda, en una línea: «$ 1.500,00 · US$ 200,00».
+ *
+ * El sistema no convierte monedas: sumar pesos con dólares da un número que
+ * no es ninguna de las dos cosas. Los totales se muestran por separado.
+ * Sin importes devuelve el cero en pesos.
+ *
+ * @param array<string,float|int|string> $porMoneda moneda => importe
+ */
+function money_por_moneda(array $porMoneda): string
+{
+    $partes = [];
+    // Primero pesos, después dólares, después lo que haya.
+    uksort($porMoneda, static fn($a, $b) => (['ARS' => 0, 'USD' => 1][$a] ?? 2) <=> (['ARS' => 0, 'USD' => 1][$b] ?? 2) ?: strcmp((string)$a, (string)$b));
+    foreach ($porMoneda as $moneda => $importe) {
+        if ((float)$importe == 0.0 && count($porMoneda) > 1) { continue; }
+        $partes[] = money((float)$importe, (string)($moneda ?: 'ARS'));
+    }
+    return $partes ? implode(' · ', $partes) : money(0);
+}
+
+/**
+ * Agrupa filas con columnas `moneda` y $campo en moneda => suma.
+ *
+ * @param array<int,array<string,mixed>> $filas
+ * @return array<string,float>
+ */
+function sumar_por_moneda(array $filas, string $campo): array
+{
+    $out = [];
+    foreach ($filas as $f) {
+        $m = (string)($f['moneda'] ?? '') ?: 'ARS';
+        $out[$m] = ($out[$m] ?? 0.0) + (float)($f[$campo] ?? 0);
+    }
+    return $out;
+}
+
+/** Una duración en segundos dicha como se lee: «10 min», «8 h», «1 h 30 min». */
+function duracion_legible(int $seg): string
+{
+    if ($seg <= 0) { return 'sin límite'; }
+    $h = intdiv($seg, 3600);
+    $m = intdiv($seg % 3600, 60);
+    if ($h && $m) { return $h . ' h ' . $m . ' min'; }
+    if ($h)       { return $h . ' h'; }
+    return max(1, $m) . ' min';
+}
+
+/**
+ * Patrón para LIKE '%texto%' que busca el texto literal: % y _ escritos por
+ * la persona dejan de ser comodines (con la barra invertida, el escape por
+ * defecto de MariaDB).
+ */
+function like_contiene(string $texto): string
+{
+    return '%' . strtr($texto, ['\\' => '\\\\', '%' => '\\%', '_' => '\\_']) . '%';
+}
+
+/**
+ * Valor de la cabecera Content-Disposition para descargar un archivo con su
+ * nombre original.
+ *
+ * Va dos veces: `filename` en ASCII (los acentos y lo raro pasan a «_») para
+ * los navegadores viejos, y `filename*` en UTF-8 (RFC 6266 / 5987), que es el
+ * que usan todos los actuales, así un «Cotización.pdf» se baja con su acento.
+ * Las comillas, barras y saltos de línea se quitan: no pueden cortar la
+ * cabecera ni meter otra.
+ */
+function descarga_disposicion(string $nombre): string
+{
+    $limpio = trim(str_replace(['"', '\\', '/', "\r", "\n", "\0"], '', $nombre));
+    if ($limpio === '') { $limpio = 'archivo'; }
+    // Con /u un carácter acentuado es UNA letra (un «_»), no sus dos bytes.
+    // Si el nombre no es UTF-8 válido, /u falla y se cae al reemplazo por byte.
+    $ascii = preg_replace('/[^\x20-\x7E]/u', '_', $limpio) ?? (string) preg_replace('/[^\x20-\x7E]/', '_', $limpio);
+    $limpio = mb_check_encoding($limpio, 'UTF-8') ? $limpio : $ascii;
+    return 'attachment; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($limpio);
 }
 
 /** Fecha corta dd/mm/aaaa. '—' si viene vacía, en ceros o no se entiende. */

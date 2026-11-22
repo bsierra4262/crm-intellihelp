@@ -10,7 +10,8 @@ require_login();
 //
 //  Campos: entidad, id y etiquetas (texto separado por comas, desde
 //  views/_etiquetas.php). Reemplaza la lista completa: lo que no viene se
-//  quita. Vuelve a la ficha del registro.
+//  quita. El registro tiene que existir, no estar en la papelera y ser de un
+//  módulo encendido. Vuelve a la ficha del registro.
 // ============================================================
 
 if (!is_post()) { redirect('dashboard'); }
@@ -19,8 +20,9 @@ verify_csrf();
 $entidad = (string)($_POST['entidad'] ?? '');
 $id      = (int)($_POST['id'] ?? 0);
 
-if (!$id || !entidad_valida($entidad)) {
-    flash('No se pudo guardar: registro desconocido.', 'error');
+if (!$id || !entidad_valida($entidad) || !entidad_habilitada($entidad) || !registro_vivo($entidad, $id)) {
+    flash('No se pudo guardar: el registro no existe o está en la papelera.', 'error');
+    redirect('dashboard');
 } else {
     $nombres = preg_split('/\s*,\s*/', (string)($_POST['etiquetas'] ?? '')) ?: [];
     etiquetas_asignar($entidad, $id, $nombres);

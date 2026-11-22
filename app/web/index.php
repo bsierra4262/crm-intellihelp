@@ -165,11 +165,17 @@ if (!isset($rutas[$rutaBase])) {
 }
 
 // Sin sesión válida (o con un usuario desactivado: auth_user() lo detecta y
-// cierra la sesión) se manda al login. Los endpoints JSON también reciben esta
-// redirección; el caso de la sesión vencida con respuesta 440 lo resuelve
-// antes bootstrap.php.
+// cierra la sesión) se manda al login. Los pedidos en segundo plano (los
+// endpoints api-*, un fetch con X-Requested-With, el refresco automático)
+// reciben 440 con JSON, igual que cuando bootstrap.php cierra una sesión
+// vencida: una redirección los dejaba leyendo el HTML del login como si
+// fuera la respuesta.
 $def = $rutas[$rutaBase];
 if (empty($def['public']) && !auth_user()) {
+    if (str_starts_with($rutaBase, 'api-') || vivo_pedido()
+        || (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest')) {
+        json_out(['ok' => false, 'error' => 'sesion_expirada'], 440);
+    }
     redirect('login');
 }
 

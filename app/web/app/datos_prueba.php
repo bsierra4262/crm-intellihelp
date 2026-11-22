@@ -90,12 +90,14 @@ function datos_prueba_limpiar(): array
 {
     $ids  = datos_prueba_ids();
     $hizo = [];
+    $campanasBorradas = [];
 
     $listas = array_map('intval', (array)($ids['listas'] ?? []));
     if ($listas) {
         $m = implode(',', array_fill(0, count($listas), '?'));
         // Primero lo que cuelga de la lista, después la lista.
         $camp = q("SELECT id FROM campanas WHERE lista_id IN ($m)", $listas)->fetchAll(PDO::FETCH_COLUMN);
+        $campanasBorradas = $camp;
         foreach ($camp as $cid) {
             q('DELETE FROM envio_eventos WHERE envio_id IN (SELECT id FROM envios WHERE campana_id = ?)', [(int)$cid]);
             q('DELETE FROM envios WHERE campana_id = ?', [(int)$cid]);
@@ -113,12 +115,15 @@ function datos_prueba_limpiar(): array
         $m = implode(',', array_fill(0, count($contactos), '?'));
         // Todo lo que quedó colgado de esos contactos mientras se probaba.
         // Cada borrado va en su try porque alguna tabla o columna puede no
-        // existir; el error se calla. Ojo: `notas` no tiene `registro_id`
-        // (es polimórfica: entidad + entidad_id), así que ese borrado falla
-        // siempre en silencio y las notas de los contactos de prueba quedan.
-        foreach (['mensajes' => 'contacto_id', 'notas' => 'registro_id',
-                  'actividades' => 'contacto_id', 'lista_miembros' => 'contacto_id'] as $t => $col) {
+        // existir en una base vieja; el error se calla. Notas, etiquetas y
+        // adjuntos son polimórficos (entidad + entidad_id), no tienen
+        // `contacto_id`.
+        foreach (['mensajes' => 'contacto_id', 'actividades' => 'contacto_id',
+                  'lista_miembros' => 'contacto_id'] as $t => $col) {
             try { q("DELETE FROM `$t` WHERE `$col` IN ($m)", $contactos); } catch (\Throwable $e) {}
+        }
+        foreach (['notas', 'etiqueta_registro'] as $t) {
+            try { q("DELETE FROM `$t` WHERE entidad = 'contacto' AND entidad_id IN ($m)", $contactos); } catch (\Throwable $e) {}
         }
         q("DELETE FROM desuscripciones WHERE email IN (SELECT email FROM contactos WHERE id IN ($m))", $contactos);
         $hizo['contactos ficticios'] = q("DELETE FROM contactos WHERE id IN ($m)", $contactos)->rowCount();
@@ -133,13 +138,45 @@ function datos_prueba_limpiar(): array
             + q('DELETE FROM cuentas WHERE id = ?', [$cta])->rowCount();
     }
 
-    // Las alertas son ruido de la prueba. Se borran TODAS, no sólo las que
-    // generaron los datos de prueba.
-    q('DELETE FROM notificaciones');
+    // Las alertas que generaron los datos de prueba (una respuesta a la campaña
+    // de prueba, un rebote de un contacto ficticio) son ruido: se borran ésas y
+    // ninguna más. Las alertas reales de la instalación no se tocan.
+    $hizo['alertas de prueba'] = datos_prueba_borrar_alertas([
+        'contacto' => $contactos,
+        'cuenta'   => array_map('intval', (array)($ids['cuentas'] ?? [])),
+        'campana'  => array_map('intval', $campanasBorradas),
+        'lista'    => $listas,
+    ]);
+    if (!$hizo['alertas de prueba']) { unset($hizo['alertas de prueba']); }
     setting_set('datos_prueba', '');
 
     log_app('datos_prueba.limpiar', ['tipo' => 'sistema',
         'detalle' => $hizo ? implode(' · ', array_map(fn($k, $v) => "$v $k", array_keys($hizo), $hizo))
                            : 'no quedaba nada por borrar']);
     return $hizo;
+}
+
+/**
+ * Borra las alertas ligadas a registros sembrados (por entidad + entidad_id)
+ * y sus marcas de lectura. Devuelve cuántas alertas borró.
+ *
+ * @param array<string,int[]> $porEntidad entidad => ids
+ */
+function datos_prueba_borrar_alertas(array $porEntidad): int
+{
+    $n = 0;
+    foreach ($porEntidad as $entidad => $lista) {
+        $lista = array_values(array_filter(array_map('intval', (array)$lista)));
+        if (!$lista) { continue; }
+        $m = implode(',', array_fill(0, count($lista), '?'));
+        $params = array_merge([(string)$entidad], $lista);
+        try {
+            q("DELETE FROM notificacion_lecturas WHERE notificacion_id IN
+                 (SELECT id FROM notificaciones WHERE entidad = ? AND entidad_id IN ($m))", $params);
+        } catch (\Throwable $e) {
+            // Sin la migración 010 no hay tabla de lecturas: no hay nada que borrar.
+        }
+        $n += q("DELETE FROM notificaciones WHERE entidad = ? AND entidad_id IN ($m)", $params)->rowCount();
+    }
+    return $n;
 }

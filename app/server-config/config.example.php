@@ -10,6 +10,11 @@
 //  crm_config/crm-pruebas.php. El .htaccess ya NO fija CRM_CONFIG (hacerlo
 //  apuntaba las dos instalaciones a la misma base); la variable de entorno
 //  sólo se respeta si alguien la define a propósito.
+//  La carpeta crm_config/ se deduce de la ruta de la instalación
+//  (/home/USUARIO/domains/… → /home/USUARIO/crm_config); si el hosting la
+//  tuviera en otro lado, se indica con la variable de entorno CRM_CONFIG_DIR.
+//  `storage` es obligatorio en la práctica: sin él los adjuntos irían al lado
+//  de la instalación, que en Hostinger queda dentro de public_html.
 //  En el repo, bootstrap.php también prueba app/server-config/config.php y
 //  app/web/config.local.php (desarrollo local).
 //

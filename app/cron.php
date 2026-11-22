@@ -332,6 +332,10 @@ try {
     if (date('Y-m-d') !== (string) setting_get('papelera_ultima_purga', '')) {
         setting_set('papelera_ultima_purga', date('Y-m-d'));
         $borrados = purgar_papelera();
+        // Los adjuntos van aparte: además de la fila, se borra el archivo del
+        // disco (adjuntos_purgar en registros.php).
+        $archivos = adjuntos_purgar();
+        if ($archivos > 0) { $borrados['archivos'] = $archivos; }
         $total = array_sum($borrados);
         $lineas[] = 'papelera: ' . ($total
             ? $total . ' eliminados definitivamente tras ' . dias_papelera() . ' días ('
