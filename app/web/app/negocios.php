@@ -172,20 +172,6 @@ function periodo_valido(string $periodo): bool
 }
 
 /**
- * Suma montos separados por moneda: [['moneda' => 'USD', 'x' => 10], …] →
- * ['ARS' => 0.0, 'USD' => 10.0]. Siempre trae ARS y USD, aunque sea en cero.
- */
-function sumar_por_moneda(array $filas, string $campo): array
-{
-    $t = array_fill_keys(NEGOCIO_MONEDAS, 0.0);
-    foreach ($filas as $f) {
-        $m = in_array($f['moneda'] ?? 'ARS', NEGOCIO_MONEDAS, true) ? $f['moneda'] : 'ARS';
-        $t[$m] += (float)($f[$campo] ?? 0);
-    }
-    return $t;
-}
-
-/**
  * Texto de un total separado por moneda: «$ 1.500,00 · US$ 200,00». Una
  * moneda en cero no se muestra; si las dos están en cero, «$ 0,00».
  *

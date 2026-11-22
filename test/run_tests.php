@@ -1309,11 +1309,18 @@ if ($__motivoSinBase !== '') {
     // Casos con base que agrega cada área en test/casos_db/<area>.php (uno por
     // archivo para que se puedan escribir en paralelo sin pisarse). Cada uno
     // crea sus propias tablas en esta base SQLite en memoria.
+    // Cada archivo arranca con las tablas del bloque de arriba: lo que crea un
+    // área se borra al terminar, para que la siguiente no se encuentre una
+    // tabla con el mismo nombre y otras columnas.
+    $__tablasBase = db()->query("SELECT name FROM sqlite_master WHERE type = 'table'")->fetchAll(PDO::FETCH_COLUMN);
     foreach (glob(__DIR__ . '/casos_db/*.php') ?: [] as $__caso) {
         echo "
 == Casos con base: " . basename($__caso, '.php') . " ==
 ";
         require $__caso;
+        foreach (db()->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")->fetchAll(PDO::FETCH_COLUMN) as $__t) {
+            if (!in_array($__t, $__tablasBase, true)) { db()->exec('DROP TABLE "' . $__t . '"'); }
+        }
     }
 }
 

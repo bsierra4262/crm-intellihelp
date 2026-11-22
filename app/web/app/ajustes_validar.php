@@ -114,12 +114,12 @@ function ajustes_validar(array $post, callable $actual): array
             return ctype_digit($a) ? (int)$a : null;
         }
         if (!ctype_digit($v)) {
-            $errores[] = "«$nombre» tiene que ser un número entero.";
+            $errores[] = "«{$nombre}» tiene que ser un número entero.";
             return null;
         }
         $n = (int)$v;
         if ($n < $min || $n > $max) {
-            $errores[] = "«$nombre» tiene que ser un número entre $min y $max.";
+            $errores[] = "«{$nombre}» tiene que ser un número entre $min y $max.";
             return null;
         }
         $valores[$k] = (string)$n;

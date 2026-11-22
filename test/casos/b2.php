@@ -82,7 +82,7 @@ foreach (['contactos', 'cuentas', 'posibles'] as $pag) {
     contiene("la vista de $pag esconde «Exportar» a quien no es admin", $b2Leer("views/$pag.php"), '<?php if (auth_is_admin()): ?>');
 }
 foreach (['contactos', 'cuentas', 'posibles', 'actividades'] as $v) {
-    contiene("la papelera de $v sólo para propietario o admin", $b2Leer("views/$v.php"), 'puede_mandar_papelera(');
+    contiene("la papelera de $v sólo para propietario o admin", $b2Leer("views/$v.php"), 'puedo_mandar_papelera(');
 }
 contiene('el servidor controla la papelera', $b2Leer('pages/registro-eliminar.php'), 'puede_mandar_papelera($entidad, $fila');
 contiene('«No incluirlo en campañas» se puede desmarcar', $b2Leer('views/contacto-form.php'), '<input type="hidden" name="no_email" value="0">');

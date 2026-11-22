@@ -609,7 +609,9 @@ function money_por_moneda(array $porMoneda): string
  */
 function sumar_por_moneda(array $filas, string $campo): array
 {
-    $out = [];
+    // Pesos y dólares siempre presentes (en 0 si no hay), así las pantallas
+    // pueden leer $t['ARS'] sin preguntar; otra moneda se agrega si aparece.
+    $out = ['ARS' => 0.0, 'USD' => 0.0];
     foreach ($filas as $f) {
         $m = (string)($f['moneda'] ?? '') ?: 'ARS';
         $out[$m] = ($out[$m] ?? 0.0) + (float)($f[$campo] ?? 0);
