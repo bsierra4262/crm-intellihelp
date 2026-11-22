@@ -1,5 +1,11 @@
 <?php /** @var string $entidad @var array $defs @var array $rows @var array $conteos
- *  @var int $dias @var array $motivos */ ?>
+ *  @var int $dias @var array $motivos
+ *
+ *  Vista de la papelera, desde pages/papelera.php. Una solapa por tipo de
+ *  registro (con su contador) y la tabla de la solapa elegida. Cada fila
+ *  ofrece restaurar por POST a registro-eliminar, que vuelve acá.
+ *  «Por qué» distingue el archivado automático por rebote de un borrado
+ *  hecho por una persona, con el motivo que se leyó de la auditoría. */ ?>
 <div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Papelera</h1>

@@ -21,6 +21,33 @@ declare(strict_types=1);
 //
 //  PROTECCIÓN: si el sistema está en producción, no borra nada. El modo se
 //  cambia en Ajustes → Modo de trabajo, y ahí queda registrado quién lo hizo.
+//
+//  Qué la sostiene, exactamente, y qué no:
+//    · Es UNA sola condición: el ajuste `app_entorno` de la base a la que se
+//      conecta tiene que valer 'testing'. Si la fila falta, se toma 'testing'
+//      (el valor por defecto de setting_get), y schema.sql siembra 'testing'
+//      en toda instalación nueva. Una base de producción que nunca se pasó a
+//      'produccion' queda tan expuesta como la de pruebas.
+//    · No mira en qué carpeta corre (crm/ o crm-pruebas/) ni el nombre de la
+//      base: qué base se vacía lo decide la configuración que encuentra
+//      bootstrap.php. Si en el servidor faltara crm_config/crm-pruebas.php,
+//      la copia de pruebas tomaría la configuración de producción y este
+//      script vaciaría la base real si su `app_entorno` dijera 'testing'.
+//    · No pide confirmación: `--hacerlo` borra en el acto. Sin argumentos es
+//      un simulacro que sólo cuenta filas.
+//    · Por HTTP devuelve 404 (sólo línea de comandos).
+//
+//  Orden de lo que hace con --hacerlo: borra de Google Calendar los eventos
+//  de las reservas, vacía las tablas de la lista (DELETE, no TRUNCATE, sin
+//  transacción: si se corta a la mitad, queda a medio vaciar), limpia las
+//  marcas del cron y siembra los datos de prueba (reinicio_sembrar()).
+//
+//  Depende de las funciones del núcleo: gcal_api, cuenta_asegurar,
+//  cuenta_guardar, contacto_guardar, agenda_tipo_guardar, plantilla_guardar,
+//  plantillas_preajustes, datos_prueba_anotar. Supone aplicadas todas las
+//  migraciones: si falta una tabla de la lista (p. ej. `entradas_web` sin la
+//  008), el COUNT(*) falla y el script se corta con una excepción después de
+//  haber borrado los eventos de Google.
 // ============================================================
 
 if (PHP_SAPI !== 'cli') {
@@ -28,9 +55,13 @@ if (PHP_SAPI !== 'cli') {
     exit("Esto se ejecuta por línea de comandos.\n");
 }
 
+// En el repositorio el núcleo está en app/web/app/; en el servidor, este
+// archivo queda en la raíz de la instalación, junto a app/.
 $raiz = is_file(__DIR__ . '/web/app/bootstrap.php') ? __DIR__ . '/web' : __DIR__;
 require $raiz . '/app/bootstrap.php';
 
+// --hacerlo borra y además siembra; --sembrar sólo siembra (no borra nada,
+// pero igual imprime el simulacro de lo que se borraría).
 $args     = array_slice($argv, 1);
 $hacerlo  = in_array('--hacerlo', $args, true);
 $sembrar  = in_array('--sembrar', $args, true);
@@ -39,6 +70,9 @@ $sembrar  = in_array('--sembrar', $args, true);
 $conservarBase = in_array('--conservar-base', $args, true)
               || in_array('--conservar-contactos', $args, true);
 
+// La única barrera (ver el encabezado). Va antes de todo, así que también
+// frena el simulacro y --sembrar en producción. Ojo con el valor por defecto:
+// sin la fila `app_entorno`, se considera prueba.
 $entorno = (string) setting_get('app_entorno', 'testing');
 if ($entorno !== 'testing') {
     fwrite(STDERR, "El sistema está en PRODUCCIÓN. No se borra nada.\n"
@@ -137,6 +171,13 @@ echo $hacerlo ? "== Reinicio de la instalación de pruebas ==\n" : "== Simulacro
 
 // ------------------------------------------------------------
 //  Google Calendar
+//
+//  Sólo se recorren las reservas de la agenda (`agenda_reservas`). Las
+//  reuniones cargadas desde el CRM también pueden tener evento
+//  (`actividades.gcal_event_id`) y esas NO se borran de Google: la fila
+//  desaparece pero el evento queda en el calendario. Además se borra siempre
+//  en el calendario 'primary' del vendedor, aunque tenga configurado otro
+//  (`google_tokens.calendario_id`).
 // ------------------------------------------------------------
 // Las reuniones de prueba también están en el calendario de Google, y borrar la
 // fila de la base no las saca de ahí: quedaban dando vueltas y avisando de
@@ -153,6 +194,8 @@ if ($conEvento) {
                recortar((string)$r['invitado_nombre'], 27),
                $hacerlo ? '' : '(se borraría)');
         if (!$hacerlo) { continue; }
+        // 410 = el evento ya no existe en Google: cuenta como borrado. Un error
+        // no frena el reinicio: se avisa para sacarlo a mano y se sigue.
         try {
             [$c] = gcal_api((int)$r['usuario_id'], 'DELETE',
                 '/calendars/primary/events/' . rawurlencode((string)$r['gcal_event_id']) . '?sendUpdates=none');
@@ -167,6 +210,10 @@ if ($conEvento) {
     echo "\nEn Google Calendar: no hay ninguna reunión de prueba.\n";
 }
 
+// El nombre de la tabla va interpolado en el SQL, pero sale de las listas
+// escritas arriba, nunca de un argumento. DELETE fila por fila (y no
+// TRUNCATE) porque TRUNCATE falla en tablas referenciadas por claves
+// foráneas; el costo es que no reinicia los AUTO_INCREMENT.
 echo "\nSe borra:\n";
 $total = 0;
 foreach ($tablas as $t => $desc) {
@@ -206,7 +253,9 @@ if ($olvidadas) {
 
 if ($hacerlo) {
     // La marca del cron también se limpia, para que la próxima corrida arranque
-    // como si fuera la primera.
+    // como si fuera la primera. `imap_ultima_corrida` en vacío hace que la
+    // próxima corrida lea las casillas sin esperar; `gcal_falla` borra el
+    // último aviso de error de Google.
     foreach (['cron_ultima_corrida', 'imap_ultima_corrida', 'gcal_falla'] as $k) {
         setting_set($k, '');
     }
@@ -229,14 +278,29 @@ if ($sembrar || $hacerlo) {
  * contactos, los de rebote y una lista con todos para mandarse una campaña a
  * uno mismo.
  * Es idempotente: correrlo dos veces no duplica nada.
+ *
+ * Escribe en app_settings (datos de la empresa, `testing_destinatarios`),
+ * cuentas, contactos, embudos/etapas y agenda_tipos (sólo si están vacíos),
+ * plantillas, listas y lista_miembros, y anota lo sembrado con
+ * datos_prueba_anotar() para poder sacarlo, y sólo eso, al pasar a
+ * producción. No manda correos ni toca Google.
+ *
+ * Trampa: los contactos de prueba usan direcciones reales del responsable
+ * (su Gmail personal y su casilla interna) y sus teléfonos, escritos en el
+ * código; quedan publicados con el repositorio.
+ *
+ * @return array<int,string> una línea legible por cada cosa sembrada, o un
+ *                           único aviso si todavía no hay usuarios
  */
 function reinicio_sembrar(): array
 {
     $out = [];
 
-    // El dueño de los datos de prueba es el primer administrador activo. No se
-    // puede dar por sentado que sea el usuario 1: los usuarios se crean al
-    // entrar con Google, así que el número depende del orden en que entraron.
+    // El dueño de los datos de prueba es, en este orden: la cuenta del
+    // responsable (bsierra@) si está activa, el primer administrador activo o,
+    // si no hay, el primer usuario. No se puede dar por sentado que sea el
+    // usuario 1: los usuarios se crean al entrar con Google, así que el número
+    // depende del orden en que entraron.
     $duenio = (int) (qv("SELECT id FROM usuarios WHERE email = 'bsierra@intellihelp.tech' AND activo = 1")
                   ?: qv("SELECT MIN(id) FROM usuarios WHERE rol = 'admin' AND activo = 1")
                   ?: qv('SELECT MIN(id) FROM usuarios'));
@@ -374,7 +438,7 @@ function reinicio_sembrar(): array
 
     $ids = [];
     foreach ($gente as $g) {
-        // Se busca SIN filtrar por archivados. Los tres de rebote quedan
+        // Se busca SIN filtrar por archivados. Los seis de rebote quedan
         // archivados y dados de baja después de cada prueba —que es
         // justo lo que se quiere comprobar—, así que buscando sólo entre los
         // activos no se encontraban y se creaba un duplicado en cada reinicio.
@@ -407,6 +471,9 @@ function reinicio_sembrar(): array
     // ---- Embudo ----
     // Se vuelve a sembrar porque el reinicio lo borra: si no, la pantalla del Embudo
     // queda vacía y los negocios no tienen dónde ubicarse.
+    // Son 5 etapas, distintas de las 7 que siembra schema.sql: después de un
+    // reinicio, pruebas no tiene el mismo embudo que una instalación nueva.
+    // Con --conservar-base el embudo no se borra y esto no hace nada.
     if (!qv('SELECT COUNT(*) FROM embudos')) {
         q("INSERT INTO embudos (nombre, predeterminado, activo) VALUES ('Ventas', 1, 1)");
         $embudoId = last_id();
@@ -492,6 +559,8 @@ function reinicio_sembrar(): array
     $out[] = 'Plantillas: ' . $nPlantillas . ' cargadas, una por servicio más las genéricas';
 
     // ---- Lista de prueba ----
+    // Se busca por nombre; INSERT IGNORE sobre (lista, email) hace que volver
+    // a sembrar no repita destinatarios.
     $lista = q1("SELECT id FROM listas WHERE nombre = 'Prueba del circuito' AND eliminado_en IS NULL LIMIT 1");
     if (!$lista) {
         q("INSERT INTO listas (nombre, descripcion, creado_por)

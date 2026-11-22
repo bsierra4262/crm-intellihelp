@@ -1,5 +1,14 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Ruta: POST /nota-guardar (requiere sesión + CSRF). Agrega una nota.
+//
+//  Campos: entidad (lista blanca de registros.php), entidad_id, cuerpo.
+//  Viene del formulario de views/_notas.php en las fichas y vuelve a la ficha
+//  del registro. No comprueba que el registro exista ni que su módulo esté
+//  encendido.
+// ============================================================
 require_login();
 
 if (!is_post()) { redirect('dashboard'); }
@@ -15,6 +24,8 @@ if (!entidad_valida($entidad) || !$id) {
 }
 if ($cuerpo === '') {
     flash('La nota estaba vacía.', 'error');
+    // url_registro() ya trae BASE_PATH y redirect() lo vuelve a poner: se le
+    // quita antes para no duplicarlo.
     redirect(ltrim(str_replace(BASE_PATH . '/', '', url_registro($entidad, $id)), '/'));
 }
 

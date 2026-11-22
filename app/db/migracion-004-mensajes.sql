@@ -11,6 +11,17 @@
 --  Con esto la respuesta queda guardada y se puede leer y contestar desde
 --  adentro, y la conversación entera queda pegada al contacto: el que atiende
 --  mañana ve lo que se habló, aunque lo haya hablado otro.
+--
+--  Quién escribe: el lector IMAP guarda las respuestas que entran
+--  ('entrante') y la pantalla de Conversación guarda lo que se contesta desde
+--  el CRM ('saliente'). No esta en schema.sql: una instalacion nueva la
+--  necesita igual.
+--
+--  Ninguna columna de ids tiene clave foranea: si la purga borra el contacto
+--  o la campana, los mensajes quedan con el id apuntando a nada (no se
+--  pierden, pero tampoco se borran). `cuenta_correo_id` es BIGINT aunque
+--  `cuentas_correo.id` es INT: no rompe nada sin clave foranea, pero
+--  impediria agregarla tal cual.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS `mensajes` (
@@ -39,8 +50,12 @@ CREATE TABLE IF NOT EXISTS `mensajes` (
   `creado_en`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   -- El mismo correo puede aparecer dos veces si se relee la casilla: el
-  -- Message-ID lo identifica y evita duplicarlo.
+  -- Message-ID lo identifica y evita duplicarlo. Un correo que llega SIN
+  -- Message-ID queda con NULL, y los NULL no chocan en un UNIQUE: ese si se
+  -- puede guardar dos veces.
   UNIQUE KEY `uq_msg` (`message_id`),
+  -- La conversacion de un contacto en orden; los mensajes de un envio; y los
+  -- entrantes sin leer (contador de la bandeja).
   KEY `ix_msg_contacto` (`contacto_id`, `fecha`),
   KEY `ix_msg_envio` (`envio_id`),
   KEY `ix_msg_sin_leer` (`leido_en`, `direccion`)

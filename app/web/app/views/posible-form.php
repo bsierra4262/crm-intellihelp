@@ -1,5 +1,23 @@
 <?php
+// ============================================================
+//  Vista: formulario de alta y edición de un posible cliente.
+//
+//  La dibuja pages/posible-form.php. Módulo: `posibles`.
+//
+//  Variables que recibe:
+//    $p        array|null  la ficha, o la ficha mezclada con el POST si hubo errores
+//    $id       int         0 en un alta
+//    $errores  array       campo => mensaje
+//    $usuarios array       usuarios activos, para el propietario
+//
+//  A diferencia del contacto, acá la casilla «No incluirlo en campañas» sí
+//  se limpia al desmarcarla: posible_guardar() siempre escribe `no_email`.
+//  El sector es texto libre (en la empresa es una lista cerrada) y la
+//  conversión no lo pasa a la cuenta.
+// ============================================================
+
 /** @var ?array $p @var int $id @var array $errores @var array $usuarios */
+// Atajo: el valor del campo ya escapado para HTML, con un valor por defecto.
 $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
 ?>
 <div class="page-head">
@@ -58,6 +76,7 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
                 </select>
                 <i class="hint">De dónde salió. Sirve para saber qué canal trae más clientes en Reportes.</i>
             </label>
+            <?php // Sin propietario cargado se preselecciona a quien edita. ?>
             <label class="fld"><span>Propietario</span>
                 <select name="propietario_id">
                     <option value="">— Sin asignar —</option>

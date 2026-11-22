@@ -11,11 +11,38 @@ declare(strict_types=1);
 //  Detalle importante de la API: al crear la conferencia, Google puede
 //  responder con `status: pending` y todavía sin el enlace. Por eso, si no
 //  vino, releemos el evento unas pocas veces antes de darnos por vencidos.
+//
+//  Quién lo usa: agenda.php (huecos, reservas, reprogramar, cancelar) y, a
+//  través de ella, la agenda pública /r/, la API v1 y el cron. Módulo: Agenda.
+//  Depende de google.php (google_access_token: el permiso offline de cada
+//  vendedor) y escribe el ajuste `gcal_falla` (app_settings) para el aviso de
+//  views/_aviso_gcal.php. No toca tablas propias: los eventos viven en Google
+//  y su id queda en agenda_reservas (lo guarda agenda.php).
+//
+//  Caché de freeBusy: archivos en STORAGE/cache-gcal (fuera del webroot), sólo
+//  con las franjas ocupadas; ver gcal_ocupado().
 // ============================================================
 
+/** Base de la API REST de Google Calendar v3. */
 const GCAL_API = 'https://www.googleapis.com/calendar/v3';
 
-/** Llamada autenticada a la API de Calendar. Devuelve [codigoHttp, cuerpo]. */
+/**
+ * Llamada autenticada a la API de Calendar con el permiso de un usuario.
+ *
+ * Pide el access_token a google_access_token(), que puede renovarlo contra
+ * Google ANTES de esta llamada: esa renovación tiene su propio tiempo de espera
+ * (google_post(), 20 s) y no lo acota `$timeout`.
+ *
+ * Si curl no llega a Google (sin conexión, tiempo agotado) el código vuelve
+ * en 0 y el cuerpo vacío.
+ *
+ * @param int        $usuarioId dueño del calendario
+ * @param string     $metodo    GET, POST, PATCH, DELETE
+ * @param string     $ruta      ruta bajo GCAL_API, con la consulta
+ * @param array|null $cuerpo    se manda como JSON si no es null
+ * @param int        $timeout   segundos totales de la llamada (mínimo 2)
+ * @return array{0:int,1:array} [codigoHttp, cuerpo decodificado]; 401 sintético si no hay token
+ */
 function gcal_api(int $usuarioId, string $metodo, string $ruta, ?array $cuerpo = null, int $timeout = 25): array
 {
     $token = google_access_token($usuarioId);
@@ -78,6 +105,12 @@ function gcal_ocupado(int $usuarioId, string $desdeIso, string $hastaIso, string
         gcal_recordar_falla($usuarioId, $codigo, (string)($r['error']['message'] ?? ''));
         return null;
     }
+    // Ojo con dos casos que este chequeo no distingue:
+    //   · si curl no llegó a Google, $codigo es 0 y la llamada de arriba
+    //     BORRA el aviso en vez de guardarlo (0 significa «anduvo»);
+    //   · freeBusy puede contestar 200 con `calendars[id].errors` (calendario
+    //     inexistente o sin permiso) y `busy` vacío: abajo eso se lee como
+    //     «nada ocupado».
     gcal_recordar_falla($usuarioId, 0, '');   // anduvo: se limpia el aviso
     $franjas = [];
     foreach ($r['calendars'][$calendario]['busy'] ?? [] as $b) {
@@ -115,6 +148,10 @@ function gcal_cache_archivo(int $usuarioId, string $calendario, string $desdeIso
  * Guarda (o borra) el último problema con Google Calendar para poder avisarlo
  * en el sistema.
  *
+ * $codigo 0 borra el aviso; cualquier otro lo guarda. Es UN solo ajuste para
+ * toda la instalación (`gcal_falla`), no uno por vendedor: una llamada que sale
+ * bien con la cuenta de un vendedor borra el aviso que había dejado la de otro.
+ *
  * Sin esto, una falla de Google no se ve: si la API de Calendar está
  * deshabilitada en el proyecto, la reserva se confirma igual, el visitante
  * recibe «quedó agendada» y en el calendario no aparece nada. El error
@@ -139,6 +176,11 @@ function gcal_recordar_falla(int $usuarioId, int $codigo, string $mensaje): void
 /**
  * ¿Hay un problema pendiente con Google Calendar? Devuelve los datos para
  * mostrarlos, o null si está todo bien.
+ *
+ * @return array{codigo:int,mensaje:string,usuario_id:int,cuando:string,apagada:bool,enlace?:string}|null
+ *         `apagada`: la API está deshabilitada en el proyecto de Google Cloud;
+ *         `enlace`: la dirección de la consola que trae el mensaje de Google.
+ * Efecto: si la falla era de una cuenta que después se reconectó, borra el aviso.
  */
 function gcal_falla_pendiente(): ?array
 {
@@ -173,7 +215,13 @@ function gcal_falla_pendiente(): ?array
     return $d;
 }
 
-/** ¿Se pudo consultar la disponibilidad? (para distinguir «libre» de «no sé»). */
+/**
+ * ¿El usuario tiene su calendario conectado (hay refresh_token guardado)?
+ *
+ * No consulta a Google: un permiso revocado del lado de Google sigue dando
+ * true hasta que falle una llamada. Para distinguir «libre» de «no sé» lo que
+ * vale es que gcal_ocupado() devuelva null.
+ */
 function gcal_disponible(int $usuarioId): bool
 {
     return google_conectado($usuarioId);
@@ -199,7 +247,12 @@ function gcal_avisar_valido(string $avisar): string
  *                 avisar ('none' por defecto: all | externalOnly | none)
  *                 privado (array clave => valor: extendedProperties.private,
  *                 que sólo ve el dueño del calendario)
+ * El POST no es idempotente: no se le pasa un id de evento propio, así que si
+ * se repite (por ejemplo el cron completando una reserva cuyo primer intento
+ * creó el evento pero no llegó a guardarlo) quedan dos eventos en Google.
+ *
  * @return array{0:string,1:string,2:string}
+ * @throws RuntimeException si Google rechaza el evento (también deja el aviso)
  */
 function gcal_crear_evento(int $usuarioId, array $d, string $calendario = 'primary'): array
 {
@@ -207,6 +260,9 @@ function gcal_crear_evento(int $usuarioId, array $d, string $calendario = 'prima
     $evento = [
         'summary'     => (string)($d['titulo'] ?? 'Reunión'),
         'description' => (string)($d['descripcion'] ?? ''),
+        // date('c') ya lleva el desplazamiento del servidor, así que el
+        // instante es exacto; `timeZone` sólo define cómo lo muestra Google
+        // (y cómo se repite, si fuera recurrente).
         'start'       => ['dateTime' => date('c', (int)($d['inicio'] ?? 0)), 'timeZone' => $zona],
         'end'         => ['dateTime' => date('c', (int)($d['fin'] ?? 0)),    'timeZone' => $zona],
         'attendees'   => array_map(
@@ -223,6 +279,8 @@ function gcal_crear_evento(int $usuarioId, array $d, string $calendario = 'prima
         $evento['extendedProperties'] = ['private' => array_map('strval', $d['privado'])];
     }
     if (!empty($d['con_meet'])) {
+        // requestId al azar: Google lo usa para no crear dos Meet si el mismo
+        // pedido llega dos veces; aquí cada llamada pide uno nuevo.
         $evento['conferenceData'] = [
             'createRequest' => [
                 'requestId'             => bin2hex(random_bytes(8)),
@@ -255,7 +313,10 @@ function gcal_crear_evento(int $usuarioId, array $d, string $calendario = 'prima
     return [$eventId, $meet, $icalUid];
 }
 
-/** Saca el enlace de Meet de la respuesta de la API. */
+/**
+ * Saca el enlace de Meet de la respuesta de la API: el punto de entrada de
+ * video de conferenceData o, en eventos viejos, `hangoutLink`. '' si no hay.
+ */
 function gcal_extraer_meet(array $evento): string
 {
     foreach ($evento['conferenceData']['entryPoints'] ?? [] as $ep) {
@@ -274,6 +335,8 @@ function gcal_extraer_meet(array $evento): string
  * $secuencia devuelve la `sequence` con la que quedó el evento en Google, que
  * es la que tiene que superar la invitación del CRM para que el calendario del
  * cliente la tome como una actualización y no la descarte por vieja.
+ *
+ * @return bool true si Google aceptó el cambio (2xx)
  */
 function gcal_mover_evento(int $usuarioId, string $eventId, int $inicio, int $fin,
                            string $calendario = 'primary', string $avisar = 'none',
@@ -291,7 +354,10 @@ function gcal_mover_evento(int $usuarioId, string $eventId, int $inicio, int $fi
     return $ok;
 }
 
-/** Cancela un evento. A los invitados sólo les avisa Google si se pide. */
+/**
+ * Cancela un evento. A los invitados sólo les avisa Google si se pide.
+ * Devuelve true también si ya no existía (410).
+ */
 function gcal_borrar_evento(int $usuarioId, string $eventId, string $calendario = 'primary',
                             string $avisar = 'none'): bool
 {

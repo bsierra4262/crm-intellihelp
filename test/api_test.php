@@ -18,23 +18,54 @@ declare(strict_types=1);
 //  Los datos son inventados; el único correo real es el de trabajo del dueño
 //  de los datos de prueba (recibe la confirmación y la cancelación).
 //
+//  Contra qué instalación: carga el bootstrap de CRM_WEBROOT (por defecto
+//  public_html/crm-pruebas) para leer y limpiar la base directamente, y le
+//  pega por HTTP a CRM_URL. Se niega a correr (código 2) si la instalación
+//  no está en modo prueba, si la URL no termina en /crm-pruebas o si el
+//  nombre de la base no contiene «pruebas».
+//
+//  Necesita: la extensión curl; la migración 008 aplicada; el secreto propio
+//  de la instalación; el módulo Agenda encendido; un tipo «diagnostico»
+//  activo (lo siembra reinicio.php) cuyo vendedor tenga Google Calendar
+//  conectado y horarios con al menos tres huecos en los próximos 14 días;
+//  SMTP configurado (si no, la comprobación del correo falla a propósito).
+//
+//  Efectos reales fuera de la base: crea y borra eventos en el Google
+//  Calendar del vendedor y manda correos de confirmación y cancelación al
+//  buzón de prueba (y sus variantes +etiqueta).
+//
 //  Uso (en el servidor; lo corre `deploy.py test --pruebas`):
 //      CRM_WEBROOT=<webroot de crm-pruebas> CRM_URL=https://intellihelp.tech/crm-pruebas php api_test.php
+//  Salida: 0 todo bien, 1 alguna falla, 2 no se pudo empezar.
 // ============================================================
 
+// Se carga la instalación entera: q(), es_testing(), api_firma(), cifrar(),
+// agenda_cancelar(), gcal_api()... quedan disponibles para preparar y limpiar.
 $RAIZ = getenv('CRM_WEBROOT') ?: '/home/u566451014/domains/intellihelp.tech/public_html/crm-pruebas';
 require $RAIZ . '/app/bootstrap.php';
 
+// $BASE es la URL a la que se le pega; $RUTA, su carpeta (/crm-pruebas), que
+// entra en el texto firmado.
 $BASE = rtrim((string)(getenv('CRM_URL') ?: ($GLOBALS['CONFIG']['app']['canonical'] ?? '')), '/');
 $RUTA = rtrim((string) parse_url($BASE, PHP_URL_PATH), '/');
 
+// Contadores globales de comprobaciones correctas y fallidas.
 $ok = 0; $mal = 0;
+/**
+ * Registra una comprobación. Si falla y hay $detalle (código HTTP, error
+ * devuelto), se imprime debajo para diagnosticar sin volver a correr.
+ */
 function ok(string $q, bool $bien, string $detalle = ''): void
 {
     global $ok, $mal;
     if ($bien) { $ok++; echo "  [OK] $q\n"; }
     else       { $mal++; echo "  [XX] $q" . ($detalle !== '' ? "\n       → $detalle" : '') . "\n"; }
 }
+/**
+ * Imprime el resumen y termina el proceso con $codigo.
+ *
+ * @return never siempre hace exit
+ */
 function fin(int $codigo): never
 {
     global $ok, $mal;
@@ -55,6 +86,7 @@ if (!es_testing() || $RUTA !== '/crm-pruebas' || !str_contains($base, 'pruebas')
 }
 if (!function_exists('curl_init')) { fwrite(STDERR, "Falta la extensión curl.\n"); exit(2); }
 
+// ---- Preparación: si falta algo de lo básico, no tiene sentido seguir ----
 echo "== Preparación ==\n";
 ok('la migración 008 está aplicada', api_migracion_lista());
 ok('la instalación tiene su secreto propio (32 caracteres o más)', api_secreto_app_ok());
@@ -64,6 +96,8 @@ $tipo = q1("SELECT t.*, u.email AS usuario_email FROM agenda_tipos t JOIN usuari
 ok('hay un tipo «diagnostico» activo (lo siembra reinicio.php)', (bool)$tipo);
 if ($mal) { fin(1); }
 
+// El vendedor de la URL es la parte local del correo del dueño del tipo
+// (bsierra@... → bsierra), igual que lo arma la web.
 $vendedor = explode('@', (string)$tipo['usuario_email'])[0];
 // El correo que recibe los avisos: el de trabajo del dueño de los datos de
 // prueba. Nunca el de un cliente.
@@ -97,6 +131,11 @@ $ipHashes = [];
 
 /**
  * Un pedido a la API v1, firmado como lo firma la web.
+ *
+ * Ruta firmada: la del pedido tal como la ve el servidor, con la consulta.
+ * La IP hash y la idempotencia van al azar salvo que se fuercen en $o; cada
+ * IP usada se anota en $ipHashes para borrar sus contadores al final.
+ * Usa la clave y el secreto de escritura globales salvo que $o diga otra cosa.
  *
  * @param array $o clave, secreto, ts, idem, ip, firma (para forzar una), ruta_firma
  * @return array{0:int,1:array,2:string} [código, json, cabeceras]
@@ -160,9 +199,12 @@ function cuerpo(?int $inicio, array $persona = []): array
     return $c;
 }
 
+// Todo lo que sigue va en try/finally: pase lo que pase, la limpieza corre.
+// $codigoSalida sólo pasa a 0 si se llega al final del try sin fallas.
 $reservas = [];   // ids de agenda_reservas creadas
 $codigoSalida = 1;
 try {
+    // ---- Autenticación: cada forma de pedido mal armado tiene su error ----
     echo "== Autenticación ==\n";
     [$c, $j] = api('GET', 'disponibilidad?tipo=diagnostico', null, ['clave' => '']);
     ok('sin clave: 401 falta_clave', $c === 401 && ($j['error'] ?? '') === 'falta_clave', "código $c");
@@ -186,6 +228,8 @@ try {
     curl_close($ch);
     ok('la clave de escritura no lee api/estado: 401', $c === 401, "código $c");
 
+    // ---- Horarios: disponibilidad firmada, sin caché y sin cookie de sesión ----
+    // Los horarios que devuelve se guardan en $slots y se usan para reservar.
     echo "== Horarios ==\n";
     $desde = date('Y-m-d');
     $hasta = date('Y-m-d', strtotime('+14 days'));
@@ -209,6 +253,7 @@ try {
     ok('el inicio ISO y los segundos dicen lo mismo', $okIso);
     [$c, $j] = api('GET', 'disponibilidad?tipo=no-existe');
     ok('tipo inexistente: 404', $c === 404 && ($j['error'] ?? '') === 'tipo_inexistente', "código $c");
+    // ---- Feriados: el 8/12 no ofrece horarios y reservarlo da 409 ----
     echo "== Feriados ==\n";
     // Diciembre del año en curso (o del siguiente, si ya pasó el 8): el 8 y el
     // 25 son feriados nacionales inamovibles, siempre.
@@ -230,6 +275,7 @@ try {
        ($jr['feriado']['fecha'] ?? '') === "$anioF-12-08" && ($jr['feriado']['nombre'] ?? '') !== '');
     if (count($slots) < 3) { throw new RuntimeException('Sin horarios no se puede seguir con la reserva.'); }
 
+    // ---- Reserva: alta, reintento idempotente, choque de horario y validación ----
     echo "== Reserva ==\n";
     $idem   = 'test-' . bin2hex(random_bytes(12));
     $cuerpo = cuerpo($slots[0]);
@@ -250,6 +296,8 @@ try {
     [$c, $j2] = api('POST', 'reserva', cuerpo($slots[0], ['email' => $otroCorreo('otra')]));
     ok('el mismo horario con otra clave: 409 horario_tomado', $c === 409 && ($j2['error'] ?? '') === 'horario_tomado',
        "código $c " . ($j2['error'] ?? ''));
+    // Domingo a las 3 de la mañana (hora del servidor): fuera de cualquier
+    // horario cargado. Sólo se exige un 409; no se mira cuál fue el error.
     $domingo3 = strtotime('next sunday 03:00');
     [$c, $j2] = api('POST', 'reserva', cuerpo($domingo3));
     ok('un domingo a las 3: 409 (no es un horario que se ofrezca)', $c === 409, "código $c " . ($j2['error'] ?? ''));
@@ -282,6 +330,7 @@ try {
     [$c, $j2] = api('POST', 'reserva', $sinCons);
     ok('sin consentimiento: 422 falta_consentimiento', $c === 422 && ($j2['error'] ?? '') === 'falta_consentimiento', "código $c");
 
+    // Lo que quedó en la base: reserva, entrada, actividad y contacto.
     // Lo que quedó en la base.
     $r = q1('SELECT * FROM agenda_reservas WHERE id = ?', [$resId]) ?? [];
     $e = q1('SELECT * FROM entradas_web WHERE id = ?', [$entId]) ?? [];
@@ -296,6 +345,9 @@ try {
     ok('la reunión está en Actividades con la empresa', ($act['tipo'] ?? '') === 'reunion' && !empty($act['cuenta_id']));
     ok('y en su descripción la línea de origen (interna del CRM)', str_contains((string)($act['descripcion'] ?? ''), 'canal Google Ads'));
     $ct = q1('SELECT * FROM contactos WHERE id = ?', [(int)($r['contacto_id'] ?? 0)]) ?? [];
+    // Sólo se comprueba si la reserva creó un contacto NUEVO. Como el correo de
+    // prueba ya suele ser contacto, en la práctica esta comprobación casi nunca
+    // corre.
     if ((int)($ct['id'] ?? 0) > $maxContacto) {
         ok('el contacto nuevo entra «Sitio web» y fuera de las campañas',
            ($ct['fuente'] ?? '') === 'Sitio web' && (int)($ct['no_email'] ?? 0) === 1);
@@ -324,6 +376,9 @@ try {
         ok('la invitación del CRM usa el identificador de Google', ($r['ics_uid'] ?? '') === ($ev['iCalUID'] ?? '-'));
     }
 
+    // Dos pedidos en paralelo (curl_multi) al mismo horario, con distinta
+    // persona e idempotencia: el bloqueo por vendedor tiene que dejar pasar uno
+    // solo (201) y rechazar el otro (409).
     echo "== Dos personas al mismo horario, al mismo tiempo ==\n";
     $mh = curl_multi_init();
     $hs = [];
@@ -376,6 +431,8 @@ try {
     ok('la tercera reunión futura del mismo buzón: 429 limite_reservas',
        $c === 429 && ($j2['error'] ?? '') === 'limite_reservas', "código $c " . ($j2['error'] ?? ''));
 
+    // ---- Consulta sin reunión (recurso «entrada»): tarea, nota, duplicados y
+    // límite por visitante ----
     echo "== Consulta sin reunión ==\n";
     $ipCons = bin2hex(random_bytes(32));
     $cons   = cuerpo(null, ['mensaje' => 'Consulta de prueba automática ' . bin2hex(random_bytes(4))]);
@@ -389,9 +446,13 @@ try {
        && (int)($tarea['propietario_id'] ?? 0) === entrada_web_dueno());
     ok('y una nota con el mensaje', (bool) qv('SELECT 1 FROM notas WHERE id = ? AND cuerpo LIKE ?',
        [(int)($e['nota_id'] ?? 0), '%Consulta de prueba automática%']));
+    // Mira sólo la tabla negocios, de forma global (cualquier negocio creado en
+    // los últimos 5 minutos, por quien sea).
     ok('sin posibles clientes ni negocios', (int) qv("SELECT COUNT(*) FROM negocios WHERE creado_en >= NOW() - INTERVAL 5 MINUTE") === 0);
     [$c, $j] = api('POST', 'entrada', $cons, ['ip' => $ipCons]);
     ok('la misma consulta a los segundos: 200 repetida (doble clic)', $c === 200 && !empty($j['repetida']), "código $c");
+    // Tres más desde el mismo visitante para llegar al tope de la hora (cinco
+    // pedidos por IP y hora): el sexto tiene que dar 429.
     for ($i = 0; $i < 3; $i++) { api('POST', 'entrada', $cons, ['ip' => $ipCons]); }
     [$c, $j, $cab] = api('POST', 'entrada', $cons, ['ip' => $ipCons]);
     ok('la sexta en la hora desde el mismo visitante: 429 con Retry-After',
@@ -399,6 +460,7 @@ try {
     ok('los duplicados no generaron otra tarea',
        (int) qv("SELECT COUNT(*) FROM entradas_web WHERE token_id = ? AND tipo = 'consulta' AND estado = 'ok'", [$idEsc]) === 1);
 
+    // ---- Auditoría de la API: hay rastro de cada pedido y sin datos personales ----
     echo "== Auditoría ==\n";
     $lineas = q("SELECT detalle FROM actividad WHERE canal = 'api' AND actor = 'Prueba automática (api_test)'
                  ORDER BY id DESC LIMIT 100")->fetchAll(PDO::FETCH_COLUMN);
@@ -410,6 +472,12 @@ try {
 } catch (\Throwable $e) {
     ok('el test terminó sin errores', false, get_class($e) . ': ' . $e->getMessage());
 } finally {
+    // ---- Limpieza: deja la base de pruebas como estaba ----
+    // Sólo se borra lo que el test creó: lo identifica por los ids de sus
+    // claves (token_id), por los ids de reservas anotados y por los máximos de
+    // contactos, cuentas y alertas tomados antes de empezar. Lo que queda: las
+    // líneas de auditoría de la tabla actividad y las firmas usadas (claves
+    // sig: de api_limites, que vencen solas a los pocos minutos).
     echo "== Limpieza ==\n";
     try {
         // Primero se cancela: así se borra el evento de Google y sale la
@@ -452,6 +520,8 @@ try {
         }
         foreach ($tokens as $t) { q('DELETE FROM api_limites WHERE clave LIKE ?', ['k:' . $t . ':%']); }
         q('DELETE FROM api_tokens WHERE id IN (?, ?)', [$idEsc, $idLec]);
+        // Ojo: esta comprobación suma a $mal pero no cambia $codigoSalida, que ya
+        // se fijó al final del try.
         ok('se borró todo lo que creó el test', !qv('SELECT COUNT(*) FROM api_tokens WHERE id IN (?, ?)', [$idEsc, $idLec]));
     } catch (\Throwable $e) {
         ok('limpieza', false, get_class($e) . ': ' . $e->getMessage());

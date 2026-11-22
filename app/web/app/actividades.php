@@ -5,19 +5,46 @@ declare(strict_types=1);
 //  Actividades: tareas, llamadas y reuniones.
 //  Van en una sola tabla porque comparten casi todos los campos y así la
 //  «agenda del día» y la línea de tiempo de un registro salen de una consulta.
+//
+//  Tabla `actividades` (no confundir con `actividad`, la auditoría de
+//  actividad.php). Cada fila puede colgar de un contacto, un posible
+//  cliente, una empresa y/o un negocio (columnas *_id, todas opcionales).
+//  Borrado lógico con `eliminado_en` (papelera, ver registro_eliminar()).
+//
+//  Qué marca una actividad como hecha: `completada_en`, NO el texto de
+//  `estado`. Los listados, el panel de las fichas y el contador de vencidas
+//  miran `completada_en`.
+//  Fechas: una tarea usa `vence_el`; una llamada o reunión, `inicia_el` (y la
+//  reunión también `termina_el`). Las consultas usan
+//  COALESCE(vence_el, inicia_el) como «cuándo» de cualquier tipo.
+//
+//  Lo usan: pages/actividades.php, actividad-form.php,
+//  actividad-completar.php, las fichas (panel lateral), la agenda (las
+//  reuniones reservadas desde la web) y la entrada web (la tarea de
+//  responder una consulta). Lo carga bootstrap.php siempre, aunque el módulo
+//  `actividades` esté apagado.
+//  Permisos: ninguna función de este archivo mira quién es el propietario.
 // ============================================================
 
+/** Tipos de actividad: clave guardada en la base => etiqueta en pantalla. */
 function tipos_actividad(): array
 {
     return ['tarea' => 'Tarea', 'llamada' => 'Llamada', 'reunion' => 'Reunión'];
 }
 
+/** Resultados posibles de una llamada (se guardan como texto en `resultado`). */
 function resultados_llamada(): array
 {
     return ['Atendió', 'No atendió', 'Buzón de voz', 'Número equivocado',
             'Pidió que lo llamen después', 'Agendó reunión', 'No le interesa'];
 }
 
+/**
+ * Una actividad con los nombres de todo lo que tiene vinculado (propietario,
+ * contacto, empresa, negocio y posible cliente), o null si no existe o está
+ * en la papelera. Los vínculos se traen aunque el registro vinculado esté
+ * eliminado.
+ */
 function actividad_get(int $id): ?array
 {
     return q1('SELECT a.*, u.nombre AS propietario, c.nombre_completo AS contacto,
@@ -33,9 +60,20 @@ function actividad_get(int $id): ?array
                WHERE a.id = ? AND a.eliminado_en IS NULL', [$id]);
 }
 
-/** Actividades asociadas a un registro (para el panel lateral de la ficha). */
+/**
+ * Actividades asociadas a un registro (para el panel lateral de la ficha).
+ *
+ * Primero las pendientes y después las completadas; dentro de cada grupo,
+ * de la más lejana en el tiempo a la más cercana. Con más de $limite
+ * actividades, las que quedan afuera no se ven en la ficha (no hay «ver más»).
+ *
+ * @param string $columna contacto_id | cuenta_id | negocio_id | posible_cliente_id
+ * @throws InvalidArgumentException con otra columna
+ */
 function actividades_de(string $columna, int $id, int $limite = 20): array
 {
+    // La columna va dentro del SQL (no se puede pasar como parámetro): por
+    // eso sólo se aceptan las de la lista.
     if (!in_array($columna, ['contacto_id', 'cuenta_id', 'negocio_id', 'posible_cliente_id'], true)) {
         throw new InvalidArgumentException('Columna no permitida: ' . $columna);
     }
@@ -46,6 +84,17 @@ function actividades_de(string $columna, int $id, int $limite = 20): array
                        COALESCE(a.inicia_el, a.vence_el) DESC LIMIT ?", [$id, $limite])->fetchAll();
 }
 
+/**
+ * WHERE + parámetros para el listado de actividades.
+ *
+ * Filtros: tipo, propietario_id, estado, q (asunto o descripción), vista
+ * (hoy | semana | vencidas | completadas; cualquier otro valor = pendientes)
+ * y vencidas=1 (equivale a vista=vencidas). Todo va como parámetro.
+ * Las comparaciones con NOW()/CURDATE() usan la hora de MySQL, que db.php
+ * alinea con el huso de PHP al conectar.
+ *
+ * @return array{0:string,1:array}
+ */
 function actividades_where(array $f): array
 {
     $w = ['a.eliminado_en IS NULL'];
@@ -74,6 +123,13 @@ function actividades_where(array $f): array
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
+/**
+ * Lista paginada de actividades: las que tienen fecha primero, de la más
+ * próxima (o la más vencida) a la más lejana; las sin fecha al final. Vale
+ * el mismo orden para «Completadas», que entonces arranca por las más viejas.
+ *
+ * @return array rows (con propietario, contacto y cuenta), total y los datos de paginar()
+ */
 function actividades_listar(array $f): array
 {
     [$where, $p] = actividades_where($f);
@@ -90,7 +146,25 @@ function actividades_listar(array $f): array
     return $pg + ['rows' => $rows, 'total' => $total];
 }
 
-/** Alta o edición. Devuelve el id. */
+/**
+ * Alta o edición. Devuelve el id.
+ *
+ * $d trae los campos del formulario, con las fechas ya en 'Y-m-d H:i:s'
+ * (la página convierte el formato de datetime-local). Un tipo desconocido se
+ * guarda como 'tarea'. Según el tipo se descartan las fechas que no
+ * corresponden: la tarea pierde inicio y fin; la llamada y la reunión, el
+ * vencimiento.
+ *
+ * No valida que existan los ids vinculados ni el propietario, ni que estado
+ * y prioridad sean de sus listas, ni el formato de las fechas: lo que no
+ * cuadra hace fallar la consulta y sube como excepción.
+ *
+ * Efectos: escribe `actividades` y deja la auditoría ('actividad.crear' o
+ * 'actividad.editar'). En un alta también deja una marca «agendada» en la
+ * línea de tiempo de cada registro vinculado; una edición no.
+ *
+ * @param int|null $id null para un alta
+ */
 function actividad_guardar(array $d, ?int $id = null): int
 {
     $tipo = in_array($d['tipo'] ?? '', array_keys(tipos_actividad()), true) ? $d['tipo'] : 'tarea';
@@ -128,6 +202,9 @@ function actividad_guardar(array $d, ?int $id = null): int
     // columna que miran los listados, el panel y el contador de vencidas.
     // Elegir «Completada» en el formulario cambiaba sólo el texto del estado y
     // la actividad seguía apareciendo entre las pendientes.
+    // Ojo: editar una actividad que ya estaba completada (y se deja así)
+    // vuelve a poner `completada_en` en el momento de la edición; la fecha
+    // real en que se completó se pierde.
     if ($campos['estado'] === 'Completada') {
         $campos['completada_en'] = date('Y-m-d H:i:s');
     } elseif ($id) {
@@ -160,7 +237,22 @@ function actividad_guardar(array $d, ?int $id = null): int
     return $nuevo;
 }
 
-/** Marca una actividad como completada (o la reabre). */
+/**
+ * Marca una actividad como completada (o la reabre).
+ *
+ * Completar pone `completada_en` = ahora y estado «Completada»; reabrir
+ * limpia `completada_en` y deja el estado en «En curso», sea cual fuera el
+ * anterior. El resultado sólo se pisa si viene uno (COALESCE).
+ *
+ * Efectos: además de la auditoría de la actividad, deja una marca en la línea
+ * de tiempo de cada registro vinculado y actualiza `ultima_actividad_en` del
+ * contacto y del posible cliente. Eso último y la marca «completada» se
+ * hacen TAMBIÉN al reabrir: el bloque no mira $completar.
+ *
+ * No comprueba que la actividad exista ni que no esté en la papelera: el
+ * UPDATE corre igual y, si actividad_get() no la encuentra, sólo queda la
+ * auditoría con el asunto vacío.
+ */
 function actividad_completar(int $id, bool $completar = true, ?string $resultado = null): void
 {
     q('UPDATE actividades SET completada_en = ?, estado = ?, resultado = COALESCE(?, resultado) WHERE id = ?',
@@ -192,7 +284,17 @@ function actividad_completar(int $id, bool $completar = true, ?string $resultado
     }
 }
 
-/** Etiqueta y clase de una actividad según su vencimiento. */
+/**
+ * Etiqueta y clase de una actividad según su vencimiento.
+ *
+ *   · sin fecha → «—», neutral;
+ *   · completada → la fecha, verde;
+ *   · vencida → la fecha, rojo;
+ *   · hoy → «Hoy HH:MM», amarillo;
+ *   · más adelante → la fecha, azul.
+ *
+ * @return array{0:string,1:string} texto y clase CSS del distintivo
+ */
 function actividad_vencimiento(array $a): array
 {
     $cuando = ($a['vence_el'] ?? null) ?: $a['inicia_el'];

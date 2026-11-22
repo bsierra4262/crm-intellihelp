@@ -2,6 +2,11 @@
 /**
  * Archivos adjuntos de un registro.
  *
+ * Se incluye desde las fichas, que definen $adjEntidad y $adjId; lee la
+ * lista con adjuntos_de(). Subir y borrar van los dos a adjunto-subir
+ * (accion=borrar para borrar). La descarga va por la ruta adjunto?id=.
+ * El borrado elimina el archivo del disco en el acto: no hay papelera.
+ *
  * La tabla y el comentario que la menciona existían desde el principio, pero no
  * había ninguna pantalla para subir nada: era un cajón vacío al que nadie podía
  * llegar. Los archivos van fuera del web root y se descargan por una ruta que

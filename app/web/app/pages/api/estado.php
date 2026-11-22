@@ -4,6 +4,19 @@ declare(strict_types=1);
 // ============================================================
 //  API de sólo lectura para otros sistemas (ITHOS / Jarvis).
 //  Autenticación por header X-API-Key o Authorization: Bearer.
+//
+//  Ruta: GET api/estado (pública en index.php: no usa sesión, la autentica
+//  la clave). Devuelve contadores agregados del CRM, nunca datos de personas.
+//  No pertenece a ningún módulo: cuenta también lo de módulos apagados.
+//
+//  A diferencia de la API v1 (app/api.php) no hay firma, ni límite de tasa,
+//  ni control de método: alcanza con la clave porque lo único que se expone
+//  son números. Cada pedido, aceptado o rechazado, deja una línea con
+//  log_api(). Responde con json_out() (helpers.php), que termina el proceso.
+//
+//  Tablas: lee api_tokens (y suma `usos`), contactos, cuentas,
+//  posibles_clientes, negocios/etapas, actividades, campanas, envios,
+//  agenda_reservas y el ajuste `cron_ultima_corrida`.
 // ============================================================
 
 $clave = $_SERVER['HTTP_X_API_KEY'] ?? '';
@@ -11,6 +24,7 @@ if ($clave === '' && preg_match('/Bearer\s+(\S+)/i', (string)($_SERVER['HTTP_AUT
     $clave = $m[1];
 }
 
+// Se busca por el SHA-256: en la base nunca está la clave en claro.
 // Sólo las claves de lectura (y la root). La de la web es de escritura y no
 // sirve sin su secreto: si se filtrara sola, con ella no se tiene que poder
 // leer nada, tampoco estos contadores.

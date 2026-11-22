@@ -18,15 +18,38 @@ declare(strict_types=1);
 //
 //  Uso:  php test/vivo_test.php
 //  Necesita la base y salir a la web (usa la configuración desplegada).
+//
+//  Contra qué instalación: carga el bootstrap de CRM_WEB y, si no está
+//  definida, el de PRODUCCIÓN (public_html/crm); los pedidos HTTP van a la
+//  URL canónica de esa configuración. Se corre en el servidor, porque lee y
+//  reescribe a mano el archivo de sesión de PHP (tiene que ser el mismo
+//  directorio de sesiones que usa el sitio). No lo lanza `deploy.py test`.
+//
+//  ESCRIBE EN LA BASE de esa instalación:
+//    · crea el usuario administrador vivo.test@intellihelp.tech y una sesión
+//      real para él (archivo sess_<id>);
+//    · le cambia el nombre al primer contacto vivo por «Zzz<número>» y
+//      después se lo devuelve.
+//  Al final borra el usuario y el archivo de sesión. No hay try/finally: si
+//  el proceso se corta en el medio (curl sin respuesta, error fatal), quedan
+//  el usuario administrador y, según dónde se corte, el contacto renombrado.
+//
+//  Necesita la extensión curl. Salida: 0 todo bien, 1 alguna falla.
 // ============================================================
 
 $RAIZ = getenv('CRM_WEB') ?: '/home/u566451014/domains/intellihelp.tech/public_html/crm';
 require $RAIZ . '/app/bootstrap.php';
 
+// URL base para los pedidos: la canónica de la instalación cargada.
 $BASE = rtrim((string)($GLOBALS['CONFIG']['app']['canonical'] ?? ''), '/');
 if ($BASE === '') { fwrite(STDERR, "Falta la URL canónica en la configuración.\n"); exit(1); }
 
+// Contadores globales de comprobaciones correctas y fallidas.
 $ok = 0; $mal = 0;
+/**
+ * Registra una comprobación e imprime [OK] o [XX]; si falla y hay $detalle,
+ * lo imprime debajo.
+ */
 function ok(string $q, bool $bien, string $detalle = ''): void
 {
     global $ok, $mal;
@@ -46,6 +69,9 @@ if (!$u) {
     $uid = (int)$u['id'];
 }
 
+// Se abre una sesión de PHP con el mismo nombre de cookie que el sitio
+// (ith_crm), se escribe como la escribiría el login y se cierra para que el
+// archivo quede en disco. Los pedidos HTTP mandan esa cookie.
 session_name('ith_crm');
 session_start();
 $sid  = session_id();
@@ -53,6 +79,8 @@ $_SESSION = ['uid' => $uid, 'login_en' => time(), 'ultima_actividad' => time(),
              '_csrf' => str_repeat('b', 64)];
 session_write_close();
 
+// Ruta del archivo de sesión: se lee y se reescribe a mano más abajo para
+// atrasar la marca de actividad sin pasar por PHP.
 $archivoSesion = rtrim(session_save_path() ?: sys_get_temp_dir(), '/') . '/sess_' . $sid;
 
 /** Lee `ultima_actividad` del archivo de sesión, sin pasar por PHP. */
@@ -82,6 +110,7 @@ function pedir(string $url, array $cab = []): array
     return [$cod, substr($r, 0, $corte), substr($r, $corte)];
 }
 
+// ---- 1. El refresco (?__vivo=1) trae sólo el cuerpo, con su huella ----
 echo "== El refresco trae el cuerpo, no la pantalla entera ==\n";
 
 $url  = $BASE . '/contactos';
@@ -117,6 +146,7 @@ ok('los enlaces de la pantalla no arrastran los parámetros del refresco',
    !str_contains($b2, '__vivo') && !str_contains(substr($b2, 60), '__h='),
    'los enlaces quedarían pidiendo el refresco en vez de la pantalla');
 
+// ---- 2. Con la huella actual (&__h=) y sin cambios: 204 vacío ----
 echo "\n== Si no cambió nada, no viaja nada ==\n";
 
 [$c3, $h3, $b3] = pedir($url . '?__vivo=1&__h=' . $huella);
@@ -124,6 +154,7 @@ ok('la segunda consulta seguida contesta «sin cambios»', $c3 === 204, "código
 ok('y viene vacía: la pantalla no se toca, no parpadea ni te mueve del lugar',
    trim($b3) === '', strlen($b3) . ' bytes');
 
+// ---- 3. Un dato cambiado por la base aparece en el refresco ----
 echo "\n== Cuando cambia un dato, el refresco lo trae ==\n";
 
 // Se cambia el nombre de un contacto por la base, como si lo hubiera editado
@@ -152,6 +183,7 @@ if (!$ct) {
     q('UPDATE contactos SET nombre = ? WHERE id = ?', [$original, (int)$ct['id']]);
 }
 
+// ---- 4. El refresco no cuenta como actividad (cierre por inactividad) ----
 echo "\n== El refresco no mantiene viva una sesión olvidada ==\n";
 
 // Se atrasa la marca a mano y se comprueba quién la mueve y quién no.
@@ -171,6 +203,9 @@ $trasNormal = marca_sesion($archivoSesion);
 ok('y cuando entrás de verdad a la pantalla, sí se actualiza',
    $trasNormal > $viejo, 'la marca quedó en ' . $trasNormal);
 
+// ---- 5. El refresco no deja una línea «ver.contactos» en la bitácora ----
+// Cuenta todas las filas de esa acción, de cualquier usuario: si alguien
+// entra a Contactos justo en ese momento, la comprobación falla sin culpa.
 echo "\n== La bitácora no se llena de ruido ==\n";
 
 $antes = (int) qv("SELECT COUNT(*) FROM actividad WHERE accion = 'ver.contactos'");
@@ -180,10 +215,13 @@ $despues = (int) qv("SELECT COUNT(*) FROM actividad WHERE accion = 'ver.contacto
 ok('dos refrescos no dejan rastro: si no, taparían los movimientos reales',
    $despues === $antes, "la bitácora pasó de $antes a $despues");
 
+// Se borra el usuario de prueba y su archivo de sesión. Las filas que haya
+// dejado en la bitácora (la pantalla normal pedida en el paso 4) quedan.
 // Limpieza.
 q('DELETE FROM usuarios WHERE email = ?', ['vivo.test@intellihelp.tech']);
 @unlink($archivoSesion);
 
+// ---- Resumen y código de salida (0 = todo bien, 1 = alguna falla) ----
 $total = $ok + $mal;
 echo "\n  $total comprobaciones · $ok correctas · $mal fallidas\n";
 exit($mal > 0 ? 1 : 0);

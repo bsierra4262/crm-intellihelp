@@ -1,5 +1,17 @@
 <?php
 /** @var array $tipos @var bool $conectado @var array $proximas @var array $feriados */
+// ============================================================
+//  Vista de la pantalla «Agenda» (la arma pages/agenda.php).
+//
+//  Recibe:
+//    · $tipos ...... tipos de reunión de quien entró, activos y ocultos
+//    · $conectado .. si su Google está conectado (google_conectado())
+//    · $proximas ... sus próximas 10 reservas confirmadas, con `tipo`
+//    · $feriados ... feriados de los próximos 60 días, por fecha (Y-m-d)
+//
+//  El enlace público de cada tipo se arma con la parte del correo antes de
+//  la arroba, igual que lo busca agenda_tipo_por_slug().
+// ============================================================
 $u = auth_user();
 $usuarioSlug = explode('@', (string)$u['email'])[0];
 ?>
@@ -23,6 +35,7 @@ $usuarioSlug = explode('@', (string)$u['email'])[0];
     </div>
 </div>
 <?php include APP . '/views/_aviso_gcal.php'; ?>
+<?php // Aviso según Google: falta conectar (amarillo) o conectado y respondiendo (verde). ?>
 
 
 <?php if (!$conectado): ?>
@@ -73,6 +86,7 @@ $usuarioSlug = explode('@', (string)$u['email'])[0];
     </div>
 </div>
 
+<?php // Próximas reuniones; la marca «Feriado» compara la fecha de la instalación. ?>
 <div class="card">
     <div class="card-head"><h2>Próximas reuniones</h2>
         <a class="btn btn-ghost btn-sm" href="<?= e(url('reservas')) ?>">Ver todas</a>

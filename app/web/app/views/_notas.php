@@ -2,6 +2,16 @@
 /**
  * Panel de notas de un registro. Espera $notas y, en el scope, la entidad y el
  * id (se deducen de la ruta actual para no repetirlos en cada vista).
+ *
+ * Se incluye desde las fichas (contacto-ver, cuenta-ver, posible-ver,
+ * negocio-ver); $notas lo arma la página con notas_de(). En otra ruta no se
+ * muestra el formulario de alta (entidad vacía). El formulario va a
+ * nota-guardar; el botón de borrar, a nota-eliminar.
+ *
+ * El botón de borrar aparece en todas las notas, aunque sólo el autor o un
+ * administrador pueden borrarlas (lo controla el servidor). El aviso dice
+ * que el borrado es definitivo; en la base es lógico (eliminado_en), pero
+ * no hay pantalla para recuperarlo.
  */
 /** @var array $notas */
 $ent = match (current_route()) {

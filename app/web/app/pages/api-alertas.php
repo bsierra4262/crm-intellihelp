@@ -1,5 +1,13 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Ruta: GET /api-alertas (requiere sesión). JSON para la campana de la barra.
+//
+//  Responde {ok, sin_leer, ultimas: [hasta 6 sin leer]}, con la url ya
+//  armada con BASE_PATH. Sin caché, porque se consulta cada pocos segundos.
+//  Mismas reglas de habilitación que /alertas.
+// ============================================================
 require_login();
 
 // Cuántas alertas sin leer, para la campana de la barra. Lo consulta el mismo

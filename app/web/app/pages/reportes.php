@@ -1,7 +1,21 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Ruta: GET /reportes?periodo=AAAA-MM (requiere sesión; módulo Reportes).
+//
+//  Arma los cuatro bloques de la pantalla:
+//    · pronóstico del mes por vendedor (pronostico() de negocios.php);
+//    · embudo por etapa, con todos los negocios no eliminados (sin período);
+//    · fuentes de los negocios ganados (histórico, sin filtrar por período);
+//    · rendimiento de las 10 campañas con más envíos (histórico);
+//    · actividades completadas en el período, por usuario activo.
+//  Sólo el pronóstico y las actividades dependen del período elegido.
+//  Vista: views/reportes.php.
+// ============================================================
 require_login();
 
+// El período se valida con formato estricto; si no, el mes actual.
 $periodo = preg_match('/^\d{4}-\d{2}$/', (string)($_GET['periodo'] ?? '')) ? $_GET['periodo'] : date('Y-m');
 $desde   = $periodo . '-01';
 $hasta   = date('Y-m-t', strtotime($desde));

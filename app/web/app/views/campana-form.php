@@ -1,6 +1,22 @@
 <?php
+// ============================================================
+//  Vista: formulario de alta y edición de una campaña.
+//  La pinta pages/campana-form.php.
+//  Variables:
+//    $c           la campaña (o los valores por defecto si es nueva, o lo
+//                 que se escribió si volvió con errores).
+//    $id          id de la campaña; 0 si es nueva.
+//    $errores     campo => mensaje.
+//    $usuarios    activos, para elegir responsable.
+//    $listas      listas_listar(); $plantillas sólo las activas.
+//    $cuentas     cuentas de correo activas, con lo enviado hoy.
+//    $categorias  segmentos.
+//  Los mínimos y máximos de los campos numéricos son sólo del navegador: el
+//  servidor (campana_guardar) aplica pisos propios y no tiene techo.
+// ============================================================
 /** @var ?array $c @var int $id @var array $errores @var array $usuarios @var array $listas
  *  @var array $plantillas @var array $cuentas @var array $categorias */
+// Atajo: valor del campo ya escapado para meterlo en un atributo.
 $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
 ?>
 <div class="page-head">
@@ -147,6 +163,7 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <input type="number" name="limite_diario" value="<?= $v('limite_diario', '300') ?>" min="1" max="5000">
                 <i class="hint">Tope de correos por día de esta campaña. Al llegar, se frena y sigue mañana por donde quedó.</i>
             </label>
+            <?php // La fecha se interpreta en el huso del servidor (config app.timezone), no en el del navegador. ?>
             <label class="fld"><span>Programar arranque</span>
                 <input type="datetime-local" name="programada_para"
                        value="<?= e($c['programada_para'] ?? '' ? date('Y-m-d\TH:i', strtotime((string)$c['programada_para'])) : '') ?>">

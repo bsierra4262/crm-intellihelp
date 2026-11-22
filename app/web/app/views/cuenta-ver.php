@@ -1,6 +1,30 @@
 <?php
+// ============================================================
+//  Vista: ficha de una empresa.
+//
+//  La dibuja pages/cuenta-ver.php. Arriba, las tarjetas de resumen
+//  (contactos, embudo abierto, ganado, alta); a la izquierda los datos, los
+//  contactos y los negocios; a la derecha etiquetas, adjuntos, notas,
+//  actividades e historial.
+//
+//  Variables que recibe:
+//    $c            array  cuenta_get() (trae `propietario`)
+//    $contactos    array  contactos de la empresa, sin eliminar
+//    $negocios     array  negocios con etapa (`etapa_tipo`: abierta/ganada/perdida)
+//    $notas        array  notas_de('cuenta', id)
+//    $actividades  array  actividades_de('cuenta_id', id)
+//    $linea        array  timeline('cuenta', id): sólo auditoría
+//    $verNegocios, $verActividades, $verAdjuntos  bool  módulos encendidos
+//
+//  Datos que la ficha no muestra aunque se cargan en el formulario: el
+//  código postal y las notas (`descripcion`).
+// ============================================================
 /** @var array $c @var array $contactos @var array $negocios @var array $notas
  *  @var array $actividades @var array $linea */
+// Totales de las tarjetas. Se suman los importes tal cual, sin mirar la
+// moneda de cada negocio, y se muestran en pesos: un negocio en dólares
+// cuenta como si fueran pesos. Las tarjetas salen aunque el módulo de
+// negocios esté apagado.
 $abierto = 0.0; $ganado = 0.0;
 foreach ($negocios as $n) {
     if ($n['etapa_tipo'] === 'abierta') { $abierto += (float)$n['importe']; }
@@ -16,6 +40,7 @@ foreach ($negocios as $n) {
         </div>
     </div>
     <div class="head-actions">
+        <?php // contacto-form no lee `cuenta_id` de la dirección: la empresa no llega preseleccionada. ?>
         <a class="btn btn-ghost" href="<?= e(url('contacto-form?cuenta_id=' . (int)$c['id'])) ?>"><?= icon('contactos', 16) ?>Nuevo contacto</a>
         <?php if ($verNegocios): ?>
             <a class="btn btn-ghost" href="<?= e(url('negocio-form?cuenta_id=' . (int)$c['id'])) ?>"><?= icon('negocios', 16) ?>Nuevo negocio</a>
@@ -120,6 +145,7 @@ foreach ($negocios as $n) {
 
     <div class="col-stack">
 
+<?php // Los parciales toman la entidad y el id de estas variables del ámbito de la vista. ?>
 <?php $etqEntidad = 'cuenta'; $etqId = (int)$c['id'];
       include APP . '/views/_etiquetas.php'; ?>
         <?php if ($verAdjuntos): $adjEntidad = 'cuenta'; $adjId = (int)$c['id'];

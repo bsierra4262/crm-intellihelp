@@ -1,5 +1,23 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Ruta: GET /dashboard (requiere sesión). El panel de inicio.
+//
+//  Muestra contadores (contactos, empresas, pendientes de aprobar, posibles,
+//  embudo, ganado del mes, actividades vencidas), la agenda del día y las
+//  campañas en curso. Sólo consulta lo de los módulos encendidos.
+//
+//  Parámetros GET:
+//    · ambito=mio  filtra por propietario_id = usuario (por defecto, todo);
+//    · vista=separado|unificado  guarda la preferencia en el ajuste
+//      `panel_vista_<id de usuario>` de app_settings y redirige (sí, un GET
+//      que escribe: es sólo una preferencia visual).
+//
+//  El filtro de propietario se pega al SQL como texto, pero es un entero
+//  casteado del id de la sesión, nunca un dato del usuario.
+//  Vista: views/dashboard.php (con zonas data-vivo que se refrescan solas).
+// ============================================================
 require_login();
 
 $uid = current_user_id();

@@ -2,9 +2,17 @@
 declare(strict_types=1);
 require_login();
 
-// Sirve un archivo adjunto. Los archivos están fuera del web root a propósito:
-// si estuvieran adentro, cualquiera con la dirección podría bajarse un
-// presupuesto sin tener sesión.
+// ============================================================
+//  Ruta: GET /adjunto?id=N (requiere sesión; módulo Adjuntos).
+//
+//  Sirve un archivo adjunto. Los archivos están fuera del web root a
+//  propósito: si estuvieran adentro, cualquiera con la dirección podría
+//  bajarse un presupuesto sin tener sesión.
+//
+//  Cualquier usuario con sesión puede bajar cualquier adjunto por su id: no
+//  se mira de qué registro es ni si ese registro está en la papelera.
+//  Cada descarga queda en la auditoría.
+// ============================================================
 
 $a = q1('SELECT * FROM adjuntos WHERE id = ? AND eliminado_en IS NULL', [(int)($_GET['id'] ?? 0)]);
 if (!$a) {
@@ -29,6 +37,8 @@ log_app($a['entidad'] . '.adjunto_ver', ['entidad' => $a['entidad'],
 // declarado por quien subió, un archivo HTML se ejecutaría en el navegador con
 // la sesión de quien lo abre.
 header('Content-Type: application/octet-stream');
+// Se quitan las comillas del nombre para que no corten la cabecera. Un nombre
+// con acentos va tal cual (sin la variante filename* de RFC 5987).
 header('Content-Disposition: attachment; filename="' . str_replace('"', '', (string)$a['nombre']) . '"');
 header('Content-Length: ' . filesize($ruta));
 header('X-Content-Type-Options: nosniff');

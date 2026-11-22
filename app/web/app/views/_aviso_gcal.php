@@ -6,14 +6,25 @@
  * deshabilitada en el proyecto de Google Cloud). Sin este aviso la agenda
  * pública seguiría confirmando reservas que no llegan al calendario y el
  * error quedaría sólo en la auditoría. Indica el paso para resolverlo.
+ *
+ * Se incluye (include) desde views/dashboard.php, views/agenda.php y
+ * views/ajustes.php; no recibe variables, lee la falla con
+ * gcal_falla_pendiente() (ajuste `gcal_falla`, gcal.php). Si no hay falla
+ * termina con `return` y no pinta nada.
+ *
+ * La falla guardada es de UN vendedor (`usuario_id`), pero el aviso lo ve
+ * cualquiera que abra esas pantallas, y el botón «Reconectar» conecta la
+ * cuenta de quien lo toca, no necesariamente la que falló.
  */
 $gcalFalla = gcal_falla_pendiente();
 if (!$gcalFalla) { return; }
 
 // La causa más común no es que Google esté caído, sino que esta cuenta perdió
 // la conexión: pasa al cerrar sesión, al borrar la caché o después de reiniciar
-// la instalación de pruebas. Se detecta por el 401 y por el texto que devuelve
-// Google, y tiene arreglo de un clic: reconectar. Un aviso que sólo dice que
+// la instalación de pruebas. Se detecta sólo por el TEXTO del mensaje guardado
+// (el código HTTP, `codigo`, no se mira): el que arma gcal_api() cuando no hay
+// token, o un «401»/«invalid_grant» escrito dentro del mensaje. Tiene arreglo
+// de un clic: reconectar. Un aviso que sólo dice que
 // algo anda mal, sin decir cómo salir, obliga a preguntar.
 // Este archivo se incluye dentro de otra vista y comparte su ámbito: todas sus
 // variables llevan el prefijo $gcal para no pisar las de la vista que lo incluye.
@@ -31,6 +42,7 @@ $gcalDesconectado = str_contains($gcalMsg, 'no tiene su cuenta de google conecta
         <br>
         La causa es que <strong>la API de Google Calendar está apagada</strong> en el proyecto
         de Google Cloud. Se prende una sola vez:
+        <?php // El enlace sale del mensaje de Google, pero sólo si apunta a console.cloud/developers.google.com (gcal_falla_pendiente). ?>
         <?php if (!empty($gcalFalla['enlace'])): ?>
             <a href="<?= e($gcalFalla['enlace']) ?>" target="_blank" rel="noopener">abrí este enlace</a>
             y tocá <em>Habilitar</em>. Tarda unos minutos en tomar efecto.

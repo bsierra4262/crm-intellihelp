@@ -1,3 +1,8 @@
+# ============================================================
+#  Carpeta app/: código de la aplicación (bootstrap, módulos, pages, views).
+# ============================================================
 # El código de la aplicación NO se sirve por HTTP: sólo lo incluye index.php.
 # Sin esto, /app/bootstrap.php o /app/views/layout.php responden directo.
+# Como el front controller incluye estos archivos desde el disco, negarlos
+# por HTTP no afecta en nada al funcionamiento normal.
 Require all denied

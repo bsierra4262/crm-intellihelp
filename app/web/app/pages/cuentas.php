@@ -1,5 +1,22 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Página `cuentas`: el listado de empresas con filtros, paginación,
+//  exportación a CSV y aprobación masiva de fichas pendientes.
+//
+//  GET   dibuja views/cuentas.php con cuentas_listar() (crm.php).
+//  GET ?exportar=1  baja la misma consulta, sin paginar, como CSV.
+//  POST  aprueba (o devuelve a pendientes) las marcadas con
+//        aprobar_registros() y vuelve con los mismos filtros.
+//
+//  Tablas: lee `cuentas`, `usuarios` (y cuenta `contactos` por empresa);
+//  el POST escribe `cuentas.aprobado_en/aprobado_por`.
+//  Módulo: núcleo (Empresas).
+//  Permisos: cualquier usuario con sesión aprueba y exporta; sin control por
+//  rol ni por propietario.
+// ============================================================
+
 require_login();
 
 // Aprobar varias de una. Es lo que vuelve manejable normalizar una base
@@ -17,9 +34,12 @@ if (is_post()) {
     } else {
         flash('No marcaste ninguna ficha.', 'info');
     }
+    // Vuelve a la misma vista: los filtros siguen en la query de la dirección.
     redirect('cuentas' . query_con([]));
 }
 
+// Filtros tal como vienen en la dirección; cuentas_where() los pasa como
+// parámetros, nunca concatenados.
 $f = [
     'q'              => trim((string)($_GET['q'] ?? '')),
     'propietario_id' => $_GET['propietario_id'] ?? '',
@@ -30,6 +50,8 @@ $f = [
     'page'           => $_GET['page'] ?? 1,
 ];
 
+// Exportación: la misma consulta sin paginar. exportar_csv() termina la
+// ejecución. `condicion_iva`, `empleados` y `linkedin` no salen en el archivo.
 if (($_GET['exportar'] ?? '') === '1') {
     [$where, $p] = cuentas_where($f);
     $rows = q("SELECT c.*, u.nombre AS propietario FROM cuentas c

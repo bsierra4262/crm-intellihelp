@@ -3,15 +3,42 @@ declare(strict_types=1);
 
 // ============================================================
 //  Helpers generales
+//
+//  Funciones sin estado de negocio que usa todo el sistema:
+//    · escape de salida (e) y armado de direcciones (url, url_abs, redirect);
+//    · ruta y método del pedido; IP del visitante;
+//    · CSRF y mensajes flash (los dos viven en la sesión);
+//    · render de vistas con layout, refresco automático (vivo) y JSON;
+//    · exportación CSV a prueba de fórmulas;
+//    · formato de importes, fechas, teléfonos, CUIT y tamaños;
+//    · paginación.
+//
+//  Lo incluye bootstrap.php. No lee ni escribe tablas, salvo de forma
+//  indirecta a través de log_error en render().
+//
+//  Regla de escape: toda salida a HTML pasa por e(), en texto y en atributos.
+//  Las funciones que devuelven HTML (csrf_field, dato, icon en icons.php)
+//  ya escapan lo que reciben.
 // ============================================================
 
-/** Escapa para HTML. */
+/**
+ * Escapa para HTML (texto y atributos entre comillas simples o dobles).
+ *
+ * null se imprime vacío. ENT_SUBSTITUTE reemplaza el UTF-8 inválido en vez
+ * de devolver una cadena vacía. No sirve para meter datos dentro de un
+ * <script> ni de un style: ahí va json_encode o una lista blanca.
+ */
 function e($v): string
 {
     return htmlspecialchars((string)($v ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-/** Construye una URL interna de la app. */
+/**
+ * Construye una URL interna de la app, relativa al dominio.
+ *
+ * url('contacto-ver?id=3') da '/crm/contacto-ver?id=3'. No escapa: en un
+ * atributo HTML hay que envolverla en e().
+ */
 function url(string $path = ''): string
 {
     return (BASE_PATH ?: '') . '/' . ltrim($path, '/');
@@ -32,7 +59,12 @@ function url_abs(string $path = ''): string
     return $base . '/' . ltrim($path, '/');
 }
 
-/** Ruta actual (desde el front controller). */
+/**
+ * Ruta actual (desde el front controller), sin barras al principio ni al final.
+ *
+ * Sale de `?r=`, que arma el .htaccess; PATH_INFO queda de respaldo para
+ * servidores sin mod_rewrite (index.php/contactos).
+ */
 function current_route(): string
 {
     $r = $_GET['r'] ?? '';
@@ -42,7 +74,13 @@ function current_route(): string
     return trim((string)$r, '/');
 }
 
-/** Redirige a una ruta interna y corta la ejecución. */
+/**
+ * Redirige a una ruta interna y corta la ejecución (exit).
+ *
+ * Siempre arma la dirección con url(), así que queda dentro de la aplicación
+ * mientras $path no traiga una barra extra al principio. Quien pase un valor
+ * que viene del usuario tiene que filtrarlo antes (ver registro-eliminar.php).
+ */
 function redirect(string $path): void
 {
     header('Location: ' . url($path));
@@ -55,6 +93,7 @@ function method(): string
     return strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 }
 
+/** ¿El pedido es un POST? Los formularios que modifican datos usan POST + CSRF. */
 function is_post(): bool
 {
     return method() === 'POST';
@@ -77,6 +116,11 @@ function finish_request(): void
 /**
  * IP real del cliente. En hosting compartido REMOTE_ADDR suele ser el proxy;
  * el cliente real viaja en X-Forwarded-For / CF-Connecting-IP.
+ *
+ * Ojo: le cree a cualquier cabecera, que el visitante puede inventar. Para
+ * todo lo que decide algo (límites, auditoría) se usa ip_confiable().
+ * Todavía la usan pages/baja.php, pages/px.php y campanas.php para guardar
+ * la IP de visitantes sin sesión.
  */
 function client_ip(): ?string
 {
@@ -170,7 +214,12 @@ function texto_sin_enlaces(string $s): bool
 }
 
 // ---- CSRF ----
+// Un token por sesión (no por formulario): se genera la primera vez que se
+// pide y dura hasta que la sesión se cierra. Viaja en el campo oculto `_csrf`
+// de cada formulario POST, y en `window.CSRF` / <meta name="csrf"> para los
+// pedidos que arma JavaScript (layout.php).
 
+/** El token CSRF de la sesión; lo crea (64 hex) si todavía no existe. */
 function csrf_token(): string
 {
     if (empty($_SESSION['_csrf'])) {
@@ -179,11 +228,20 @@ function csrf_token(): string
     return $_SESSION['_csrf'];
 }
 
+/** Campo oculto con el token CSRF, listo para imprimir dentro de un <form>. */
 function csrf_field(): string
 {
     return '<input type="hidden" name="_csrf" value="' . e(csrf_token()) . '">';
 }
 
+/**
+ * Corta el pedido con 419 si el token del POST no coincide con el de la
+ * sesión (exit). hash_equals compara en tiempo constante.
+ *
+ * Sólo mira $_POST: no sirve para pedidos JSON que manden el token en una
+ * cabecera. Si la sesión venció entre que se abrió el formulario y se
+ * envió, también falla (la sesión nueva tiene otro token).
+ */
 function verify_csrf(): void
 {
     $ok = isset($_POST['_csrf'], $_SESSION['_csrf'])
@@ -195,12 +253,21 @@ function verify_csrf(): void
 }
 
 // ---- Mensajes flash ----
+// Avisos de una sola vez («Nota agregada.») que sobreviven a la redirección
+// posterior a un POST: se guardan en la sesión y los imprime el layout (o la
+// vista del login) en la pantalla siguiente.
 
+/**
+ * Encola un aviso para la próxima pantalla.
+ *
+ * @param string $tipo info | success | error (se usa como clase CSS flash-<tipo>)
+ */
 function flash(string $msg, string $tipo = 'info'): void
 {
     $_SESSION['_flash'][] = ['msg' => $msg, 'type' => $tipo];
 }
 
+/** Devuelve los avisos pendientes y los borra de la sesión. */
 function take_flash(): array
 {
     $f = $_SESSION['_flash'] ?? [];
@@ -228,8 +295,18 @@ function take_flash(): array
  */
 final class Vista
 {
+    /**
+     * @param string $ruta  archivo de la vista (ruta absoluta)
+     * @param array  $datos variables que la vista va a ver con su nombre
+     */
     public function __construct(private string $ruta, private array $datos) {}
 
+    /**
+     * Ejecuta la vista y devuelve lo que imprimió.
+     *
+     * @throws \Throwable cualquier error de la vista, después de descartar
+     *                    la salida parcial
+     */
     public function html(): string
     {
         extract($this->datos, EXTR_OVERWRITE);
@@ -265,9 +342,13 @@ function vivo_pedido(): bool
  *
  * Casi todas las consultas devuelven exactamente lo mismo que la anterior —no
  * pasó nada en esos ocho segundos—. Con la huella del contenido, esas
- * respuestas viajan vacías (304) y el navegador ni se entera: no repinta, no
- * pierde el lugar donde estabas, no parpadea. Sólo cuando algo cambió de
- * verdad se manda el HTML.
+ * respuestas viajan vacías (204, sin contenido) y el navegador ni se entera:
+ * no repinta, no pierde el lugar donde estabas, no parpadea. Sólo cuando algo
+ * cambió de verdad se manda el HTML.
+ *
+ * La huella (md5 del cuerpo) va en la primera línea, dentro de un comentario
+ * HTML «vivo:huella»; vivo.js la lee y la devuelve en `__h` en el pedido
+ * siguiente. Termina siempre con exit.
  */
 function vivo_responder(string $cuerpo): void
 {
@@ -294,7 +375,17 @@ function vivo_responder(string $cuerpo): void
 }
 
 /**
- * Dibuja una vista dentro del layout.
+ * Dibuja una vista dentro del layout y la imprime.
+ *
+ * @param string $vista  nombre del archivo en app/views/, sin la extensión
+ * @param array  $vars   variables para la vista; `bodyClass`, `extraHead` y
+ *                       `extraFoot` además se pasan al layout
+ * @param string $titulo título de la pestaña y de la barra (por defecto, el
+ *                       nombre de la app)
+ *
+ * En un refresco automático (`__vivo`) no vuelve: responde sólo el cuerpo y
+ * hace exit. Si la vista falla, se registra el error y se dibuja la pantalla
+ * de error 500 dentro del layout.
  *
  * La vista y el layout se ejecutan en ámbitos separados: así una variable de la
  * vista no puede pisar lo que el layout necesita, ni al revés.
@@ -341,7 +432,12 @@ function render(string $vista, array $vars = [], string $titulo = ''): void
     echo (new Vista(APP . '/views/layout.php', $marco))->html();
 }
 
-/** Responde JSON y termina. */
+/**
+ * Responde JSON y termina (exit).
+ *
+ * @param mixed $datos  lo que se serializa (sin escapar los acentos)
+ * @param int   $codigo código HTTP
+ */
 function json_out($datos, int $codigo = 200): void
 {
     http_response_code($codigo);
@@ -350,15 +446,6 @@ function json_out($datos, int $codigo = 200): void
     exit;
 }
 
-/**
- * Descarga un listado como CSV y termina la ejecución.
- *
- * Va con BOM UTF-8 y separador ';' porque el equipo abre estos archivos con
- * Excel en español: sin eso, los acentos salen rotos y todo cae en una columna.
- *
- * @param array<int,array<string,mixed>> $filas
- * @param array<string,string>           $columnas  clave del array => encabezado
- */
 /**
  * Una celda de CSV que Excel o LibreOffice no puedan tomar como fórmula.
  *
@@ -376,6 +463,20 @@ function csv_celda(string $v): string
     return "'" . $v;
 }
 
+/**
+ * Descarga un listado como CSV y termina la ejecución.
+ *
+ * Va con BOM UTF-8 y separador ';' porque el equipo abre estos archivos con
+ * Excel en español: sin eso, los acentos salen rotos y todo cae en una columna.
+ * Cada celda pasa por csv_celda() para que no se ejecute como fórmula.
+ *
+ * El nombre de archivo va tal cual a la cabecera: lo arma siempre el código,
+ * nunca el usuario.
+ *
+ * @param string                         $archivo   nombre sugerido para la descarga
+ * @param array<int,array<string,mixed>> $filas
+ * @param array<string,string>           $columnas  clave del array => encabezado
+ */
 function exportar_csv(string $archivo, array $filas, array $columnas): void
 {
     header('Content-Type: text/csv; charset=utf-8');
@@ -398,14 +499,18 @@ function exportar_csv(string $archivo, array $filas, array $columnas): void
 //  Formato y datos
 // ============================================================
 
-/** Formatea un importe en formato argentino. */
+/**
+ * Formatea un importe en formato argentino («$ 1.234,50»).
+ *
+ * Sólo distingue USD (US$); cualquier otra moneda se muestra con «$».
+ */
 function money($n, string $moneda = 'ARS'): string
 {
     $sim = $moneda === 'USD' ? 'US$' : '$';
     return $sim . ' ' . number_format((float)$n, 2, ',', '.');
 }
 
-/** Fecha corta dd/mm/aaaa. */
+/** Fecha corta dd/mm/aaaa. '—' si viene vacía, en ceros o no se entiende. */
 function fecha_corta(?string $f): string
 {
     if (!$f || str_starts_with($f, '0000')) { return '—'; }
@@ -443,7 +548,10 @@ function tiempo_relativo(?string $f): string
 }
 
 /**
- * Fecha larga en castellano ("jueves 30 de julio de 2026").
+ * Fecha larga en castellano ("jueves 30 de julio de 2026"). Sin argumento, hoy.
+ * Una fecha que strtotime no entiende no está contemplada (daría un error de
+ * tipos con strict_types).
+ *
  * No usamos strftime() porque está obsoleto desde PHP 8.1 y depende del locale
  * del servidor, que en hosting compartido no siempre está instalado.
  */
@@ -457,7 +565,7 @@ function fecha_larga(?string $f = null): string
          . $meses[(int)date('n', $t)] . ' de ' . date('Y', $t);
 }
 
-/** Iniciales para el avatar de respaldo. */
+/** Iniciales para el avatar de respaldo: hasta dos palabras, '?' si no hay texto. */
 function iniciales(string $texto): string
 {
     $partes = preg_split('/\s+/', trim($texto)) ?: [];
@@ -468,7 +576,7 @@ function iniciales(string $texto): string
     return $ini !== '' ? $ini : '?';
 }
 
-/** Recorta un texto agregando puntos suspensivos. */
+/** Recorta un texto agregando puntos suspensivos; el resultado mide como mucho $largo caracteres. */
 function recortar(?string $t, int $largo = 60): string
 {
     $t = trim((string)$t);
@@ -594,7 +702,7 @@ function telefono_formato(?string $v): string
     return $v;
 }
 
-/** Tamaño de un archivo en la unidad que se entiende de un vistazo. */
+/** Tamaño de un archivo en la unidad que se entiende de un vistazo (B, KB, MB). */
 function peso_legible(int $bytes): string
 {
     if ($bytes < 1024)            { return $bytes . ' B'; }
@@ -614,13 +722,17 @@ function email_valido(?string $email): bool
     return (bool) filter_var(trim((string)$email), FILTER_VALIDATE_EMAIL);
 }
 
-/** Normaliza un correo: minúsculas y sin espacios. */
+/**
+ * Normaliza un correo: minúsculas y sin espacios en los extremos.
+ * Es la forma en que se guardan y se comparan los correos en todo el sistema.
+ */
 function normalizar_email(?string $email): string
 {
     return strtolower(trim((string)$email));
 }
 
 // ---- Dominio fiscal argentino (mismo criterio que APP Tickets) ----
+// El CUIT se guarda sólo con dígitos y se muestra con guiones.
 
 /** Deja sólo dígitos. */
 function normalizar_cuit($s): string
@@ -628,7 +740,12 @@ function normalizar_cuit($s): string
     return preg_replace('/\D/', '', (string)$s) ?? '';
 }
 
-/** Valida CUIT/CUIL por dígito verificador (módulo 11). */
+/**
+ * Valida CUIT/CUIL por dígito verificador (módulo 11).
+ *
+ * Un cálculo que da verificador 10 no corresponde a ningún CUIT válido
+ * (en ese caso se asigna otro prefijo), así que se rechaza.
+ */
 function validar_cuit($s): bool
 {
     $c = normalizar_cuit($s);
@@ -644,7 +761,7 @@ function validar_cuit($s): bool
     return $dv === (int)$c[10];
 }
 
-/** Formatea CUIT como NN-NNNNNNNN-N. */
+/** Formatea CUIT como NN-NNNNNNNN-N; si no tiene 11 dígitos, lo devuelve como vino. */
 function formatear_cuit($s): string
 {
     $c = normalizar_cuit($s);
@@ -655,10 +772,6 @@ function formatear_cuit($s): string
 
 // ---- Paginación ----
 
-/**
- * Calcula los datos de paginación.
- * @return array{page:int, per:int, offset:int, paginas:int}
- */
 /**
  * Cuántas filas por página quiere ver esta persona.
  *
@@ -681,6 +794,17 @@ function filas_por_pagina(): int
     return in_array($g, $permitidos, true) ? $g : 25;
 }
 
+/**
+ * Calcula los datos de paginación.
+ *
+ * La página pedida se encierra entre 1 y la última: un «page=999» viejo no
+ * deja una pantalla vacía. Si $per no se pasa, se usa la preferencia de la
+ * sesión (filas_por_pagina).
+ *
+ * @param int        $total cantidad total de filas del listado
+ * @param int|string $page  página pedida (suele venir de $_GET)
+ * @return array{page:int, per:int, offset:int, paginas:int}
+ */
 function paginar(int $total, $page, ?int $per = null): array
 {
     $per     = $per ?: filas_por_pagina();
@@ -690,7 +814,12 @@ function paginar(int $total, $page, ?int $per = null): array
     return ['page' => $page, 'per' => $per, 'offset' => ($page - 1) * $per, 'paginas' => $paginas];
 }
 
-/** Reconstruye la query string actual cambiando algunos parámetros. */
+/**
+ * Reconstruye la query string actual cambiando algunos parámetros.
+ *
+ * @param array $cambios parámetro => valor; null o '' lo quita
+ * @return string '?a=1&b=2', o '' si no queda ninguno (sin escapar para HTML)
+ */
 function query_con(array $cambios): string
 {
     $q = $_GET;

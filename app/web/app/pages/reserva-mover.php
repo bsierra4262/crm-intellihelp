@@ -2,9 +2,19 @@
 declare(strict_types=1);
 require_login();
 
-// Mover una reunión a otro horario, desde adentro del CRM. Muestra los huecos
-// reales del vendedor —los mismos que ve el cliente en la agenda pública— para
-// no tener que adivinar cuáles están libres.
+// ============================================================
+//  Mover una reunión a otro horario, desde adentro del CRM (ruta
+//  `reserva-mover?id=N`, módulo 'agenda', con login). Muestra los huecos
+//  reales del vendedor —los mismos que ve el cliente en la agenda pública— para
+//  no tener que adivinar cuáles están libres.
+//
+//  Sólo para reservas confirmadas, de quien entró o de cualquiera si es
+//  administrador. Los huecos son los de quien tiene la reserva
+//  (agenda_tipo_de_reserva()), sin caché de Google. Cada horario es un
+//  formulario que manda a `reserva-accion` con accion=reprogramar.
+//
+//  No escribe nada. Vista: views/reserva-mover.php (r, tipo, huecos, motivo).
+// ============================================================
 
 $id = (int)($_GET['id'] ?? 0);
 $r  = $id ? q1('SELECT * FROM agenda_reservas WHERE id = ?', [$id]) : null;

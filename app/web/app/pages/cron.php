@@ -1,5 +1,19 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Ruta: GET /cron (sólo administrador). La bitácora del sistema.
+//
+//  No confundir con app/cron.php, que es el proceso periódico que despacha
+//  campañas, lee el correo, etc. Esta pantalla sólo MUESTRA la tabla
+//  `actividad` (auditoría) con filtros, y el estado del proceso periódico
+//  (ajustes `cron_ultima_corrida` y `cron_en_curso_desde`) y del reloj.
+//
+//  Parámetros GET: canal (app|api), tipo, q, desde, hasta, page. Se pasan
+//  crudos a actividad_list() (actividad.php), que los usa siempre como
+//  parámetros de la consulta preparada.
+//  Vista: views/cron.php.
+// ============================================================
 require_admin();
 
 // Canal: 'app' (lo que hace la gente + errores) | 'api' (pedidos a la API)

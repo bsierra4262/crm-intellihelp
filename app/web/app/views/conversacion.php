@@ -1,4 +1,21 @@
-<?php /** @var string $email @var array $mensajes @var ?array $contacto @var ?array $ultimo */ ?>
+<?php
+// ============================================================
+//  Vista de la conversación con una persona (la renderiza
+//  pages/conversacion.php).
+//
+//  Recibe:
+//    · $email    la dirección de la persona (ya normalizada y válida);
+//    · $mensajes filas de `mensajes` en orden cronológico, con `usuario`
+//                (nombre de quien contestó, en los salientes);
+//    · $contacto la ficha del contacto con ese correo, o null;
+//    · $ultimo   el último mensaje entrante, al que se contesta, o null.
+//
+//  Cada mensaje se muestra con la cita del original plegada. Si tiene HTML,
+//  se dibuja en un iframe aislado; si no, el texto escapado con saltos de
+//  línea. El formulario de respuesta postea a la misma página.
+// ============================================================
+/** @var string $email @var array $mensajes @var ?array $contacto @var ?array $ultimo */
+?>
 <div class="page-head" data-vivo="cabecera">
     <div>
         <h1><?= e($contacto['nombre_completo'] ?? $email) ?></h1>
@@ -13,6 +30,7 @@
             <a class="btn btn-ghost" href="<?= e(url('contacto-ver?id=' . (int)$contacto['id'])) ?>">
                 <?= icon('contactos', 16) ?>Ver la ficha</a>
         <?php endif; ?>
+        <?php // «Volver» lleva a Alertas: es de donde se llega desde el aviso de respuesta. ?>
         <a class="btn btn-ghost" href="<?= e(url('alertas')) ?>">Volver</a>
     </div>
 </div>
@@ -27,6 +45,16 @@
         // por el mismo motivo: el HTML lo escribió alguien de afuera y no puede
         // pisar los estilos de la pantalla ni ejecutar nada. El marco va sin
         // permiso de scripts, así que aunque quedara alguno, no corre.
+        //
+        // `allow-same-origin` está para que app.js pueda leer el alto del
+        // documento interno y ajustar el marco (iframe[data-marco]); con eso
+        // el contenido comparte el origen del CRM. `allow-popups` y
+        // `allow-popups-to-escape-sandbox` dejan que los enlaces se abran en
+        // otra pestaña (por el <base target="_blank">) sin las restricciones
+        // del sandbox. El rel="noopener" del <base> no tiene efecto: esa
+        // etiqueta no admite rel.
+        //
+        // $marco($html, $id) imprime el iframe; $id sólo sirve de marca.
         $marco = function (string $html, string $id): void {
             $doc = '<!doctype html><meta charset="utf-8">'
                  . '<base target="_blank" rel="noopener">'
@@ -42,6 +70,8 @@
         };
         ?>
         <?php foreach ($mensajes as $i => $m):
+            // Si hay HTML manda el HTML y la cita se corta con la versión
+            // HTML; si no, el texto plano con la de texto.
             $suyo = $m['direccion'] === 'entrante';
             $html = trim((string)($m['cuerpo_html'] ?? ''));
             $partes = $html !== ''
@@ -82,6 +112,7 @@
     </div>
 </div>
 
+<?php // Sin mensaje entrante no hay a quién contestar: no se muestra el formulario. ?>
 <?php if ($ultimo): ?>
     <div class="card">
         <div class="card-head"><h2>Responder</h2></div>

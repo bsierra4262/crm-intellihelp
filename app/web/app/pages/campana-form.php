@@ -2,6 +2,18 @@
 declare(strict_types=1);
 require_login();
 
+// ============================================================
+//  Ruta: /campana-form[?id=N]  (con sesión; módulo «campanas»).
+//  Alta y edición de una campaña. GET muestra el formulario
+//  (views/campana-form.php); POST valida lo mínimo (nombre, lista y
+//  plantilla), guarda con campana_guardar() y redirige a campana-ver.
+//  Una campaña nueva arranca con las pausas y el límite de Ajustes
+//  (`campana_pausa_min`, `campana_pausa_max`, `campana_limite_diario`), el
+//  usuario actual como remitente y responsable, y la franja 09:00 a 18:30.
+//  Cualquier usuario con sesión puede editar cualquier campaña, también una
+//  que ya está enviando: los cambios valen desde el correo siguiente.
+// ============================================================
+
 $id = (int)($_GET['id'] ?? 0);
 $c  = $id ? campana_get($id) : null;
 if ($id && !$c) {
@@ -18,6 +30,9 @@ if (!$id) {
         'limite_diario'    => (int) setting_get('campana_limite_diario', '300'),
         'remitente_nombre' => $u['nombre'] ?? '',
         'remitente_email'  => $smtp['from'] ?? $smtp['user'] ?? '',
+        // Ojo: precargar el correo del usuario en «Responder a» es justo lo
+        // que el paso «Las respuestas se van a detectar» marca como problema
+        // cuando ese correo no es la casilla que lee el sistema.
         'responder_a'      => $u['email'] ?? '',
         'enviar_desde'     => '09:00',
         'enviar_hasta'     => '18:30',
@@ -37,6 +52,7 @@ if (is_post()) {
         flash($id ? 'Campaña actualizada.' : 'Campaña creada. Revisá los destinatarios y arrancá cuando quieras.', 'success');
         redirect('campana-ver?id=' . $nuevoId);
     }
+    // Con errores se vuelve a mostrar el formulario con lo que se escribió.
     $c = array_merge($c ?? [], $d);
 }
 

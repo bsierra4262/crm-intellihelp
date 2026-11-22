@@ -2,10 +2,28 @@
 declare(strict_types=1);
 require_login();
 
-// Cancelar o mover una reunión desde el CRM. Hasta ahora estas dos cosas sólo
-// se podían hacer desde el enlace que recibía el invitado por correo: si
-// llamaba por teléfono para correr la reunión, no había forma de hacerlo desde
-// acá y había que entrar al calendario de Google a mano.
+// ============================================================
+//  Cancelar o mover una reunión desde el CRM (POST `reserva-accion`, módulo
+//  'agenda', con login y CSRF). Lo llaman los botones de views/reservas.php
+//  (cancelar) y de views/reserva-mover.php (cada horario).
+//
+//  Hasta ahora estas dos cosas sólo se podían hacer desde el enlace que
+//  recibía el invitado por correo: si llamaba por teléfono para correr la
+//  reunión, no había forma de hacerlo desde acá y había que entrar al
+//  calendario de Google a mano.
+//
+//  POST: id (de agenda_reservas), accion = cancelar | reprogramar, motivo
+//  (cancelar), inicio en segundos Unix (reprogramar; `cuando` como texto es
+//  el camino viejo).
+//
+//  Llama a agenda_cancelar() o agenda_reprogramar() con el token de la
+//  reserva, que manda al invitado el aviso por correo. Siempre termina con un
+//  mensaje (flash) y redirige a `reservas`.
+//
+//  El mensaje de cualquier excepción se muestra tal cual: incluye los de
+//  AgendaExcepcion (pensados para el usuario), pero también el texto técnico
+//  de un error de base de datos.
+// ============================================================
 
 if (!is_post()) { redirect('reservas'); }
 verify_csrf();
@@ -34,6 +52,8 @@ try {
     } elseif ($accion === 'reprogramar') {
         // El horario viaja como marca de tiempo: un texto «Y-m-d H:i» se leía en
         // la zona de la instalación y no en la del tipo de reunión.
+        // El camino de respaldo (`cuando`) sí se lee con strtotime() en la zona
+        // de la instalación, con el problema de arriba para tipos en otra zona.
         $ts = (int)($_POST['inicio'] ?? 0);
         if ($ts <= 0) {
             $cuando = trim((string)($_POST['cuando'] ?? ''));
@@ -42,6 +62,9 @@ try {
         if (!$ts) {
             throw new RuntimeException('Elegí el día y la hora nuevos.');
         }
+        // Sin validar el hueco: el equipo puede moverla a cualquier hora que
+        // no pise otra reserva del CRM (ni feriado). El mensaje muestra la
+        // hora de la instalación, no la del tipo.
         agenda_reprogramar((string)$r['token'], $ts);
         flash('Reunión movida al ' . fecha_hora(date('Y-m-d H:i:s', $ts))
             . '. Le mandamos la invitación actualizada por correo.', 'success');

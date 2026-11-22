@@ -1,5 +1,16 @@
 <?php
 declare(strict_types=1);
+// ============================================================
+//  Ruta `negocios`: el listado de negocios con filtros y totales.
+//
+//  Filtros por GET: q, estado (abiertos por defecto, ganados, perdidos,
+//  todos), embudo_id, etapa_id, propietario_id, desde/hasta (fecha estimada
+//  de cierre) y page. Los valores van a negocios_where() como parámetros.
+//  El desplegable de etapas ofrece sólo las del embudo predeterminado.
+//
+//  Módulo «negocios». Sólo lectura (el botón de papelera postea a
+//  registro-eliminar). Vista: views/negocios.php.
+// ============================================================
 require_login();
 
 $f = [

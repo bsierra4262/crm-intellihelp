@@ -19,14 +19,30 @@
 #  con el formulario que sirve el sitio; sin ella esa prueba se saltea. Nada
 #  de esto crea reuniones: lo que se manda se descarta antes de tocar el
 #  calendario.
+#
+#  Contra qué instalación: la de la URL del primer argumento (por defecto,
+#  PRODUCCIÓN). `python bin/deploy.py test [--pruebas]` lo corre en el
+#  servidor con la URL de la instalación elegida y, en pruebas, con la agenda
+#  bsierra/demo-30 (o CRM_SMOKE_AGENDA). Sólo hace pedidos HTTP: no lee ni
+#  escribe la base directamente. Lo único que podría escribir es la reserva
+#  con el campo trampa, que el sitio descarta; los pedidos a la API v1 van
+#  sin firma válida y se rechazan antes de tocar nada.
+#
+#  OJO: la comprobación del subdominio va SIEMPRE contra
+#  crm.intellihelp.tech, aunque BASE sea la de pruebas.
+#
+#  Necesita bash y curl. Cada pedido espera hasta 25 s. Salida: 0 todo bien,
+#  1 alguna falla.
 # ============================================================
 set -u
 
+# BASE sin barra final; AGENDA vacía saltea la prueba del campo trampa.
 BASE="${1:-https://intellihelp.tech/crm}"
 AGENDA="${2:-${SMOKE_AGENDA:-}}"
 OK=0
 FALLOS=0
 
+# codigo <url> → sólo el código HTTP, sin seguir redirecciones.
 codigo() { curl -s -o /dev/null -w '%{http_code}' -m 25 "$1"; }
 
 probar() {   # probar <descripción> <url> <códigos esperados separados por |>
@@ -41,6 +57,7 @@ probar() {   # probar <descripción> <url> <códigos esperados separados por |>
     fi
 }
 
+# bien/mal <descripción>: suman una comprobación correcta o fallida.
 bien() { echo "  [OK] $1"; OK=$((OK + 1)); }
 mal()  { echo "  [XX] $1"; FALLOS=$((FALLOS + 1)); }
 
@@ -61,6 +78,7 @@ contiene() {  # contiene <descripción> <url> <texto>
     fi
 }
 
+# El subdominio viejo tiene que mandar (3xx) a la dirección oficial.
 echo "== Una sola dirección: el subdominio redirige =="
 red="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -m 25 https://crm.intellihelp.tech/login)"
 case "$red" in
@@ -78,6 +96,8 @@ contiene "muestra el ingreso con Google"   "$BASE/login"            "Ingresar co
 contiene "aclara el dominio autorizado"    "$BASE/login"            "@intellihelp.tech"
 probar "la raíz lleva al login"            "$BASE/"                 "200|302"
 
+# Lista a mano de rutas que exigen sesión: una pantalla nueva no queda
+# cubierta hasta que se la suma acá.
 echo "== Rutas privadas: sin sesión, todas al login =="
 for r in dashboard contactos cuentas posibles negocios embudo actividades campanas \
          plantillas listas agenda reservas reportes buscar \
@@ -88,6 +108,7 @@ for r in dashboard contactos cuentas posibles negocios embudo actividades campan
     probar "«$r» exige sesión"              "$BASE/$r"               "302"
 done
 
+# Rutas públicas con tokens inválidos: tienen que responder sin romperse.
 echo "== Rutas públicas =="
 probar "baja con token inválido informa"   "$BASE/baja?t=nada"      "200"
 probar "píxel de apertura devuelve imagen" "$BASE/px?t=nada"        "200"
@@ -107,6 +128,8 @@ echo "== Agenda pública: campo trampa =="
 if [ -z "$AGENDA" ]; then
     echo "  (salteada: falta la agenda, p. ej. bash test/smoke.sh $BASE bsierra/demo-30)"
 else
+    # Se pide la página pública para sacar de su HTML el tipo_id y el
+    # form_token, igual que haría un navegador.
     pagina="$(curl -s -m 25 "$BASE/r/$AGENDA")"
     tipo_id="$(printf '%s' "$pagina" | sed -n 's/.*name="tipo_id" value="\([0-9]*\)".*/\1/p' | head -n1)"
     token="$(printf '%s' "$pagina" | sed -n 's/.*name="form_token" value="\([^"]*\)".*/\1/p' | head -n1)"
@@ -134,6 +157,7 @@ else
     fi
 fi
 
+# La API vieja (con X-API-Key) sin clave.
 echo "== API =="
 probar "la API rechaza sin clave"          "$BASE/api/estado"       "401"
 
@@ -151,6 +175,7 @@ else mal "el error de la API no vino como JSON"; fi
 if [[ "$cabeceras" == *"cache-control: no-store"* ]]; then bien "y sin caché"
 else mal "el error de la API se puede guardar en caché"; fi
 
+# Métodos equivocados: reserva sólo acepta POST y disponibilidad sólo GET.
 res="$(pedir GET "$BASE/api/v1/reserva")"
 if [[ "${res##*|}" == "405" ]]; then bien "reserva por GET: 405"
 else mal "reserva por GET → ${res##*|}, se esperaba 405"; fi
@@ -188,6 +213,8 @@ for recurso in reserva entrada; do
     done
 done
 
+# Archivos internos pedidos directo por HTTP: los bloquea el .htaccess del
+# webroot (403) o no existen ahí (404).
 echo "== El código no se sirve por HTTP =="
 probar "bootstrap.php bloqueado"           "$BASE/app/bootstrap.php"          "403"
 probar "vistas bloqueadas"                 "$BASE/app/views/layout.php"       "403"
@@ -209,6 +236,7 @@ probar "favicon"                           "$BASE/assets/img/favicon.png"     "2
 echo "== Ruta inexistente =="
 probar "404 propio"                        "$BASE/esto-no-existe"   "404"
 
+# ---- Resumen y código de salida (0 = todo bien, 1 = alguna falla) ----
 echo
 echo "========================================================"
 printf "  %d comprobaciones · %d correctas · %d fallidas\n" "$((OK + FALLOS))" "$OK" "$FALLOS"

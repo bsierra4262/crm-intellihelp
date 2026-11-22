@@ -1,4 +1,13 @@
 <?php
+// ============================================================
+//  Vista del login. La dibuja pages/login.php, sin variables propias.
+//
+//  Si Google está configurado (google_enabled, google.php), muestra el botón
+//  que lleva a google-login; si no, un aviso para el administrador. Los
+//  avisos flash se imprimen acá porque, sin sesión, el layout no los dibuja.
+//  El nombre sale del config (no del ajuste `app_nombre`, a diferencia del
+//  layout).
+// ============================================================
 $appName  = $GLOBALS['CONFIG']['app']['name'] ?? 'CRM INTELLIHELP';
 $googleOn = google_enabled();
 $dominio  = google_cfg()['allowed_domain'] ?? 'intellihelp.tech';

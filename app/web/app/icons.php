@@ -1,15 +1,31 @@
 <?php
 declare(strict_types=1);
 
+// ============================================================
+//  Iconos de la interfaz. Lo incluye bootstrap.php y lo usan el layout y
+//  todas las vistas: icon('contactos', 16).
+//  No toca la base. Para agregar un icono, se suma una entrada al mapa con
+//  el contenido interior de un SVG de 24×24 hecho de trazos.
+// ============================================================
+
 /**
  * Iconos SVG de línea, embebidos en el HTML.
  *
  * Van en el marcado (no como fuente de iconos ni como <img>) para que hereden
  * el color con `currentColor`, no pidan una request extra y no parpadeen.
  * Todos comparten el mismo lienzo 24×24 y el mismo grosor de trazo.
+ *
+ * @param string $nombre clave del mapa de abajo; un nombre desconocido dibuja
+ *                       el icono 'ok' en vez de fallar
+ * @param int    $tam    ancho y alto en píxeles
+ * @param string $clase  clase CSS del <svg> (se escapa)
+ * @return string el <svg> listo para imprimir sin e(): el dibujo es fijo,
+ *                del código, y nunca lleva datos del usuario
  */
 function icon(string $nombre, int $tam = 18, string $clase = 'ic'): string
 {
+    // El mapa se arma una sola vez por pedido (estático): se llama decenas
+    // de veces por pantalla.
     static $d = null;
     if ($d === null) {
         $d = [

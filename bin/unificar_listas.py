@@ -40,6 +40,22 @@ Uso
     python bin/unificar_listas.py                    # rutas por defecto
     python bin/unificar_listas.py --base "..." --nuevas "..." --salida "..."
 """
+# ============================================================
+#  Notas que no entran en la ayuda de arriba:
+#
+#  · Es una herramienta de una sola vez, de la maquina de desarrollo: no se
+#    despliega ni toca la base del CRM. Lee CSV de «Documentacion a
+#    consultar/CSV/» (ignorada por git: son datos reales de personas) y
+#    escribe ahi mismo. El resultado se carga despues con el importador del
+#    CRM (pantalla Importar), que entiende estos nombres de columna.
+#  · Precision sobre el punto 2 de la ayuda: la comparacion por nombre +
+#    empresa se aplica a TODAS las filas (segunda pasada de deduplicar()), no
+#    solo a las que no tienen correo.
+#  · Al fusionar dos filas de Zoho entre si, queda el `ID de registro` de la
+#    primera; el de la otra no aparece en ningun archivo de salida (tampoco
+#    en duplicados.csv). Ver deduplicar().
+#  · La verificacion de la salida esta en test/verificar_unificacion.py.
+# ============================================================
 from __future__ import annotations
 
 import argparse
@@ -51,8 +67,11 @@ import sys
 import unicodedata
 from collections import Counter, defaultdict
 
+# Las descripciones de Zoho pueden ser muy largas: el limite por defecto del
+# modulo csv (128 KB por campo) corta la lectura con error.
 csv.field_size_limit(10_000_000)
 
+# La consola de Windows usa cp1252 y revienta con los acentos: salida en UTF-8.
 for _f in (sys.stdout, sys.stderr):
     try:
         _f.reconfigure(encoding="utf-8", errors="replace")
@@ -78,6 +97,9 @@ def plano(s: str) -> str:
     return re.sub(r"\s+", " ", s)
 
 
+# Validacion de forma, deliberadamente simple: se aplica sobre el correo ya
+# pasado a minusculas. No acepta dominios con acentos ni terminaciones con
+# numeros; esas direcciones se descartan como invalidas.
 RE_EMAIL = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
 
 # Direcciones que no son de una persona: no sirven para outreach nominal y
@@ -90,17 +112,25 @@ PREFIJOS_GENERICOS = (
 )
 
 
+# Correo normalizado (minusculas, sin <> ni comillas alrededor) o "" si no
+# tiene forma de correo. "" es la senal de «no hay correo» en todo el script.
 def norm_email(v: str) -> str:
     v = (v or "").strip().lower()
     v = v.strip("<>\"' \t")
     return v if RE_EMAIL.match(v) else ""
 
 
+# True si la parte antes de la @ es exactamente uno de PREFIJOS_GENERICOS
+# («info2@» o «info.ventas@» no cuentan). Solo se usa como dato extra en
+# casillas_compartidas(): no excluye a nadie por si sola.
 def es_generico(email: str) -> bool:
     local = email.split("@", 1)[0]
     return local in PREFIJOS_GENERICOS
 
 
+# Las 24 jurisdicciones argentinas con su nombre canonico (el que espera el
+# CRM), y los alias en ingles, sin acentos o abreviados que traen las listas.
+# test/verificar_unificacion.py tiene su propia copia de esta lista.
 PROVINCIAS = [
     "Ciudad de Buenos Aires", "Buenos Aires", "Catamarca", "Chaco", "Chubut", "Córdoba",
     "Corrientes", "Entre Ríos", "Formosa", "Jujuy", "La Pampa", "La Rioja", "Mendoza",
@@ -120,6 +150,8 @@ ALIAS_PROV = {
 _PLANO_PROV = {plano(p): p for p in PROVINCIAS}
 
 
+# Provincia argentina con su nombre canonico; si no se reconoce, se devuelve
+# tal cual vino (puede ser de otro pais: no se descarta).
 def norm_provincia(v: str) -> str:
     v = (v or "").strip()
     if not v:
@@ -146,6 +178,8 @@ PAISES = {
 }
 
 
+# Pais en castellano. Lo que parece basura (una URL, un texto de mas de 40
+# caracteres) se descarta; lo desconocido se deja como vino.
 def norm_pais(v: str) -> str:
     v = (v or "").strip()
     if not v or v.startswith("http") or len(v) > 40:
@@ -161,12 +195,15 @@ def norm_localidad(v: str) -> str:
     return v
 
 
+# Telefono con solo digitos, +, parentesis, guiones, puntos y espacios; si le
+# quedan menos de 6 digitos no es un telefono y se devuelve "".
 def norm_tel(v: str) -> str:
     v = re.sub(r"[^\d+()\-\s.]", "", (v or "").strip())
     v = re.sub(r"\s+", " ", v).strip()
     return v if len(re.sub(r"\D", "", v)) >= 6 else ""
 
 
+# URL con https:// adelante si no traia esquema; "" si no tiene ni un punto.
 def norm_url(v: str) -> str:
     v = (v or "").strip()
     if not v or "." not in v:
@@ -191,6 +228,9 @@ def titulizar(v: str) -> str:
     return v
 
 
+# Terminaciones que no distinguen una empresa de otra: tipos societarios y
+# palabras como «group» o «argentina». Ojo: por esto «Telecom Argentina» y
+# «Telecom» dan la misma clave, y dos personas homonimas en ellas se fusionan.
 SUFIJOS_EMPRESA = (
     " s.a.", " sa", " s.r.l.", " srl", " s.a.s.", " sas", " s.a", " sociedad anonima",
     " inc", " inc.", " llc", " ltd", " ltda", " limited", " corp", " corp.", " co.",
@@ -202,6 +242,8 @@ def clave_empresa(v: str) -> str:
     """Nombre de empresa reducido a su forma comparable (sin tipo societario)."""
     p = plano(v)
     p = re.sub(r"[.,]", "", p)
+    # Se repite hasta que no quede ninguna: «Acme Argentina S.A.» pierde
+    # primero «sa» y despues «argentina».
     cambio = True
     while cambio:
         cambio = False
@@ -220,6 +262,11 @@ def clave_empresa(v: str) -> str:
 def abrir_csv(ruta: str):
     """Abre un CSV detectando codificación y separador. Devuelve un DictReader."""
     codificacion = None
+    # La codificacion se decide mirando solo los primeros 16 K caracteres. Si
+    # el archivo es UTF-8 al principio y tiene bytes de otra codificacion mas
+    # adelante, se abre como UTF-8 con errors="replace" y esos caracteres
+    # quedan como «�» sin ningun aviso. latin-1 nunca falla: es el ultimo
+    # recurso.
     for cod in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
         try:
             with io.open(ruta, encoding=cod, newline="") as f:
@@ -230,8 +277,11 @@ def abrir_csv(ruta: str):
             continue
     if codificacion is None:
         raise RuntimeError(f"No se pudo determinar la codificación de {ruta}")
+    # Separador: el que mas aparece en la linea de encabezados.
     primera = muestra.splitlines()[0] if muestra else ""
     sep = ";" if primera.count(";") > primera.count(",") else ","
+    # Devuelve tambien el archivo abierto: quien llama tiene que cerrarlo
+    # (los leer_* lo hacen con `with fh:`).
     f = io.open(ruta, encoding=codificacion, newline="", errors="replace")
     return csv.DictReader(f, delimiter=sep), f, codificacion, sep
 
@@ -242,6 +292,8 @@ ORDEN_ESTADO = {"valid": 0, "accept_all_unverifiable": 1, "": 2, "unknown": 2}
 ORDEN_TIPO = {"main job": 0, "job": 1, "personal": 2, "": 3}
 
 
+# Los hasta 4 correos de una fila de LinkedIn (email1..email4, con su estado
+# de verificacion y su tipo), validos y ordenados por calidad.
 def correos_de_linkedin(fila: dict) -> list[dict]:
     salida = []
     for i in (1, 2, 3, 4):
@@ -257,6 +309,7 @@ def correos_de_linkedin(fila: dict) -> list[dict]:
     return salida
 
 
+# Los hasta 4 telefonos de una fila de LinkedIn, con su tipo tal como viene.
 def telefonos_de_linkedin(fila: dict) -> list[dict]:
     salida = []
     for i in (1, 2, 3, 4):
@@ -267,6 +320,10 @@ def telefonos_de_linkedin(fila: dict) -> list[dict]:
     return salida
 
 
+# El esquema unico al que se llevan los tres formatos. `correos` y
+# `telefonos` son listas de dicts; `origen` es el conjunto de archivos de los
+# que salio la ficha (crece al fusionar). "DB Zoho" en `origen` es lo que
+# despues la marca como «ya estaba en el CRM».
 def ficha_vacia() -> dict:
     return {
         "nombre": "", "apellido": "", "empresa": "", "cargo": "", "departamento": "",
@@ -277,6 +334,8 @@ def ficha_vacia() -> dict:
     }
 
 
+# Una exportacion de LinkedIn (61 columnas en ingles) → fichas. El origen de
+# cada ficha es el nombre del archivo sin extension.
 def leer_linkedin(ruta: str) -> list[dict]:
     lector, fh, _, _ = abrir_csv(ruta)
     origen = os.path.splitext(os.path.basename(ruta))[0]
@@ -286,6 +345,9 @@ def leer_linkedin(ruta: str) -> list[dict]:
             f = ficha_vacia()
             nombre = titulizar(fila.get("first_name", ""))
             apellido = titulizar(fila.get("last_name", ""))
+            # Sin nombre ni apellido por separado se parte el nombre completo:
+            # la primera palabra es el nombre y el resto el apellido (un
+            # nombre compuesto queda con parte en el apellido).
             if not nombre and not apellido:
                 completo = titulizar(fila.get("full_name", ""))
                 partes = completo.split()
@@ -328,6 +390,9 @@ def leer_linkedin(ruta: str) -> list[dict]:
     return fichas
 
 
+# Una lista simple de campana (first_name, last_name, company_name, email1)
+# → fichas. Es el formato por defecto: todo CSV que no tenga la columna
+# `person_linkedin_url` se lee asi.
 def leer_lista_simple(ruta: str) -> list[dict]:
     lector, fh, _, _ = abrir_csv(ruta)
     origen = os.path.splitext(os.path.basename(ruta))[0]
@@ -346,6 +411,10 @@ def leer_lista_simple(ruta: str) -> list[dict]:
     return fichas
 
 
+# La exportacion de contactos de Zoho (columnas en castellano) → fichas. Los
+# nombres de Zoho no se titulizan: se respetan como estan cargados. Los
+# correos de Zoho llevan estado "zoho" (ver ORDEN_ESTADO: cuentan como «sin
+# verificar» al ordenar).
 def leer_zoho(ruta: str) -> list[dict]:
     lector, fh, _, _ = abrir_csv(ruta)
     fichas = []
@@ -387,6 +456,9 @@ def leer_zoho(ruta: str) -> list[dict]:
 #  Fusión
 # ============================================================
 
+# Pese al docstring, deduplicar() usa esta clave con todas las fichas, tengan
+# correo o no. Devuelve "" si falta el nombre o la empresa: sin los dos no se
+# compara por nombre.
 def clave_persona(f: dict) -> str:
     """Clave de respaldo para las fichas sin correo: nombre + empresa."""
     n = plano(f["nombre"] + " " + f["apellido"])
@@ -410,6 +482,9 @@ def mismo_apellido(a: str, b: str) -> bool:
     otro; el nombre de pila termina de decidir.
     """
     a, b = re.sub(r"[^\w ]", "", plano(a)).strip(), re.sub(r"[^\w ]", "", plano(b)).strip()
+    # Sin apellido de un lado no hay evidencia de que sean distintos. Ojo: un
+    # apellido de una sola letra («B.») es prefijo de cualquiera que empiece
+    # con esa letra.
     if not a or not b:
         return True
     return a.startswith(b) or b.startswith(a)
@@ -450,6 +525,10 @@ def casillas_compartidas(fichas: list[dict]) -> set[str]:
             if len(por_email[c["email"]]) < 12:      # con 12 alcanza para decidir
                 por_email[c["email"]].append(f)
 
+    # Cada ficha se compara solo con la primera del grupo, no todas contra
+    # todas. Si la primera es ambigua (por ejemplo, solo apellido), puede
+    # «parecerse» a dos personas que entre si son distintas, y la casilla no
+    # se marca como compartida: esas dos personas terminan fusionadas.
     compartidas = set()
     for email, grupo in por_email.items():
         if len(grupo) < 2:
@@ -470,6 +549,8 @@ def casillas_compartidas(fichas: list[dict]) -> set[str]:
 
 def fusionar(destino: dict, extra: dict) -> None:
     """Vuelca `extra` sobre `destino` sin pisar lo que ya tiene valor."""
+    # Gana el primer valor no vacio. Incluye `zoho_id`: si se fusionan dos
+    # filas de Zoho, el id de la segunda se pierde aca sin dejar rastro.
     for campo in ("nombre", "apellido", "empresa", "cargo", "departamento", "localidad",
                   "provincia", "pais", "sector", "sitio_web", "linkedin", "linkedin_empresa",
                   "empleados", "propietario", "creado_en", "zoho_id"):
@@ -499,6 +580,8 @@ class UnionFind:
     def __init__(self) -> None:
         self.padre: dict[int, int] = {}
 
+    # Raiz del grupo de x, acortando el camino de paso (cada nodo pasa a
+    # apuntar a su abuelo) para que las busquedas siguientes sean rapidas.
     def buscar(self, x: int) -> int:
         self.padre.setdefault(x, x)
         while self.padre[x] != x:
@@ -506,6 +589,8 @@ class UnionFind:
             x = self.padre[x]
         return x
 
+    # Junta los grupos de a y b; la raiz de a queda como raiz. Que ficha
+    # termina de base no depende de esto: deduplicar() usa la de menor indice.
     def unir(self, a: int, b: int) -> None:
         ra, rb = self.buscar(a), self.buscar(b)
         if ra != rb:
@@ -529,6 +614,10 @@ def deduplicar(fichas: list[dict], registro: list[dict]) -> tuple[list[dict], se
     por_linkedin: dict[str, int] = {}
     por_nombre: dict[str, int] = {}
 
+    # Primera pasada: por correo (salvo las casillas compartidas) y por perfil
+    # de LinkedIn. `registro` recibe una linea por cada coincidencia, no por
+    # ficha: una ficha que comparte dos correos con otra deja dos lineas, asi
+    # que los conteos por motivo del RESUMEN pueden superar a los fusionados.
     for i, f in enumerate(fichas):
         uf.buscar(i)
         for c in f["correos"]:
@@ -576,6 +665,8 @@ def deduplicar(fichas: list[dict], registro: list[dict]) -> tuple[list[dict], se
     for i in range(len(fichas)):
         grupos[uf.buscar(i)].append(i)
 
+    # Cada grupo se reduce a su ficha de menor indice (la primera que llego,
+    # que es de Zoho si alguna lo es), con las demas volcadas encima.
     salida = []
     for miembros in grupos.values():
         miembros.sort()
@@ -605,6 +696,10 @@ COLUMNAS = [
 ]
 
 
+# Ficha → fila del CSV de salida, con las columnas de COLUMNAS. Los tres
+# primeros correos van a las columnas de Zoho y el resto a «Otros correos».
+# Los telefonos se reparten por tipo (directo, movil) y lo demas va a
+# Conmutador; si no hay ni directo ni movil, el primero pasa a directo.
 def a_fila(f: dict, estado_crm: str) -> dict:
     # Coherencia geográfica, ya con la ficha fusionada: si la provincia no es
     # argentina, el país no puede decir Argentina. Pasa cuando el país viene de
@@ -656,6 +751,7 @@ def a_fila(f: dict, estado_crm: str) -> dict:
     }
 
 
+# Escribe un CSV (crea la carpeta si falta y pisa el archivo si existe).
 def escribir(ruta: str, filas: list[dict], columnas: list[str]) -> None:
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
     # BOM + separador ';' porque el equipo abre estos archivos con Excel en español.
@@ -670,6 +766,9 @@ def escribir(ruta: str, filas: list[dict], columnas: list[str]) -> None:
 #  Programa principal
 # ============================================================
 
+# Lee, deduplica, escribe los cuatro CSV y el RESUMEN.md, e imprime el
+# resumen en pantalla. Devuelve 0, o 1 si no hay listas nuevas que leer.
+# Pisa sin preguntar lo que haya en la carpeta de salida.
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -692,6 +791,8 @@ def main() -> int:
     detalle_archivos = []
     for nombre in archivos:
         ruta = os.path.join(args.nuevas, nombre)
+        # Se abre una vez solo para ver los encabezados y decidir el formato;
+        # el lector correspondiente lo vuelve a abrir.
         lector, fh, cod, sep = abrir_csv(ruta)
         columnas = lector.fieldnames or []
         fh.close()
@@ -715,6 +816,8 @@ def main() -> int:
     registro_dup: list[dict] = []
     unicas, compartidas = deduplicar(zoho + nuevas, registro_dup)
 
+    # Cuenta lineas del registro cuya ficha absorbida venia solo de Zoho. Es
+    # una aproximacion: una ficha que coincide por dos correos suma dos.
     dup_zoho = sum(1 for d in registro_dup if d["origen"] == "DB Zoho")
     print(f"\n  Filas leídas en total: {len(zoho) + len(nuevas)}")
     print(f"  Después de fusionar duplicados: {len(unicas)}"

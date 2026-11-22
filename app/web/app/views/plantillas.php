@@ -1,3 +1,16 @@
+<?php
+// ============================================================
+//  Vista: listado de plantillas. La pinta pages/plantillas.php.
+//  Variables:
+//    $rows        todas las plantillas que no están en la papelera
+//                 (plantillas_listar(), activas e inactivas).
+//    $preajustes  diseños prearmados (plantillas_preajustes()): clave =>
+//                 nombre, descripcion; la miniatura se dibuja con CSS según
+//                 la clave (clase preajuste-<clave>).
+//  «Ver como lo recibe el cliente» abre plantilla-vista en otra pestaña con
+//  datos de ejemplo. Mandar a la papelera va por registro-eliminar.
+// ============================================================
+?>
 <?php /** @var array $rows @var array $preajustes */ ?>
 <div class="page-head" data-vivo="cabecera">
     <div>

@@ -1,3 +1,17 @@
+<?php
+// ============================================================
+//  Vista: pantalla pública de baja de suscripción.
+//  La pinta pages/baja.php con el layout público (bodyClass 'publica').
+//  Variables:
+//    $envio  fila de `envios` (con `campana`) del token, o null si el token
+//            no existe (enlace viejo, campaña purgada, token mal copiado).
+//    $hecho  true si en este pedido se acaba de dar de baja.
+//  Tres estados: enlace inválido, baja hecha, o el botón para confirmar.
+//  El formulario no lleva action ni CSRF: se envía a la misma URL (con su
+//  ?t=) y es el campo `confirmar` lo que distingue el clic de la persona del
+//  POST automático de Gmail/Outlook.
+// ============================================================
+?>
 <?php /** @var ?array $envio @var bool $hecho */ ?>
 <div class="pub-wrap angosta">
     <div class="pub-card">

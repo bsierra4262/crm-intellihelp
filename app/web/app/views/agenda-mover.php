@@ -1,6 +1,23 @@
 <?php
 /** @var ?array $r @var ?array $tipo @var array $huecos @var string $diaSel @var ?string $motivo
  *  @var ?string $error @var string $formToken */
+// ============================================================
+//  Página pública /r/mover?t=<token> (sin login; la dibuja pages/r.php).
+//
+//  Recibe:
+//    · $r ......... la reserva vigente de la cadena del token, o null
+//    · $tipo ...... su tipo con quien la atiende (null si el tipo se borró)
+//    · $huecos .... fecha Y-m-d => inicios en segundos Unix, sin contar la
+//                   propia reunión como ocupada
+//    · $diaSel .... el día que se muestra
+//    · $motivo .... 'sin_calendario' | 'sin_horario' | null
+//    · $error ..... aviso del último intento (token, límite, horario tomado)
+//    · $formToken . token firmado de un solo uso ('mover')
+//
+//  El formulario se manda a la misma URL con el token; si sale bien, pages/r.php
+//  dibuja views/agenda-ok.php con $movida. Los enlaces a otros días conservan
+//  el token en la URL.
+// ============================================================
 $dias        = array_keys($huecos);
 $slotsDelDia = $huecos[$diaSel] ?? [];
 $nombresDia  = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];

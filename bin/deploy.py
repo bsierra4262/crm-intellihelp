@@ -19,6 +19,24 @@ de `bin/deploy.local.json` (ignorado por git).
 
     CRM_SSH_HOST · CRM_SSH_PORT · CRM_SSH_USER · CRM_SSH_PASS
 """
+# ============================================================
+#  Notas para quien lo usa o lo cambia (el docstring de arriba es la ayuda
+#  que se imprime; esto es lo que no entra ahi):
+#
+#  · SIN `--pruebas` el destino es PRODUCCION. No hay confirmacion: el
+#    comando corre apenas conecta. Lo unico que avisa es la linea
+#    «Destino: …» que se imprime antes de conectar.
+#  · `--pruebas` cambia webroot, storage, base y URL, pero NO la carpeta de
+#    configuracion (CONFDIR, una sola para las dos). Ver cmd_config().
+#  · `app` sube archivo por archivo encima de lo que hay: no borra en el
+#    servidor lo que se borro o renombro en el repositorio, y mientras sube
+#    el sitio queda con una mezcla de archivos nuevos y viejos.
+#  · Credenciales: SSH por usuario y contrasena (variables CRM_SSH_* o
+#    bin/deploy.local.json, ignorado por git). `schema` pide ademas
+#    CRM_DB_PASS (y opcionalmente CRM_DB_NAME / CRM_DB_USER).
+#  · La clave del host no se verifica (AutoAddPolicy): se acepta cualquier
+#    servidor que conteste en esa direccion.
+# ============================================================
 from __future__ import annotations
 
 import json
@@ -50,8 +68,14 @@ for _flujo in (sys.stdout, sys.stderr):
 # porque copiar a la carpeta equivocada es exactamente el error que uno comete
 # una vez y no vuelve a cometer nunca, despues de romper produccion.
 BASE_HTML = "/home/u566451014/domains/intellihelp.tech/public_html"
+# Una sola carpeta de configuracion para las dos instalaciones. Adentro,
+# bootstrap.php busca primero `<carpeta>.php` (crm-pruebas.php para pruebas)
+# y si no esta cae en `config.php`, que es la de produccion.
 CONFDIR   = "/home/u566451014/crm_config"
 
+# Por instalacion: carpeta publica, carpeta de archivos subidos (fuera del
+# webroot), nombre de la base y URL. "db" solo lo usa `schema`; el resto de
+# los comandos llega a la base a traves de la config de la instalacion.
 DESTINOS = {
     "produccion": {
         "webroot": BASE_HTML + "/crm",
@@ -68,15 +92,25 @@ DESTINOS = {
 }
 
 # Se resuelve una sola vez, al arrancar, mirando los argumentos.
+# `--pruebas` puede ir en cualquier posicion, pero como argumento suelto: en
+# `run "comando --pruebas"` queda adentro del texto del comando y NO cuenta.
+# Cualquier otra cosa (incluido un typo como `--prueba`) es produccion.
 DESTINO = "pruebas" if "--pruebas" in sys.argv else "produccion"
 WEBROOT = DESTINOS[DESTINO]["webroot"]
 STORAGE = DESTINOS[DESTINO]["storage"]
 URL     = DESTINOS[DESTINO]["url"]
 
 # Nunca se suben al servidor: son del repositorio, no de la aplicacion.
+# Se compara por nombre exacto, en cualquier nivel del arbol: cualquier archivo
+# llamado config.php queda afuera. Otros secretos locales con otro nombre (por
+# ejemplo app/web/app/config.local.php, ignorado por git) SI se suben si
+# existen en la maquina desde la que se despliega.
 EXCLUIR = {".git", "__pycache__", ".DS_Store", "Thumbs.db", "config.php"}
 
 
+# Datos de conexion SSH. Las variables de entorno mandan sobre el JSON local;
+# el puerto por defecto es el SSH de Hostinger (65002). Si falta algo, corta
+# con un mensaje y sin conectar.
 def credenciales() -> dict:
     local = RAIZ / "bin" / "deploy.local.json"
     datos = json.loads(local.read_text(encoding="utf-8")) if local.is_file() else {}
@@ -94,6 +128,8 @@ def credenciales() -> dict:
     return cred
 
 
+# Abre la sesion SSH. AutoAddPolicy acepta la clave del servidor sin
+# compararla con una conocida: comodo, pero no detecta un servidor impostor.
 def conectar() -> paramiko.SSHClient:
     c = credenciales()
     cli = paramiko.SSHClient()
@@ -102,6 +138,10 @@ def conectar() -> paramiko.SSHClient:
     return cli
 
 
+# Corre un comando en el servidor (con un tope de 600 s) y devuelve
+# (codigo de salida, salida + errores). Salvo `silencioso`, imprime lo que
+# devolvio. El comando va tal cual al shell remoto: quien lo arma es
+# responsable de las comillas.
 def ejecutar(cli: paramiko.SSHClient, cmd: str, silencioso: bool = False) -> tuple[int, str]:
     _, out, err = cli.exec_command(cmd, timeout=600)
     salida = out.read().decode("utf-8", "replace")
@@ -143,6 +183,9 @@ def subir_arbol(sftp: paramiko.SFTPClient, origen: Path, destino: str) -> int:
     return n
 
 
+# `app`: sube todo app/web/ al webroot del destino (pisando lo que haya, sin
+# borrar lo que sobra) y los tres scripts de linea de comandos a su raiz.
+# Crea la carpeta de almacenamiento si falta. No toca la base ni la config.
 def cmd_app(cli: paramiko.SSHClient) -> None:
     sftp = cli.open_sftp()
     print(f"Subiendo app/web/ → {WEBROOT}")
@@ -154,6 +197,8 @@ def cmd_app(cli: paramiko.SSHClient) -> None:
         local = RAIZ / "app" / nombre
         if not local.is_file():
             continue
+        # Crea la carpeta PADRE del webroot (que ya existe a esta altura: el
+        # webroot se creo al subir el arbol). No hace nada util.
         mkdirs(sftp, posixpath.dirname(WEBROOT))
         sftp.put(str(local), posixpath.join(WEBROOT, nombre))
         n += 1
@@ -163,6 +208,13 @@ def cmd_app(cli: paramiko.SSHClient) -> None:
     ejecutar(cli, f"mkdir -p {STORAGE} && chmod 750 {STORAGE}")
 
 
+# `config`: sube app/server-config/config.php a CONFDIR/config.php con
+# permisos 600 (y la carpeta 700).
+#
+# CUIDADO: ignora `--pruebas`. Siempre escribe CONFDIR/config.php, que es la
+# configuracion de PRODUCCION. `config --pruebas` pisa la de produccion con
+# la copia local (que puede apuntar a la base de pruebas). La config propia
+# de pruebas (CONFDIR/crm-pruebas.php) no se puede subir con este comando.
 def cmd_config(cli: paramiko.SSHClient) -> None:
     local = RAIZ / "app" / "server-config" / "config.php"
     if not local.is_file():
@@ -176,6 +228,23 @@ def cmd_config(cli: paramiko.SSHClient) -> None:
     print(f"config.php desplegado en {CONFDIR} (600).")
 
 
+# `schema`: importa app/db/schema.sql con el cliente mysql del servidor.
+#
+# Para una instalacion nueva. Sobre una base en uso no crea columnas nuevas
+# (CREATE TABLE IF NOT EXISTS) y SI pisa el embudo 1 y las probabilidades de
+# sus etapas (ver el final de schema.sql); para cambios de estructura se usa
+# `migrar`. Tampoco aplica las migraciones 002 a 007, que hay que correr
+# despues.
+#
+# Riesgos de como esta armado:
+#   · CRM_DB_NAME / CRM_DB_USER, si estan definidas en el entorno, mandan
+#     sobre el destino: una variable que quedo de otra sesion puede mandar el
+#     esquema a otra base aunque se haya pedido --pruebas.
+#   · La contrasena viaja en la linea de comandos (-p'…'): en un hosting
+#     compartido la ven otros procesos mientras corre, y una comilla simple
+#     en la contrasena rompe el comando.
+#   · El archivo temporal tiene un nombre fijo en el home (no en una carpeta
+#     700 como `migrar`) y se borra al terminar.
 def cmd_schema(cli: paramiko.SSHClient) -> None:
     sql = RAIZ / "app" / "db" / "schema.sql"
     sftp = cli.open_sftp()
@@ -202,6 +271,9 @@ def cmd_migrar(cli: paramiko.SSHClient, args: list[str]) -> None:
     misma razon por la que no puede pasar lo de `schema`, que apuntaba a
     produccion aunque se le pidiera pruebas.
     """
+    # Solo se acepta un .sql que este directamente en app/db/ (se resuelve la
+    # ruta para que «../» no saque el archivo de ahi). Si se pasan varios,
+    # se aplica solo el primero.
     archivos = [a for a in args if not a.startswith("--")]
     if not archivos:
         sys.exit("Uso: python bin/deploy.py migrar app/db/migracion-NNN-....sql [--pruebas] [--simular]")
@@ -223,6 +295,9 @@ def cmd_migrar(cli: paramiko.SSHClient, args: list[str]) -> None:
     sftp.close()
     print(f"Migracion {local.name} subida. Aplicando en {DESTINO}...")
     simular = " --simular" if "--simular" in args else ""
+    # El .sql se borra del servidor pase lo que pase. El codigo de salida es
+    # el de migrar.php (1 si fallo alguna sentencia), para poder encadenarlo.
+    # Requiere que `app` ya haya subido migrar.php a ese webroot.
     try:
         rc, _ = ejecutar(cli, f"php {WEBROOT}/migrar.php {remoto}{simular}")
     finally:
@@ -237,6 +312,8 @@ def cmd_test(cli: paramiko.SSHClient) -> None:
     interprete de referencia es el del hosting. Correr los tests alla ademas
     prueba la version exacta que atiende al usuario, que es la que importa.
     """
+    # Una sola carpeta de pruebas para los dos destinos: lo que cambia es a
+    # que webroot y URL apuntan las baterias (CRM_SRC, CRM_URL).
     remoto = "/home/u566451014/crm_test"
     sftp = cli.open_sftp()
     n = subir_arbol(sftp, RAIZ / "test", remoto)
@@ -266,6 +343,10 @@ def cmd_test(cli: paramiko.SSHClient) -> None:
     sys.exit(1 if fallos else 0)
 
 
+# `check`: corre `php -l` sobre cada .php del webroot del destino y muestra
+# solo los que tienen errores. El codigo de salida es siempre 0 (el
+# `|| true` y que no se llama a sys.exit): sirve para mirar, no para cortar
+# una cadena de comandos.
 def cmd_check(cli: paramiko.SSHClient) -> None:
     rc, salida = ejecutar(
         cli,
@@ -274,6 +355,8 @@ def cmd_check(cli: paramiko.SSHClient) -> None:
     print("Sintaxis PHP: OK" if not salida.strip() else "Revisar los errores de arriba.")
 
 
+# Punto de entrada: el primer argumento es la accion. `run` no depende del
+# destino (corre el comando tal cual), aunque igual imprime «Destino: …».
 def main() -> None:
     if len(sys.argv) < 2:
         print(__doc__)

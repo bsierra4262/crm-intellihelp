@@ -1,5 +1,19 @@
 <?php
+// ============================================================
+//  Vista del tablero Kanban (embudo de ventas).
+//
+//  La dibuja pages/embudo.php. Recibe:
+//    $embudos   embudos activos (el selector aparece si hay más de uno)
+//    $embudoId  el que se está mirando
+//    $cols      embudo_kanban(): por etapa, la etapa, sus negocios y el total
+//    $f         filtros q y propietario_id
+//    $usuarios  usuarios activos
+//
+//  Las tarjetas son enlaces a la ficha: el tablero no permite arrastrar.
+// ============================================================
 /** @var array $embudos @var int $embudoId @var array $cols @var array $f @var array $usuarios */
+// El total del encabezado suma sólo las etapas abiertas, y mezcla monedas:
+// se muestra en pesos aunque haya negocios en dólares.
 $totalAbierto = 0.0; $totalNegocios = 0;
 foreach ($cols as $c) {
     if ($c['etapa']['tipo'] === 'abierta') { $totalAbierto += $c['total']; }

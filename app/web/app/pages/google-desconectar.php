@@ -4,6 +4,12 @@ require_login();
 
 // Desconecta la cuenta de Google Calendar del usuario actual
 // (google_desconectar() en google.php revoca el acceso).
+//
+// Ruta: POST google-desconectar, con sesión y token CSRF (el botón está en
+// la pantalla de la agenda). Módulo: Agenda. Borra la fila del usuario en
+// google_tokens; la sesión del CRM sigue abierta. Un GET vuelve a la agenda
+// sin hacer nada. Nota: google_desconectar() ya deja su propia línea en la
+// auditoría, así que con la de acá quedan dos por cada desconexión.
 
 if (!is_post()) { redirect('agenda'); }
 verify_csrf();

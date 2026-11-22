@@ -1,3 +1,25 @@
+<?php
+// ============================================================
+//  Vista: listado de contactos.
+//
+//  La dibuja pages/contactos.php. Tiene filtros (GET), una barra de
+//  selección para aprobar o devolver a pendientes (POST a la misma página),
+//  la tabla paginada y el botón de borrado de cada fila (POST a
+//  `registro-eliminar`, que manda a la papelera).
+//
+//  Variables que recibe:
+//    $f         array  los filtros de la dirección (q, propietario_id,
+//                      provincia, fuente, con_email, no_email, rebotado,
+//                      pendiente, orden, page)
+//    $data      array  contactos_listar(): rows, total, page, per, paginas
+//    $usuarios  array  usuarios activos, para el filtro de propietario
+//
+//  `data-vivo` marca los bloques que el refresco automático reemplaza.
+//  Trampa: la columna «Estado» y el aviso «Falta …» miran sólo
+//  `pendiente_norm`, no `aprobado_en`; una ficha aprobada sin completar
+//  sigue saliendo «Pendiente» aunque el filtro ya no la cuente.
+// ============================================================
+?>
 <?php /** @var array $f @var array $data @var array $usuarios */ ?>
 <div class="page-head" data-vivo="cabecera">
     <div>
@@ -5,6 +27,7 @@
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> personas en la base</p>
     </div>
     <div class="head-actions">
+        <?php // Exportar repite los filtros que están aplicados: baja lo que se ve, sin paginar. ?>
         <a class="btn btn-ghost" href="<?= e(url('contactos' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
         <a class="btn btn-primary" href="<?= e(url('contacto-form')) ?>"><?= icon('mas', 16) ?>Nuevo contacto</a>
     </div>
@@ -114,6 +137,7 @@
             </thead>
             <tbody>
             <?php if (!$data['rows']): ?>
+                <?php // La tabla tiene 10 columnas; el colspan quedó en 8. ?>
                 <tr><td colspan="8" class="empty">No hay contactos que coincidan con el filtro.</td></tr>
             <?php else: foreach ($data['rows'] as $c): ?>
                 <tr>
@@ -156,6 +180,7 @@
                             <span class="badge badge-ok">Aprobado</span>
                         <?php endif; ?>
                     </td>
+                    <?php // Cada fila lleva su propio formulario de borrado, con su token CSRF. ?>
                     <td class="acts" data-label="Acciones">
                         <a class="act" href="<?= e(url('contacto-form?id=' . (int)$c['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">

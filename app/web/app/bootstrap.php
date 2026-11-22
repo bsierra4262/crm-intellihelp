@@ -4,6 +4,23 @@ declare(strict_types=1);
 // ============================================================
 //  Arranque de la aplicación: configuración, errores, sesión.
 //  Todo lo que sigue asume que esto ya corrió.
+//
+//  Lo incluyen index.php (cada pedido web) y los scripts de consola
+//  (app/cron.php, migrar.php, reinicio.php, los tests). En orden:
+//    1. localiza y carga la configuración de ESTA instalación ($CONFIG);
+//    2. define las constantes globales (APP, WEBROOT, BASE_PATH, STORAGE,
+//       APP_ENV, ASSETS_V) y la zona horaria;
+//    3. carga todos los módulos del núcleo (no hay autoload: todo se
+//       incluye en cada pedido, en el orden de dependencias de abajo);
+//    4. instala los manejadores de errores que los registran en la
+//       auditoría (tabla `actividad`, vía log_error de actividad.php);
+//    5. en web, abre la sesión y aplica el cierre automático por
+//       inactividad y por sesión máxima.
+//
+//  Trampas:
+//    · La zona horaria se fija ANTES de cargar db.php por una razón: db()
+//      copia el desfase de PHP a la sesión de MySQL al conectarse.
+//    · En consola (PHP_SAPI 'cli') no hay sesión ni BASE_PATH deducido.
 // ============================================================
 
 // ---- Localizar la configuración ----
@@ -13,8 +30,14 @@ declare(strict_types=1);
 // `crm-pruebas/` (pruebas); sin esto, la copia de pruebas tomaría la
 // configuración de producción y se conectaría a la base real.
 //
-// Producción sigue funcionando igual: no existe `crm.php` en esa carpeta, así
-// que cae en `config.php`, la de siempre.
+// Producción sigue funcionando igual: no existe `crm_config/crm.php` (el
+// nombre que le tocaría por la carpeta `crm/`), así que cae en
+// `crm_config/config.php`, la de siempre.
+//
+// La variable de entorno CRM_CONFIG, si alguien la define, gana sobre todo lo
+// demás (el .htaccess ya no la fija, ver ahí por qué). Los candidatos se
+// prueban en orden y se usa el primero que existe; la ruta del hosting está
+// escrita a mano con el usuario de Hostinger.
 $configFile = $_SERVER['CRM_CONFIG'] ?? (getenv('CRM_CONFIG') ?: '');
 if (!$configFile || !is_file($configFile)) {
     $carpeta = basename(dirname(__DIR__));                  // crm, crm-pruebas, …
@@ -31,10 +54,13 @@ if (!$configFile || !is_file($configFile)) {
     http_response_code(500);
     exit('Error: no se encontró la configuración de la aplicación.');
 }
+// El archivo de configuración devuelve un array (ver config.example.php). Se
+// deja también en $GLOBALS porque las funciones lo leen desde ahí.
 $CONFIG = require $configFile;
 $GLOBALS['CONFIG'] = $CONFIG;
 
 // ---- Constantes ----
+// APP: la carpeta app/ (código). WEBROOT: la carpeta pública de la instalación.
 define('APP', __DIR__);
 define('WEBROOT', dirname(__DIR__));
 
@@ -52,6 +78,11 @@ if ($basePath === '' && PHP_SAPI !== 'cli') {
 }
 define('BASE_PATH', $basePath);
 
+// STORAGE: dónde se guardan los adjuntos y las imágenes de campañas. Tiene que
+// quedar fuera del web root. El último respaldo (`storage` al lado de la
+// carpeta de la instalación) en Hostinger cae dentro de public_html, o sea,
+// servido por HTTP: por eso el config de cada instalación lo define siempre.
+// APP_ENV ('prod' | 'dev') sólo decide si los errores se muestran en pantalla.
 define('STORAGE', $_SERVER['CRM_STORAGE'] ?? ($CONFIG['app']['storage'] ?? (dirname(WEBROOT) . '/storage')));
 define('APP_ENV', $CONFIG['app']['env'] ?? 'prod');
 
@@ -76,6 +107,8 @@ define('ASSETS_V', (function (): string {
     return $mayor > 0 ? (string) $mayor : '3';
 })());
 
+// Zona horaria de toda la aplicación (Buenos Aires en producción). Tiene que
+// ir antes de la primera conexión a la base: db() toma de acá el desfase.
 date_default_timezone_set($CONFIG['app']['timezone'] ?? 'UTC');
 
 // ---- Manejo de errores ----
@@ -88,6 +121,10 @@ if (APP_ENV === 'prod') {
 }
 
 // ---- Núcleo ----
+// Estos archivos definen funciones y constantes; no deberían consultar la base
+// ni producir salida al incluirse. Si alguno llegara a ejecutar algo al
+// cargarse, lo que use tiene que estar incluido antes: por eso db, helpers,
+// actividad y auth van primero.
 require APP . '/db.php';
 require APP . '/helpers.php';
 require APP . '/actividad.php';
@@ -120,6 +157,9 @@ $GLOBALS['SEV_MAP'] = [
     E_CORE_ERROR => 'E_CORE_ERROR', E_COMPILE_ERROR => 'E_COMPILE_ERROR',
 ];
 
+// Cada warning o error de PHP queda en la auditoría. `$dentro` evita la
+// recursión: si registrar el error produjera otro error (la base caída, por
+// ejemplo), ese segundo no se vuelve a intentar registrar.
 set_error_handler(static function (int $no, string $str, string $file = '', int $line = 0): bool {
     // Ignorar ruido (notices / deprecations); registrar warnings y peores.
     if ($no & (E_NOTICE | E_USER_NOTICE | E_DEPRECATED | E_USER_DEPRECATED)) { return false; }
@@ -132,6 +172,8 @@ set_error_handler(static function (int $no, string $str, string $file = '', int 
     return false;   // deja también el manejo estándar de PHP
 });
 
+// Excepción no atrapada: se registra y se muestra un texto genérico, nunca la
+// traza (podría llevar rutas del servidor o datos de la consulta).
 set_exception_handler(static function (\Throwable $e): void {
     if (function_exists('log_error')) {
         log_error('error.excepcion', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine());
@@ -141,6 +183,8 @@ set_exception_handler(static function (\Throwable $e): void {
     echo 'Ocurrió un error inesperado. Ya quedó registrado; reintentá en unos segundos.';
 });
 
+// Los errores fatales no pasan por set_error_handler: se recogen al terminar
+// el script con error_get_last().
 register_shutdown_function(static function (): void {
     $e = error_get_last();
     if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true) && function_exists('log_error')) {
@@ -153,6 +197,11 @@ register_shutdown_function(static function (): void {
 // llama es otro servidor, no una persona con navegador. Abrirle una sesión
 // dejaba un archivo nuevo en el servidor por cada consulta de horarios.
 if (PHP_SAPI !== 'cli' && !str_starts_with(current_route(), 'api/v1/')) {
+    // La cookie de sesión: sólo para la ruta de esta instalación (así /crm y
+    // /crm-pruebas no se pisan la sesión), invisible para JavaScript
+    // (httponly), no se manda en POST desde otros sitios (Lax) y sólo por
+    // HTTPS cuando se entró por HTTPS (también detrás del CDN, que avisa con
+    // X-Forwarded-Proto).
     $seguro = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
         || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
     session_set_cookie_params([
@@ -177,6 +226,8 @@ if (PHP_SAPI !== 'cli' && !str_starts_with(current_route(), 'api/v1/')) {
         $abs     = $ahora - (int)($_SESSION['login_en']         ?? $ahora);
         $venIdle = $idleTtl > 0 && $idle > $idleTtl;
         $venAbs  = $absTtl  > 0 && $abs  > $absTtl;
+        // Un TTL en 0 desactiva ese control. El texto del detalle dice
+        // «10 min» y «8 h» fijos aunque la configuración diga otra cosa.
         if ($venIdle || $venAbs) {
             $motivo = $venIdle ? 'inactividad' : 'expiro';
             $uid    = (int)$_SESSION['uid'];

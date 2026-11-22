@@ -2,6 +2,24 @@
 declare(strict_types=1);
 require_login();
 
+// ============================================================
+//  Ruta: POST /campana-accion  (con sesión y CSRF; módulo «campanas»).
+//  Los botones de la pantalla de la campaña (views/campana-ver.php):
+//    preparar  → arma la cola (campana_preparar).
+//    iniciar   → prepara la cola y pasa a 'enviando', o a 'programada' si
+//                tiene fecha de arranque a futuro. Si arranca ya, manda el
+//                primer correo después de contestar al navegador.
+//    pausar    → pasa a 'pausada'; los correos pendientes esperan.
+//    cancelar  → pasa a 'cancelada' y marca 'omitido' lo que no salió.
+//  Siempre vuelve a campana-ver con un aviso (flash).
+//
+//  Permisos: alcanza con tener sesión. No hay rol, ni chequeo de que la
+//  campaña sea de quien aprieta, ni paso de aprobación.
+//  Tampoco se valida la transición: «iniciar» funciona sobre una campaña
+//  completada o cancelada (la vuelve a poner a enviar a quien falte), y no
+//  se consulta campana_lista_para_enviar().
+// ============================================================
+
 if (!is_post()) { redirect('campanas'); }
 verify_csrf();
 
@@ -27,6 +45,10 @@ try {
             break;
 
         case 'iniciar':
+            // Mira la cuenta por defecto, no la que eligió la campaña: una
+            // campaña con su propia cuenta activa no arranca si no hay
+            // cuenta por defecto, y al revés pasa este control aunque su
+            // cuenta esté mal.
             if (!smtp_configurado()) {
                 throw new RuntimeException('Falta configurar la cuenta de salida en Ajustes.');
             }
@@ -54,6 +76,8 @@ try {
             break;
 
         case 'pausar':
+            // Un correo que el despachador ya tomó ('enviando') termina de
+            // salir igual; la pausa frena los siguientes.
             campana_estado($id, 'pausada');
             flash('Campaña pausada. Podés reanudarla cuando quieras.', 'info');
             break;
@@ -85,6 +109,10 @@ try {
  *
  * Si el cron justo está corriendo y toma el mismo correo, no se manda dos
  * veces: cada envío se reclama con un UPDATE condicional y sólo uno gana.
+ *
+ * finish_request() cierra la respuesta al navegador; lo que sigue corre sin
+ * nadie mirando y sin el turno del cron. Con presupuesto 0, el despachador
+ * manda uno, anota cuándo puede salir el siguiente y corta.
  */
 if (!empty($arrancarYa)) {
     header('Location: ' . url('campana-ver?id=' . $id));

@@ -1,4 +1,22 @@
-<?php /** @var array $rows @var ?string $nuevaClave @var ?string $nuevoSecreto @var ?string $nuevoScope @var bool $escrituraOk */ ?>
+<?php
+// ============================================================
+//  Vista de la pantalla API (pages/api-keys.php, sólo administradores).
+//
+//  Variables que recibe:
+//    · $rows         filas de api_tokens con `creador` (nombre de quien la creó);
+//    · $nuevaClave   la clave recién generada, sólo en la respuesta del POST
+//                    'crear' (null en cualquier otra carga);
+//    · $nuevoSecreto el secreto de firma, si la clave nueva es de escritura;
+//    · $nuevoScope   el permiso de la clave nueva (no se usa en la vista);
+//    · $escrituraOk  si la instalación puede emitir claves de escritura
+//                    (secreto propio de 32+ caracteres y migración 008).
+//
+//  La clave y el secreto se pintan una única vez y no vuelven a estar
+//  disponibles. La tarjeta «Cómo se usa» es la referencia rápida para quien
+//  integra; el contrato completo está en md/INTEGRACION-WEB.md.
+// ============================================================
+/** @var array $rows @var ?string $nuevaClave @var ?string $nuevoSecreto @var ?string $nuevoScope @var bool $escrituraOk */
+?>
 <div class="page-head" data-vivo="cabecera">
     <div>
         <h1>API</h1>
@@ -52,6 +70,7 @@
         dato('Cuerpo', 'JSON (Content-Type: application/json), hasta 16 KB');
         ?>
     </div>
+    <?php // Atención: esta fórmula está desactualizada; la real (api_firma_canonica) también firma la idempotencia y el hash de la IP, entre la ruta y el cuerpo. ?>
     <p class="muted small mt-3">
         La firma es <code class="mono">hex(HMAC-SHA256(secreto, hora + "\n" + MÉTODO + "\n" + ruta + "\n" + cuerpo))</code>.
         La hora va en segundos Unix y se acepta con hasta 5 minutos de diferencia. La ruta es la que
@@ -103,6 +122,7 @@
                 <tr><td colspan="7" class="empty">Todavía no hay claves. Se generan para que otro sistema
                     pueda leer los datos del CRM sin usar tu usuario. Si no vas a conectar nada, no hace falta ninguna.</td></tr>
             <?php else: foreach ($rows as $t): ?>
+                <?php // 'root' sólo existe si se cargó a mano en la base: desde esta pantalla no se crea. ?>
                 <?php [$permClase, $permTexto] = match ($t['scope']) {
                     'root'      => ['badge-rej',  'Acceso total'],
                     'escritura' => ['badge-warn', 'Escritura (web)'],

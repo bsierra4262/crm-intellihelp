@@ -2,6 +2,22 @@
 declare(strict_types=1);
 require_admin();
 
+// ============================================================
+//  Ruta `embudos` (sólo administradores): embudos de venta y sus etapas.
+//
+//  Acciones por POST (campo `accion`), todas con CSRF:
+//    · embudo_guardar         crea un embudo (con cinco etapas de arranque)
+//                             o, con id, le cambia nombre y estado;
+//    · embudo_predeterminado  marca cuál se usa por defecto;
+//    · etapa_guardar          crea o edita una etapa;
+//    · etapa_borrar           borra una etapa sin negocios vivos.
+//  El resultado se muestra en la misma pantalla ($aviso); no redirige, así
+//  que recargar la página vuelve a mandar el POST.
+//
+//  Tablas: embudos, etapas; lee negocios para saber qué etapas están en uso.
+//  Módulo «negocios». Vista: views/embudos.php.
+// ============================================================
+//
 // Administración de los embudos de venta y sus etapas.
 //
 // Existe porque sin ningún embudo cargado la pantalla del Embudo mostraba un
@@ -19,6 +35,8 @@ if (is_post()) {
             $nombre = trim((string)($_POST['nombre'] ?? ''));
             if ($nombre === '') { throw new RuntimeException('Poné un nombre para el embudo.'); }
             $id = (int)($_POST['id'] ?? 0);
+            // La vista no tiene formulario para editar un embudo existente: esta rama
+            // (cambiar nombre o desactivar) hoy no se usa desde la pantalla.
             if ($id) {
                 q('UPDATE embudos SET nombre = ?, activo = ? WHERE id = ?',
                   [$nombre, empty($_POST['activo']) ? 0 : 1, $id]);
@@ -30,8 +48,9 @@ if (is_post()) {
                 q('INSERT INTO embudos (nombre, activo, predeterminado, orden) VALUES (?, 1, ?, ?)',
                   [$nombre, $primero ? 1 : 0, $orden]);
                 $id = last_id();
-                // Un embudo sin etapas tampoco sirve: se arranca con las tres
-                // que tiene cualquier proceso de venta y después se ajustan.
+                // Un embudo sin etapas tampoco sirve: se arranca con las tres etapas en
+                // curso que tiene cualquier proceso de venta, más «Ganado» y «Perdido», y
+                // después se ajustan.
                 foreach ([['Contacto inicial', 10, 'abierta', '#663399', 1],
                           ['Propuesta enviada', 50, 'abierta', '#1f6f9c', 2],
                           ['Negociación', 75, 'abierta', '#a8620a', 3],
@@ -46,6 +65,8 @@ if (is_post()) {
 
         } elseif ($accion === 'embudo_predeterminado') {
             $id = (int)($_POST['id'] ?? 0);
+            // Dos UPDATE sin transacción: con un id que no existe, ningún embudo queda
+            // como predeterminado (embudo_predeterminado() toma entonces el primero).
             q('UPDATE embudos SET predeterminado = 0');
             q('UPDATE embudos SET predeterminado = 1, activo = 1 WHERE id = ?', [$id]);
             $aviso = ['success', 'Es el embudo que se usa por defecto.'];
@@ -65,10 +86,14 @@ if (is_post()) {
                 'activo'       => empty($_POST['activo']) ? 0 : 1,
             ];
             $id = (int)($_POST['id'] ?? 0);
+            // Cambiar el tipo de una etapa con negocios adentro (de abierta a ganada,
+            // por ejemplo) no toca cerrado_en ni la probabilidad de esos negocios.
             if ($id) {
                 $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($campos)));
                 q("UPDATE etapas SET $sets WHERE id = ?", [...array_values($campos), $id]);
             } else {
+                // Sin embudo_id válido el INSERT falla por la clave foránea y el error de
+                // la base se muestra en el aviso.
                 $campos['embudo_id'] = (int)($_POST['embudo_id'] ?? 0);
                 $cols = implode(', ', array_keys($campos));
                 $ph   = implode(', ', array_fill(0, count($campos), '?'));
@@ -83,6 +108,10 @@ if (is_post()) {
             // Una etapa con negocios adentro no se borra: esos negocios
             // quedarían apuntando a una etapa que no existe y desaparecerían
             // del embudo sin que nadie se entere.
+            // Cuenta sólo los negocios vivos. Si hay alguno en la papelera en esa etapa,
+            // el DELETE falla por la clave foránea de negocios.etapa_id y se muestra el
+            // error de la base. Los tramos de negocio_etapas no tienen clave foránea y
+            // quedan apuntando a una etapa que ya no existe.
             $n = (int) qv('SELECT COUNT(*) FROM negocios WHERE etapa_id = ? AND eliminado_en IS NULL', [$id]);
             if ($n > 0) {
                 throw new RuntimeException("No se puede borrar: hay $n negocio(s) en esa etapa. "
@@ -97,6 +126,8 @@ if (is_post()) {
     }
 }
 
+// Se listan también los embudos y las etapas inactivos: es la pantalla donde
+// se vuelven a activar.
 $lista = q('SELECT * FROM embudos ORDER BY orden, id')->fetchAll();
 $etapas = [];
 foreach (q('SELECT * FROM etapas ORDER BY embudo_id, orden, id')->fetchAll() as $e) {

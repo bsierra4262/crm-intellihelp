@@ -1,5 +1,27 @@
 <?php
+// ============================================================
+//  Vista: formulario de alta y edición de una empresa (cuenta).
+//
+//  La dibuja pages/cuenta-form.php. Módulo: núcleo (Empresas).
+//
+//  Variables que recibe:
+//    $c        array|null  la ficha, o la ficha mezclada con el POST si hubo errores
+//    $id       int         0 en un alta
+//    $errores  array       campo => mensaje
+//    $usuarios array       usuarios activos, para el propietario
+//
+//  El selector de sector se llena por JavaScript a partir de `data-mapa`
+//  (sectores_por_tipo() en JSON) según el tipo elegido; `data-elegido` lleva
+//  el sector guardado para volver a marcarlo. Sin JavaScript queda vacío y,
+//  como es `required`, el formulario no se puede mandar.
+//  El servidor no comprueba que tipo y sector estén en esas listas.
+//
+//  `sitio_web` y `linkedin` son type="url": el navegador exige el esquema
+//  (https://), aunque el ejemplo del campo lo muestre sin él.
+// ============================================================
+
 /** @var ?array $c @var int $id @var array $errores @var array $usuarios */
+// Atajo: el valor del campo ya escapado para HTML, con un valor por defecto.
 $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
 
 // Lo que le falta a esta ficha, marcado ahí mismo: abrir una empresa pendiente
@@ -11,7 +33,9 @@ if ($id) {
         if (isset($mapa[$qf])) { $faltaCampo[$mapa[$qf]] = $qf; }
     }
 }
+/** Clase CSS que marca visualmente un campo que hay que completar. */
 $falta = fn(string $campo) => isset($faltaCampo[$campo]) ? ' falta' : '';
+/** Escribe debajo del campo el aviso de que ese dato falta; nada si está completo. */
 $avisoFalta = function (string $campo) use ($faltaCampo) {
     if (!isset($faltaCampo[$campo])) { return; }
     echo '<i class="hint pendiente">Falta este dato para que la ficha quede aprobada.</i>';
@@ -70,6 +94,7 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <i class="hint">El rubro. La lista cambia según el tipo que elijas arriba.</i>
                 <?php $avisoFalta('sector'); ?>
             </label>
+            <?php // Se muestra con guiones; cuenta_guardar() lo guarda normalizado, sólo los once números. ?>
             <label class="fld<?= $falta('cuit') ?>"><span>CUIT <i class="req">*</i></span>
                 <input name="cuit" value="<?= e(formatear_cuit($c['cuit'] ?? '')) ?>" maxlength="13" required placeholder="30-12345678-1"
                        data-solo="cuit" inputmode="numeric" pattern="[0-9]{2}-?[0-9]{8}-?[0-9]" title="Once números: 30-12345678-1">
@@ -84,6 +109,7 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <input type="number" name="empleados" value="<?= $v('empleados') ?>" min="0" step="1">
                 <i class="hint">Cuánta gente tiene. Ayuda a dimensionar la propuesta.</i>
             </label>
+            <?php // Sin propietario cargado se preselecciona a quien edita: guardar sin tocarlo le asigna la empresa. ?>
             <label class="fld"><span>Propietario</span>
                 <select name="propietario_id">
                     <option value="">— Sin asignar —</option>

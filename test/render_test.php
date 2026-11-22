@@ -21,11 +21,42 @@ declare(strict_types=1);
 //    php test/render_test.php --limpiar WEB   → borra el usuario de prueba
 //
 //  Necesita la base de datos (usa la configuración desplegada).
+//
+//  Contra qué instalación: la del webroot WEB (segundo argumento) o, si no
+//  se pasa, CRM_WEB, y si tampoco, la de PRODUCCIÓN (public_html/crm). Se
+//  corre en el servidor por SSH; no lo lanza `deploy.py test`.
+//
+//  ESCRIBE EN LA BASE de esa instalación: crea (si no existe) el usuario
+//  administrador render.test@intellihelp.tech, y lo que alguna pantalla
+//  anote en la tabla actividad queda a su nombre. `--limpiar` borra ese
+//  usuario y su actividad; render.sh lo llama al final. Las pantallas se
+//  piden por GET (no se envía ningún formulario), pero alguna hace trabajo
+//  al abrirse: la de feriados, por ejemplo, puede sincronizar el calendario
+//  oficial (sale a internet y escribe la tabla feriados). Se entra directo
+//  a app/pages/<ruta>.php, sin pasar por index.php: no se aplican los
+//  permisos ni los módulos de la ruta.
+//
+//  Resultado de una pantalla: imprime «ok <bytes>» y sale con 0, o un
+//  mensaje por STDERR y un código: 2 error de PHP o excepción, 3 salida
+//  demasiado corta, 4 sin layout, 5 la vista cayó en la pantalla de error,
+//  6 el refresco trajo el layout, 7 el refresco sin zonas, 8 sin huella.
+//  Una ficha cuya tabla está vacía se da por buena con «ok 0».
 // ============================================================
 
+// Webroot por defecto: PRODUCCIÓN. Para correr contra pruebas hay que pasar
+// el webroot de crm-pruebas como argumento o en CRM_WEB.
 $RAIZ = getenv('CRM_WEB') ?: '/home/u566451014/domains/intellihelp.tech/public_html/crm';
 
-/** Rutas a probar: ruta => parámetros GET. */
+/**
+ * Pantallas a probar: clave => parámetros GET.
+ *
+ * Claves especiales dentro de los parámetros (se quitan antes del pedido):
+ *   _r          ruta real, cuando la clave es un alias («contactos:filtro»)
+ *   _sin_sesion pedir la pantalla sin sesión iniciada
+ *   _id_de      tabla de la que se toma el menor id vivo para ?id=
+ *   _email_de   tabla de mensajes de la que se toma un remitente para ?email=
+ *   _vivo       pedir con __vivo=1, como el refresco automático
+ */
 function rutas_a_probar(): array
 {
     return [
@@ -111,6 +142,8 @@ function rutas_a_probar(): array
     ];
 }
 
+// Argumentos: $modo es la clave de la pantalla (o --rutas / --limpiar) y $web
+// el webroot de la instalación.
 $modo = $argv[1] ?? '--rutas';
 $web  = $argv[2] ?? $RAIZ;
 
@@ -132,6 +165,7 @@ if ($modo === '--limpiar') {
 // ------------------------------------------------------------
 //  Ejecuta UNA pantalla y dice qué pasó.
 // ------------------------------------------------------------
+// Bloque suelto (sin función) sólo para agrupar: todo lo de acá termina en exit.
 {
     $clave  = $modo;
     $rutas  = rutas_a_probar();
@@ -144,6 +178,8 @@ if ($modo === '--limpiar') {
     unset($params['_r'], $params['_sin_sesion'], $params['_id_de'], $params['_vivo'], $params['_email_de']);
     if ($vivo) { $params['__vivo'] = '1'; }
 
+    // La URI se arma siempre bajo /crm/, también contra pruebas; el bootstrap y
+    // las vistas la usan para rutas y enlaces.
     // Fingir una request web para que el bootstrap y las vistas funcionen.
     $_SERVER['REQUEST_METHOD'] = 'GET';
     $_SERVER['HTTP_HOST']      = 'intellihelp.tech';
@@ -171,6 +207,8 @@ if ($modo === '--limpiar') {
         $_GET['id'] = (int)$id;
     }
 
+    // $_SESSION se completa DESPUÉS del bootstrap a propósito: la sesión ya
+    // arrancó y las páginas leen uid y _csrf de ahí.
     // Sesión falsa de administrador. El usuario de prueba se crea si no está y
     // se borra al final de la batería.
     if ($sinSesion) {
@@ -222,6 +260,8 @@ if ($modo === '--limpiar') {
     }
 
     // Las páginas escriben cabeceras; en CLI eso no molesta.
+    // Pantalla normal: la página escribe en el búfer y, si no termina con exit
+    // (redirect, refresco), se analiza la salida acá abajo.
     ob_start();
     try {
         require APP . '/pages/' . $ruta . '.php';

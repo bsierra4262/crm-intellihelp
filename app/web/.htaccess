@@ -1,6 +1,18 @@
 # ============================================================
 #  CRM INTELLIHELP  ·  public_html/crm  (crm.intellihelp.tech)
 #  Aísla esta carpeta del WordPress + Wordfence del raíz.
+#
+#  Es el mismo archivo en las dos instalaciones (crm/ producción y
+#  crm-pruebas/ pruebas). Hace cuatro cosas:
+#    · desactiva el WAF de Wordfence que el raíz antepone a todo PHP;
+#    · manda el subdominio a la dirección oficial (sólo producción);
+#    · sirve tal cual los archivos reales y pasa todo lo demás a index.php
+#      con la ruta en ?r= (el ruteo de verdad lo hace index.php);
+#    · niega por HTTP los archivos sensibles y fija el caché de los assets.
+#  La carpeta app/ (código, vistas) tiene su propio .htaccess que niega todo.
+#
+#  Ojo: el .htaccess del raíz (WordPress) todavía no excluye /crm, y parte de
+#  los pedidos terminan atendidos por WordPress antes de llegar acá.
 # ============================================================
 
 # Desactivar el WAF de Wordfence (auto_prepend_file del raíz) para esta app
@@ -22,6 +34,7 @@ php_value auto_prepend_file none
 #   crm-pruebas/  → crm_config/crm-pruebas.php
 # y el almacenamiento sale de ese mismo archivo.
 
+# Sin listado de carpetas: una carpeta sin index no muestra su contenido.
 DirectoryIndex index.php
 Options -Indexes
 
@@ -52,6 +65,8 @@ Options -Indexes
 </IfModule>
 
 # Proteger archivos sensibles
+# Sólo se listan extensiones: un respaldo suelto (.bak, .env, .txt, .sh) o un
+# config.local.php servido sin PHP no queda cubierto por esta regla.
 <FilesMatch "\.(sql|md|json|lock|log|ini|yml|py)$">
     Require all denied
 </FilesMatch>

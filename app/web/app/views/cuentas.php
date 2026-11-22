@@ -1,3 +1,23 @@
+<?php
+// ============================================================
+//  Vista: listado de empresas.
+//
+//  La dibuja pages/cuentas.php. Filtros (GET), barra de selección para
+//  aprobar o devolver a pendientes (POST a la misma página), tabla paginada
+//  y borrado por fila (POST a `registro-eliminar`).
+//
+//  Variables que recibe:
+//    $f         array  filtros (q, propietario_id, provincia, tipo, sector,
+//                      pendiente, page). `sector` se acepta en la dirección
+//                      pero no tiene selector en pantalla.
+//    $data      array  cuentas_listar(): rows (con n_contactos), total y paginación
+//    $usuarios  array  usuarios activos, para el filtro de propietario
+//
+//  Trampa: la columna «Estado» mira sólo `pendiente_norm`, no `aprobado_en`;
+//  una empresa aprobada sin completar sigue saliendo «Pendiente».
+//  Borrar una empresa no toca sus contactos: siguen apuntando a ella.
+// ============================================================
+?>
 <?php /** @var array $f @var array $data @var array $usuarios */ ?>
 <div class="page-head" data-vivo="cabecera">
     <div>
@@ -88,6 +108,7 @@
             </thead>
             <tbody>
             <?php if (!$data['rows']): ?>
+                <?php // La tabla tiene 10 columnas; el colspan quedó en 8. ?>
                 <tr><td colspan="8" class="empty">No hay empresas que coincidan con el filtro.</td></tr>
             <?php else: foreach ($data['rows'] as $c): ?>
                 <tr>
@@ -111,6 +132,7 @@
                     <td data-label="Localidad" class="prio-3"><?= e($c['localidad'] ?: $c['provincia'] ?: '—') ?></td>
                     <td data-label="Sitio web" class="prio-4">
                         <?php if ($c['sitio_web']): ?>
+                            <?php // Sin esquema se le antepone https://: así el enlace no puede quedar como javascript: ni relativo. ?>
                             <a href="<?= e(preg_match('#^https?://#i', $c['sitio_web']) ? $c['sitio_web'] : 'https://' . $c['sitio_web']) ?>" target="_blank" rel="noopener"><?= e(recortar($c['sitio_web'], 26)) ?></a>
                         <?php else: ?><span class="muted">—</span><?php endif; ?>
                     </td>

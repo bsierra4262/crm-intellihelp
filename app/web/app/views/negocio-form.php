@@ -1,6 +1,23 @@
 <?php
+// ============================================================
+//  Vista del formulario de negocio (alta y edición).
+//
+//  La dibuja pages/negocio-form.php y postea a la misma ruta. Recibe:
+//    $n         los datos del negocio (o lo precargado / lo recién enviado)
+//    $id        0 en el alta
+//    $errores   campo => mensaje
+//    $usuarios  usuarios activos (propietario)
+//    $etapas    etapas del embudo PREDETERMINADO
+//    $cuentas, $contactos (hasta 3.000 cada uno), $campanas (hasta 200)
+//
+//  Cuidado con los desplegables: si el valor guardado no está entre las
+//  opciones, ninguna queda marcada y el navegador manda la primera (o la
+//  vacía). Así, guardar sin tocar nada puede cambiar la etapa, la empresa,
+//  el contacto, la campaña o el propietario (ver auditoría).
+// ============================================================
 /** @var ?array $n @var int $id @var array $errores @var array $usuarios @var array $etapas
  *  @var array $cuentas @var array $contactos @var array $campanas */
+// Atajo para los value=: el dato del negocio ya escapado, o $def si no hay.
 $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
 ?>
 <div class="page-head">
@@ -24,6 +41,7 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
                 <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus placeholder="Renovacion de equipamiento - Distribuidora del Sur">
                 <?php if (isset($errores['nombre'])): ?><i class="hint bad"><?= e($errores['nombre']) ?></i><?php endif; ?>
             </label>
+            <?php // Sólo etapas del embudo predeterminado: un negocio de otro embudo no encuentra la suya y al guardar se muda a la primera etapa de éste. ?>
             <label class="fld"><span>Etapa</span>
                 <select name="etapa_id">
                     <?php foreach ($etapas as $et): ?>
@@ -34,11 +52,13 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
                 </select>
                 <i class="hint">La probabilidad se toma de la etapa salvo que la cambies abajo.</i>
             </label>
+            <?php // Se precarga con la probabilidad guardada; vacío, negocio_guardar() toma la de la etapa. En una edición nunca llega vacío, así que cambiar la etapa acá no actualiza la probabilidad. ?>
             <label class="fld"><span>Probabilidad (%)</span>
                 <input type="number" name="probabilidad" value="<?= $v('probabilidad') ?>" min="0" max="100" placeholder="según la etapa">
                 <i class="hint">Qué tan probable es cerrarlo, de 0 a 100. Si lo dejás vacío toma la de la etapa. Es lo que multiplica el importe en el «ponderado» de Reportes.</i>
             </label>
 
+            <?php // type="number": el navegador manda punto decimal y sin separador de miles, que es lo que espera negocio_guardar(). ?>
             <label class="fld"><span>Importe</span>
                 <input type="number" name="importe" value="<?= $v('importe', '0') ?>" inputmode="decimal" step="0.01" min="0">
                 <i class="hint">Cuánto vale el negocio si se cierra. Es lo que suma en el embudo y en el pronóstico.</i>
@@ -54,6 +74,7 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
                 <input type="date" name="fecha_cierre" value="<?= $v('fecha_cierre') ?>">
                 <i class="hint">Cuándo esperás cerrarlo. Es lo que ubica el negocio en el pronóstico del mes.</i>
             </label>
+            <?php // Sólo usuarios activos: si el dueño actual está dado de baja no aparece y se marca otro. ?>
             <label class="fld"><span>Propietario</span>
                 <select name="propietario_id">
                     <?php foreach ($usuarios as $u): ?>
@@ -68,6 +89,7 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
     <div class="card form-card">
         <h2 class="sec">Con quién</h2>
         <div class="grid-fields">
+            <?php // Lista cortada en 3.000 por nombre: una empresa más allá no figura, queda marcado «Sin empresa» y al guardar se pierde el vínculo. ?>
             <label class="fld wide"><span>Empresa</span>
                 <select name="cuenta_id">
                     <option value="">— Sin empresa —</option>
@@ -77,6 +99,7 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
                 </select>
                 <i class="hint">La empresa que compra.</i>
             </label>
+            <?php // Mismo corte en 3.000 que las empresas, con el mismo riesgo para el contacto. El contacto no se filtra por la empresa elegida. ?>
             <label class="fld wide"><span>Contacto principal</span>
                 <select name="contacto_id">
                     <option value="">— Sin contacto —</option>
@@ -104,6 +127,7 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
                 </select>
                 <i class="hint">De dónde salió la oportunidad.</i>
             </label>
+            <?php // Sólo las últimas 200 campañas. ?>
             <label class="fld wide"><span>Campaña de origen</span>
                 <select name="campana_id">
                     <option value="">— Ninguna —</option>

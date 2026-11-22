@@ -1,11 +1,23 @@
 <?php
 declare(strict_types=1);
 
+// ============================================================
+//  Arranque del login con Google.
+//
+//  Ruta: GET google-login (pública). Genera el `state` anti-CSRF, lo deja en
+//  la sesión de PHP y manda al navegador a la pantalla de Google; la vuelta
+//  la atiende google-callback.php. El botón «Reconectar con Google» de
+//  views/_aviso_gcal.php llega acá con ?conectar=1, que no cambia nada: el
+//  flujo es siempre el mismo.
+// ============================================================
+
 if (!google_enabled()) {
     flash('El acceso con Google no está configurado. Avisale al administrador.', 'error');
     redirect('login');
 }
 
+// 128 bits al azar. Un solo state por sesión: si se abren dos pestañas de
+// login, sólo la última puede terminar.
 $_SESSION['oauth_state'] = bin2hex(random_bytes(16));
 
 // SIEMPRE se piden todos los permisos, en cada ingreso.

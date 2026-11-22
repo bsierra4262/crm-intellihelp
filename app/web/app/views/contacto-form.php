@@ -1,5 +1,32 @@
 <?php
+// ============================================================
+//  Vista: formulario de alta y edición de un contacto.
+//
+//  La dibuja pages/contacto-form.php (ruta `contacto-form`, `?id=` para
+//  editar). Módulo: núcleo (Contactos), siempre encendido.
+//
+//  Variables que recibe:
+//    $c        array|null  la ficha (en edición) o lo que se acaba de mandar
+//                          (si hubo errores: la página mezcla la ficha con el POST)
+//    $id       int         0 en un alta
+//    $errores  array       campo => mensaje, de la validación del servidor
+//    $usuarios array       usuarios activos, para el propietario
+//    $cuentas  array       id y nombre de las empresas (hasta 3000)
+//
+//  Trampas:
+//    · el `required` de los campos es una comodidad del navegador; la regla
+//      real la aplica la página con contacto_falta().
+//    · el selector de empresa es `required`, así que el navegador no deja
+//      mandar el formulario con la empresa vacía aunque se haya escrito una
+//      nueva en «crear una empresa nueva» (ver el reporte de auditoría).
+//    · la casilla «No incluirlo en campañas» no va acompañada de un campo
+//      oculto: desmarcada no viaja en el POST, y contacto_guardar() sólo toca
+//      `no_email` cuando la clave viene. Desmarcarla no la limpia.
+//    · todo lo que sale de la ficha pasa por e() (directo o con $v).
+// ============================================================
+
 /** @var ?array $c @var int $id @var array $errores @var array $usuarios @var array $cuentas */
+// Atajo: el valor del campo ya escapado para HTML, con un valor por defecto.
 $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
 
 // Qué le falta a esta ficha. Abrir para editar una ficha marcada como pendiente
@@ -15,6 +42,10 @@ if ($id) {
 }
 /** Marca visualmente un campo que hay que completar. */
 $falta = fn(string $campo) => isset($faltaCampo[$campo]) ? ' falta' : '';
+/**
+ * Escribe, debajo del campo, el aviso de que ese dato falta para aprobar la
+ * ficha. No escribe nada si el campo está completo.
+ */
 $avisoFalta = function (string $campo) use ($faltaCampo) {
     if (!isset($faltaCampo[$campo])) { return; }
     echo '<i class="hint pendiente">Falta este dato para que la ficha quede aprobada.</i>';
@@ -75,12 +106,14 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 </select>
                 <i class="hint">La empresa donde trabaja. Si todavía no está cargada, usá el campo de abajo.</i>
             </label>
+            <?php // La página crea la empresa con cuenta_asegurar() sólo si el selector de arriba llega vacío. ?>
             <label class="fld wide"><span>…o crear una empresa nueva</span>
                 <input name="cuenta_nueva" placeholder="Escribí el nombre y se crea sola al guardar" maxlength="200">
                 <i class="hint">Se crea la empresa al guardar, sin tener que salir de esta pantalla.</i>
             </label>
 
             <label class="fld"><span>Propietario</span>
+                <?php // Sin propietario cargado se preselecciona a quien edita: guardar sin tocarlo le asigna la ficha. ?>
                 <select name="propietario_id">
                     <option value="">— Sin asignar —</option>
                     <?php foreach ($usuarios as $u): ?>
@@ -137,6 +170,7 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="empresa.com">
                 <i class="hint">El sitio personal, si tiene. El de la empresa va en la ficha de la empresa.</i>
             </label>
+            <?php // Desmarcada no viaja en el POST: ver la trampa del encabezado. ?>
             <div class="fld wide abajo">
                 <label class="switch">
                     <input type="checkbox" name="no_email" value="1" <?= !empty($c['no_email']) ? 'checked' : '' ?>>

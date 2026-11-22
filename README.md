@@ -538,7 +538,7 @@ app/
 bin/                    # deploy.py (subida, migraciones, pruebas, verificación de sintaxis)
 test/                   # run_tests.php · ui_test.php · smoke.sh · render.sh · api_test.php
                         #   + verificar_unificacion.py (238 comprobaciones en total)
-md/                     # documento maestro, referencia de Zoho, requerimientos
+md/                     # documento maestro, auditoría, referencia de Zoho, requerimientos
 docs/                   # banner y capturas de pantalla
 ```
 

@@ -9,6 +9,14 @@
 --
 --  La firma es por casilla y no por usuario, porque es la casilla la que
 --  representa a un área: lo que sale de la cuenta de RRHH firma como RRHH.
+--  (Ojo: `usuarios.firma_html`, en schema.sql, es otra firma, por usuario.)
+--
+--  La escribe la pantalla de Casillas; cuenta_a_config() la entrega junto
+--  con la configuración SMTP para que salga con todo lo que se mande desde
+--  esa casilla.
+--
+--  ADD COLUMN IF NOT EXISTS es sintaxis de MariaDB: en MySQL 8 esta
+--  sentencia falla. Requiere la migración 002 (que crea `cuentas_correo`).
 -- ============================================================
 
 ALTER TABLE `cuentas_correo`

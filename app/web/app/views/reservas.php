@@ -1,4 +1,18 @@
 <?php /** @var array $f @var array $rows @var array $data @var array $llego @var array $feriados */
+// ============================================================
+//  Vista «Reuniones reservadas» (la arma pages/reservas.php).
+//
+//  Recibe:
+//    · $f ........ filtros (estado, q, todos, page)
+//    · $rows ..... reservas de la página, con `tipo` y `usuario` (quien la atiende)
+//    · $llego .... id de reserva => fila de entradas_web (canal, origen_pagina)
+//    · $feriados . feriados del rango de fechas de la página, por fecha
+//    · $data ..... paginación (paginar()) + total
+//
+//  Acciones por fila confirmada: mover (link a `reserva-mover`) y cancelar
+//  (POST con CSRF a `reserva-accion`, con confirmación). La columna «Llegó
+//  por» cae en el `origen` de la reserva si no hay entrada de la web.
+// ============================================================
 $llego = $llego ?? [];
 $feriados = $feriados ?? [];
 $origenes = ['web' => 'Sitio web', 'publica' => 'Agenda pública', 'crm' => 'Desde el CRM'];

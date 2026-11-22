@@ -1,4 +1,31 @@
-<?php /** @var ?array $aviso @var callable $s @var bool $smtp @var bool $imap @var string $cron @var array $cuentas */ ?>
+<?php
+// ============================================================
+//  Vista de Ajustes. La dibuja pages/ajustes.php (sólo administradores).
+//
+//  Variables que recibe:
+//    · $aviso   ?array [tipo, texto]: resultado de la última acción, o null.
+//    · $s       callable($clave, $defecto): lee un ajuste de app_settings.
+//    · $smtp    bool: hay correo de salida configurado.
+//    · $imap    bool: hay casilla de entrada configurada.
+//    · $cron    string: fecha de la última corrida del cron ('' si nunca).
+//    · $cuentas array: las casillas de cuentas_correo (id, nombre, remitente,
+//      activo, predeterminada).
+//  Además consulta por su cuenta datos_prueba_resumen(), modulos(),
+//  notif_tipos() y setting_get().
+//
+//  Formularios: uno grande (accion=guardar, con el botón de borrar los datos
+//  de prueba adentro) y, al final, tres chicos para probar el correo y
+//  revisar las casillas. Todos llevan su token CSRF.
+//
+//  Todo dato que sale de la base o del usuario se imprime con e(); los
+//  números con (int).
+//
+//  Los «hint» de cada campo explican la regla, pero los límites (min, max,
+//  pattern, maxlength) los controla sólo el navegador: el servidor guarda lo
+//  que llegue.
+// ============================================================
+/** @var ?array $aviso @var callable $s @var bool $smtp @var bool $imap @var string $cron @var array $cuentas */
+?>
 <div class="page-head">
     <div>
         <h1>Ajustes</h1>
@@ -9,6 +36,7 @@
 <?php if ($aviso): ?><div class="flash flash-<?= e($aviso[0]) ?>"><?= e($aviso[1]) ?></div><?php endif; ?>
 <?php include APP . '/views/_aviso_gcal.php'; ?>
 
+<?php // Tablero de estado: correo, casilla, modo y cron, de un vistazo. ?>
 <div class="cards">
     <div class="card stat">
         <span class="stat-label">Correo de salida</span>
@@ -21,6 +49,7 @@
         <span class="stat-foot"><?= $imap ? 'Se leen rebotes y respuestas' : 'No se detectan rebotes' ?></span>
     </div>
     <div class="card stat">
+        <?php // Cualquier valor de app_entorno distinto de 'testing' se muestra (y se comporta) como Producción. ?>
         <span class="stat-label">Modo</span>
         <span class="stat-value sm"><?= $s('app_entorno', 'testing') === 'testing' ? 'Prueba' : 'Producción' ?></span>
         <span class="stat-foot"><?= $s('app_entorno', 'testing') === 'testing'
@@ -34,8 +63,10 @@
     </div>
 </div>
 
+<?php // El formulario grande: todo lo que se guarda con «Guardar ajustes». ?>
 <form method="post" class="form-wrap">
     <?= csrf_field() ?>
+    <?php // Va antes que el botón de «Borrar los datos de prueba»: si se envía con ese botón, PHP se queda con el último `accion` (el del botón). ?>
     <input type="hidden" name="accion" value="guardar">
 
     <div class="card form-card">
@@ -45,6 +76,7 @@
                 <input name="app_nombre" value="<?= e($s('app_nombre', 'CRM INTELLIHELP')) ?>" maxlength="80" placeholder="CRM INTELLIHELP">
                 <i class="hint">Lo que se lee en la pestaña del navegador y en el pie de las pantallas.</i>
             </label>
+            <?php // Esta es la única traba contra «reiniciar todo»: cualquier administrador puede volver a «Prueba» desde acá, y el cambio no pide confirmación aparte. ?>
             <label class="fld"><span>Modo de trabajo</span>
                 <select name="app_entorno">
                     <option value="testing"    <?= $s('app_entorno', 'testing') === 'testing' ? 'selected' : '' ?>>Prueba (se puede reiniciar todo)</option>
@@ -77,6 +109,7 @@
                 cuando pases a Producción.
             <?php endif; ?>
         </p>
+        <?php // Un interruptor por módulo de modulos.php (name="modulo_<clave>"). Apagado no se envía: la página lo guarda en '0' por no recibirlo. ?>
         <div class="modulos">
             <?php foreach (modulos() as $clave => $m): ?>
                 <label class="modulo">
@@ -119,6 +152,13 @@
                 Inexistente» y compañía van a aparecer entre tus contactos. Las plantillas
                 <strong>no</strong> se borran: son el punto de partida de las campañas de verdad.
             </p>
+            <?php
+            // Está DENTRO del formulario grande y se distingue sólo por su
+            // name/value. formnovalidate deja borrar aunque algún campo de
+            // ajustes no pase la validación del navegador. Con data-confirmar,
+            // app.js confirma y envía con form.submit(), que no incluye el
+            // valor del botón: ver la nota en pages/ajustes.php.
+            ?>
             <div class="mt-3">
                 <button class="btn btn-ghost" name="accion" value="limpiar_prueba" formnovalidate
                         data-peligro data-confirmar-titulo="Borrar los datos de prueba"
@@ -146,14 +186,17 @@
                 <input name="empresa_web" value="<?= e($s('empresa_web')) ?>" maxlength="190" placeholder="intellihelp.tech">
                 <i class="hint">Va en el encabezado del correo y en la variable {{empresa_web}}. Sin http:// adelante.</i>
             </label>
+            <?php // type="tel": campos.js borra al vuelo lo que no sea número o + ( ) . - y espacio. El pattern es TELEFONO_PATRON (crm.php), sólo del lado del navegador. ?>
             <label class="fld"><span>Teléfono</span>
                 <input type="tel" inputmode="tel" name="empresa_telefono" value="<?= e($s('empresa_telefono')) ?>" maxlength="60" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios." placeholder="11 7700-6868">
                 <i class="hint">El fijo, para el bloque de datos de contacto del correo. El de WhatsApp va en el campo de al lado.</i>
             </label>
+            <?php // El hint pide sin «+», pero el pattern y campos.js lo aceptan: nada lo impide. ?>
             <label class="fld"><span>WhatsApp</span>
                 <input type="tel" inputmode="tel" name="empresa_whatsapp" value="<?= e($s('empresa_whatsapp')) ?>" maxlength="60" placeholder="5491150274827" pattern="<?= e(TELEFONO_PATRON) ?>" title="Sólo números, y al menos seis. Se aceptan + ( ) - . y espacios.">
                 <i class="hint">Sólo números, con código de país y sin el «+». Es el que usa el botón de WhatsApp.</i>
             </label>
+            <?php // Campo de texto común, no type="email": no hay ninguna validación de formato, ni acá ni en el servidor. ?>
             <label class="fld wide"><span>Correo de contacto</span>
                 <input name="empresa_email" value="<?= e($s('empresa_email')) ?>" maxlength="190" placeholder="info@intellihelp.tech">
                 <i class="hint">El que se muestra en el correo para que te escriban. No es el mismo que la casilla desde la que se envía.</i>
@@ -178,6 +221,12 @@
         <?php else: ?>
             <div class="grid-fields">
                 <label class="fld wide"><span>Casilla por defecto</span>
+                    <?php
+                    // Si ninguna casilla está marcada como predeterminada, el
+                    // navegador deja elegida la primera y «Guardar ajustes» la
+                    // convierte en la predeterminada sin que nadie la haya
+                    // elegido. Las inactivas también se ofrecen.
+                    ?>
                     <select name="cuenta_predeterminada">
                         <?php foreach ($cuentas as $cu): ?>
                             <option value="<?= (int)$cu['id'] ?>" <?= !empty($cu['predeterminada']) ? 'selected' : '' ?>>
@@ -207,6 +256,13 @@
             además querés que te llegue un correo, para enterarte sin tener el CRM abierto.
             Se agrupan: cinco cosas en diez minutos son un correo, no cinco.
         </p>
+        <?php
+        // Un interruptor por tipo de alerta, salvo 'sistema', que no se
+        // ofrece. Como la página pone en '0' todo tipo que no llega en el
+        // POST, guardar esta pantalla apaga siempre los avisos de 'sistema'.
+        // Los valores por defecto (todo encendido menos 'rebote') tienen que
+        // coincidir con los de notif_enviar_pendientes() en notificaciones.php.
+        ?>
         <?php foreach (notif_tipos() as $k => $t): if ($k === 'sistema') continue; ?>
             <label class="switch bloque mb-3">
                 <input type="checkbox" name="<?= e($t['ajuste']) ?>" value="1"
@@ -217,6 +273,12 @@
             </label>
         <?php endforeach; ?>
         <div class="grid-fields">
+            <?php
+            // Lista separada por comas, guardada sin validar. Al mandar los
+            // avisos se descartan las direcciones inválidas; si TODAS lo son,
+            // los avisos se marcan como enviados sin mandarse (no se cae a los
+            // administradores, eso pasa sólo con el campo vacío).
+            ?>
             <label class="fld wide"><span>A qué dirección avisamos</span>
                 <input name="avisar_email_a" value="<?= e($s('avisar_email_a')) ?>" maxlength="500"
                        placeholder="bsierra@intellihelp.tech, ventas@intellihelp.tech">
@@ -228,6 +290,14 @@
 
     <div class="card form-card">
         <h2 class="sec">Ritmo por defecto de las campañas</h2>
+        <?php
+        // Ningún campo de esta tarjeta es obligatorio y el servidor no los
+        // valida: se puede guardar vacío, o una pausa mínima mayor que la
+        // máxima. Vaciar «Días en la papelera» deja '' guardado, que
+        // campanas.php lee como 0 y lleva a 1 día (max(1, ...)).
+        // La clave del cron se muestra en claro (sólo la ven administradores)
+        // y viaja en la URL del cron por web.
+        ?>
         <div class="grid-fields">
             <label class="fld"><span>Pausa mínima (seg)</span><input type="number" name="campana_pausa_min" value="<?= e($s('campana_pausa_min', '25')) ?>" min="5">
                 <i class="hint">El valor con el que arranca cada campaña nueva. Después se puede cambiar campaña por campaña.</i>
@@ -254,6 +324,7 @@
     </div>
 </form>
 
+<?php // Acciones sueltas, fuera del formulario grande: cada botón tiene su propio formulario con su `accion`. No guardan los ajustes que se hayan cambiado arriba sin guardar. ?>
 <div class="card mt-4">
     <div class="card-head"><h2>Probar la configuración</h2></div>
     <div class="urow">

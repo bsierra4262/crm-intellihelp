@@ -16,9 +16,25 @@ declare(strict_types=1);
 //     Gmail y Outlook la usan para no marcarnos como spam.
 //   · La pausa entre correos NO vive acá sino en el despachador (cron):
 //     esta función manda uno y vuelve.
+//
+//  Quién lo usa: campanas.php (campanas_despachar, con sesión abierta entre
+//  correos) y todo el que manda un correo suelto con enviar_correo_simple()
+//  (agenda, avisos, pruebas de Ajustes). Es núcleo: no depende de que el
+//  módulo de campañas esté encendido.
+//
+//  No toca la base salvo para leer ajustes y cuentas (setting_get,
+//  cuenta_correo_predeterminada). Habla SMTP a mano: AUTH LOGIN únicamente,
+//  STARTTLS ('tls') o TLS directo ('ssl'), certificado verificado.
+//
+//  Trampas:
+//   · Las respuestas del servidor se leen línea por línea hasta la que tiene
+//     un espacio en la cuarta posición (fin de respuesta multilínea). Si el
+//     servidor no contesta en 30 s, fgets devuelve false y la respuesta llega
+//     vacía o a medias: eso se interpreta como error, no como cuelgue.
+//   · Un 5xx sólo se trata como definitivo en el RCPT. En MAIL FROM y al
+//     cerrar el DATA cualquier rechazo vuelve como 'error' (temporal).
 // ============================================================
 
-/** Configuración de correo: config.php + lo que se cargue desde Ajustes. */
 /**
  * Cuenta con la que sale un correo suelto (avisos, confirmaciones, pruebas).
  *
@@ -27,7 +43,12 @@ declare(strict_types=1);
  * configuraciones en paralelo sin saber cuál manda.
  *
  * Los otros dos escalones quedan como red de seguridad para una instalación que
- * todavía no cargó ninguna cuenta.
+ * todavía no cargó ninguna cuenta: lo de `config.php` (`$CONFIG['mail']`),
+ * pisado clave por clave por los ajustes `smtp_*` que no estén vacíos, y por
+ * último Gmail en el 587 con STARTTLS.
+ *
+ * @return array user, pass, from, from_name, host, port, seguridad,
+ *               responder_a (las que haya).
  */
 function smtp_cfg(): array
 {
@@ -47,18 +68,37 @@ function smtp_cfg(): array
     return $c + ['host' => 'smtp.gmail.com', 'port' => 587, 'seguridad' => 'tls'];
 }
 
+/**
+ * ¿Hay usuario y contraseña para salir? Sólo mira que estén cargados, no que
+ * funcionen (para eso está smtp_probar). Mira la cuenta por defecto, no la
+ * que haya elegido cada campaña.
+ */
 function smtp_configurado(): bool
 {
     $c = smtp_cfg();
     return !empty($c['user']) && !empty($c['pass']);
 }
 
-/** Genera un Message-ID propio y estable para un envío. */
+/**
+ * Genera un Message-ID propio y estable para un envío.
+ *
+ * «Estable» en el sentido de que se genera una vez y se guarda en
+ * `envios.message_id`: cada llamada da uno nuevo. El dominio va fijo, no
+ * sale del remitente.
+ */
 function nuevo_message_id(string $dominio = 'intellihelp.tech'): string
 {
     return '<' . bin2hex(random_bytes(12)) . '.' . time() . '@' . $dominio . '>';
 }
 
+/**
+ * Nombre visible para una cabecera From/To.
+ *
+ * Si tiene algo fuera del ASCII imprimible (acentos, pero también saltos de
+ * línea) va codificado en base64 (RFC 2047), lo que de paso impide inyectar
+ * cabeceras con un nombre que traiga CR/LF. Si es ASCII puro va entre
+ * comillas, quitándole las comillas que tuviera.
+ */
 function mime_nombre(string $nombre): string
 {
     return preg_match('/[^\x20-\x7e]/', $nombre)
@@ -72,6 +112,11 @@ function mime_nombre(string $nombre): string
  * Se mantiene abierta entre correos durante una corrida del cron: abrir y
  * cerrar la conexión en cada mensaje multiplica la latencia y algunos
  * proveedores lo interpretan como comportamiento robótico.
+ *
+ * @param string|null $err se llena con el motivo si falla.
+ * @param array|null  $cfg configuración de una cuenta concreta
+ *                         (cuenta_a_config); null = smtp_cfg().
+ * @return resource|null el socket listo para MAIL FROM, o null.
  */
 function smtp_abrir(?string &$err = null, ?array $cfg = null)
 {
@@ -95,6 +140,8 @@ function smtp_abrir(?string &$err = null, ?array $cfg = null)
     }
     stream_set_timeout($fp, 30);
 
+    // Lee una respuesta completa: las multilínea vienen como «250-…» y la
+    // última como «250 …» (espacio en la cuarta posición).
     $leer = static function () use ($fp): string {
         $data = '';
         while (($linea = fgets($fp, 1024)) !== false) {
@@ -107,6 +154,8 @@ function smtp_abrir(?string &$err = null, ?array $cfg = null)
     $ok  = static fn(string $r, string $code) => str_starts_with(ltrim($r), $code);
 
     if (!$ok($leer(), '220')) { $err = 'El servidor SMTP no saludó.'; fclose($fp); return null; }
+    // La respuesta del EHLO no se revisa: si el servidor no lo acepta, falla
+    // el paso siguiente con un mensaje menos claro.
     $cmd('EHLO intellihelp.tech');
     if ($seg === 'tls') {
         if (!$ok($cmd('STARTTLS'), '220')) { $err = 'STARTTLS rechazado.'; fclose($fp); return null; }
@@ -126,6 +175,7 @@ function smtp_abrir(?string &$err = null, ?array $cfg = null)
     return $fp;
 }
 
+/** Cierra la sesión con QUIT, sin esperar respuesta. Acepta cualquier cosa. */
 function smtp_cerrar($fp): void
 {
     if (is_resource($fp)) {
@@ -138,7 +188,18 @@ function smtp_cerrar($fp): void
  * Manda un mensaje por una sesión ya abierta.
  *
  * @param array $msg  para|para_nombre|asunto|html|texto|de|de_nombre|responder_a|cc[]|message_id|baja_url
- * @return string 'enviado' | 'rechazado' | 'error'
+ *                    y opcionales in_reply_to, referencias, ics, ics_metodo.
+ * @param string|null $err se llena con el motivo si no sale.
+ * @param array|null  $cfg la cuenta de la sesión, para el remitente por
+ *                         defecto; null = smtp_cfg().
+ * @return string 'enviado' | 'rechazado' (5xx en el RCPT del destinatario o
+ *                dirección inválida: no reintentar) | 'error' (cualquier
+ *                otra cosa: quien llama decide si reintenta).
+ *
+ * Después de un 'error' la sesión puede quedar en un estado intermedio (por
+ * ejemplo, a mitad de un DATA): quien llama la cierra y abre otra.
+ * Reply-To, In-Reply-To y References se copian tal cual a las cabeceras:
+ * quien llama tiene que garantizar que no traigan saltos de línea.
  */
 function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null): string
 {
@@ -174,6 +235,8 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
         $cmd('RSET');
         return str_starts_with(ltrim($r), '5') ? 'rechazado' : 'error';
     }
+    // Las copias se agregan sin mirar la respuesta: una copia rechazada no
+    // frena el envío al destinatario.
     foreach ($cc as $direccion) {
         $cmd('RCPT TO:<' . $direccion . '>');
     }
@@ -189,6 +252,8 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
     $cab .= 'To: ' . (!empty($msg['para_nombre']) ? mime_nombre((string)$msg['para_nombre']) . ' ' : '') . '<' . $para . ">\r\n";
     if ($cc) { $cab .= 'Cc: ' . implode(', ', array_map(fn($x) => '<' . $x . '>', $cc)) . "\r\n"; }
     if (!empty($msg['responder_a'])) { $cab .= 'Reply-To: <' . $msg['responder_a'] . ">\r\n"; }
+    // El asunto va siempre en base64 y en una sola «palabra codificada». La
+    // norma pide cortarla a 75 caracteres; los clientes la toleran larga.
     $cab .= 'Subject: =?UTF-8?B?' . base64_encode((string)($msg['asunto'] ?? '')) . "?=\r\n";
     $cab .= 'Message-ID: ' . $messageId . "\r\n";
     // Sin estas dos, una respuesta escrita desde el CRM le llega al destinatario
@@ -201,6 +266,8 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
     if (!empty($msg['baja_url'])) {
         // Gmail y Outlook usan esta cabecera para ofrecer la baja en un clic;
         // tenerla mejora la reputación del remitente.
+        // El «One-Click» (RFC 8058) obliga a que esa URL dé de baja con un
+        // POST sin pedir nada más: lo resuelve pages/baja.php.
         $cab .= 'List-Unsubscribe: <' . $msg['baja_url'] . ">\r\n";
         $cab .= "List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n";
     }
@@ -250,6 +317,9 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
     // Dot-stuffing: una línea que arranca con "." cerraría el DATA antes de tiempo.
     $cuerpo = preg_replace('/^\./m', '..', $cuerpo);
 
+    // Si se pierde esta respuesta (tiempo de espera), el servidor pudo haber
+    // aceptado el mensaje igual: devolver 'error' acá puede terminar en un
+    // reintento y en un correo duplicado.
     $r = $cmd($cab . "\r\n" . $cuerpo . "\r\n.");
     if (!$ok($r, '250')) { $err = 'El servidor rechazó el mensaje: ' . trim($r); return 'error'; }
     return 'enviado';
@@ -260,6 +330,9 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null):
  *
  * En $extra viajan las partes opcionales: `texto` con la versión en texto
  * plano, e `ics` / `ics_metodo` con la invitación de calendario.
+ *
+ * Abre y cierra una sesión propia con la cuenta por defecto (smtp_cfg).
+ * No reintenta: si falla devuelve false con el motivo en $err.
  */
 function enviar_correo_simple(string $para, string $asunto, string $html, ?string &$err = null, array $extra = []): bool
 {
@@ -270,7 +343,10 @@ function enviar_correo_simple(string $para, string $asunto, string $html, ?strin
     return $res === 'enviado';
 }
 
-/** Prueba la configuración SMTP sin mandar nada. */
+/**
+ * Prueba la configuración SMTP sin mandar nada: conecta, negocia TLS y se
+ * autentica con la cuenta por defecto.
+ */
 function smtp_probar(?string &$err = null): bool
 {
     $fp = smtp_abrir($err);

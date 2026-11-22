@@ -1,3 +1,17 @@
+<?php
+// ============================================================
+//  Vista de la administración de embudos y etapas.
+//
+//  La dibuja pages/embudos.php y todos los formularios postean ahí mismo con
+//  un campo `accion`. Recibe:
+//    $lista   todos los embudos, activos o no
+//    $etapas  etapas agrupadas por embudo_id
+//    $uso     negocios vivos por etapa_id (decide el aviso de borrado)
+//    $aviso   [tipo, mensaje] del último POST, o null
+//
+//  No hay formulario para renombrar ni desactivar un embudo existente.
+// ============================================================
+?>
 <?php /** @var array $lista @var array $etapas @var array $uso @var ?array $aviso */ ?>
 <div class="page-head">
     <div>
@@ -103,11 +117,13 @@
                         </td>
                         <td data-label="Negocios" class="prio-2"><?= (int)($uso[$eid] ?? 0) ?></td>
                         <td class="acts" data-label="Acciones">
+                            <?php // Ojo con el título: apagar una etapa también saca del tablero los negocios que están en ella (embudo_kanban sólo arma columnas para las etapas activas). ?>
                             <label class="switch" title="Etapa activa: si la apagas deja de ofrecerse en los negocios nuevos">
                                 <input form="et<?= $eid ?>" type="checkbox" name="activo" value="1" <?= $et['activo'] ? 'checked' : '' ?>>
                                 <span class="track"></span>
                             </label>
                             <button form="et<?= $eid ?>" class="act" title="Guardar los cambios de esta etapa"><?= icon('ok', 16) ?></button>
+                            <?php // El aviso de confirmación ya anticipa si el servidor va a rechazar el borrado por tener negocios. ?>
                             <button form="etdel<?= $eid ?>" class="act danger" title="Borrar la etapa" data-peligro
                                     data-confirmar-titulo="Borrar la etapa"
                                     data-confirmar="<?= ($uso[$eid] ?? 0) > 0

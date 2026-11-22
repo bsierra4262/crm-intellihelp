@@ -1,6 +1,9 @@
 <?php
 /** @var string $periodo @var array $pronostico @var array $etapas @var array $fuentes
  *  @var array $campanas @var array $actividad */
+// Vista de reportes, desde pages/reportes.php. Las barras se dibujan con CSS:
+// cada una mide en proporción al máximo de su bloque (mínimo 1 % para que
+// un valor chico se vea). El color de etapa viene de la tabla `etapas`.
 $maxEtapa = 0.0;
 foreach ($etapas as $e) { $maxEtapa = max($maxEtapa, (float)$e['total']); }
 $maxFuente = 0.0;
@@ -65,6 +68,7 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
 
 <div class="rep-grid">
     <div class="card">
+        <?php // Histórico completo: este bloque no depende del período elegido. ?>
         <div class="card-head"><h2>De dónde vienen los negocios ganados</h2></div>
         <?php if (!$fuentes): ?>
             <p class="muted small">Todavía no hay negocios ganados.</p>

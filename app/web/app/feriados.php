@@ -24,6 +24,11 @@ declare(strict_types=1);
 //  con lo que ya está en la base, se espera un rato antes de volver a probar y
 //  la consulta tiene un tiempo de espera corto. Lo peor que pasa con la fuente
 //  caída es que un feriado decretado ayer tarde un poco más en aparecer.
+//
+//  Quién lo usa: agenda.php (feriados_del_rango() al calcular huecos y al
+//  reservar), la API v1 (feriados_para_api()), pages/feriados.php y el cron
+//  (feriados_asegurar(true)). Tabla: feriados (migración 009) y los ajustes
+//  feriados_* de app_settings. Módulo: Agenda.
 // ============================================================
 
 /** Calendario oficial de feriados nacionales; se le agrega el año. */
@@ -35,8 +40,13 @@ const FERIADOS_VIGENCIA_SEG = 86400;
 /** Después de una consulta fallida, cuánto se espera para probar de nuevo. */
 const FERIADOS_REINTENTO_SEG = 900;
 
-/** Tiempo de espera de la consulta al vuelo (la del cron espera más). */
+/**
+ * Tiempo de espera de la consulta al vuelo (la del cron espera más). Es por
+ * año consultado: al vuelo se piden dos años, así que un visitante puede
+ * esperar el doble.
+ */
 const FERIADOS_TIMEOUT_SEG = 3;
+/** Tiempo de espera del cron y del botón «Actualizar ahora». */
 const FERIADOS_TIMEOUT_CRON_SEG = 15;
 
 /**
@@ -45,6 +55,10 @@ const FERIADOS_TIMEOUT_CRON_SEG = 15;
  */
 const FERIADOS_MINIMO_ANIO = 10;
 
+/**
+ * Tipos de feriado y su texto. Las claves son las que usa la fuente; un tipo
+ * desconocido se guarda como 'inamovible' (feriados_parsear()).
+ */
 const FERIADOS_TIPOS = [
     'inamovible'   => 'Inamovible',
     'trasladable'  => 'Trasladable',
@@ -393,6 +407,15 @@ function feriados_asegurar(bool $diaria = false, bool $forzar = false, ?callable
     }
 }
 
+/**
+ * Toma el bloqueo con nombre de MySQL para sincronizar, sin esperar (0 s).
+ *
+ * El nombre lleva la base: producción y pruebas comparten servidor MySQL y no
+ * se tienen que frenar entre sí. El bloqueo es de la conexión: si el proceso
+ * muere, MySQL lo suelta solo.
+ *
+ * @return bool true si lo tomó (o si la base no soporta bloqueos)
+ */
 function feriados_bloquear(): bool
 {
     try {
@@ -404,6 +427,7 @@ function feriados_bloquear(): bool
     }
 }
 
+/** Suelta el bloqueo de feriados_bloquear(). Nunca lanza. */
 function feriados_liberar(): void
 {
     try { q("DO RELEASE_LOCK(CONCAT(DATABASE(), ':feriados'))"); } catch (\Throwable $e) {}

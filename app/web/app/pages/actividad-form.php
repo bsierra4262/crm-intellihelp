@@ -1,5 +1,26 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Página `actividad-form`: alta (sin `id`) y edición (`?id=N`) de una
+//  actividad.
+//
+//  El alta puede llegar desde una ficha con el vínculo en la dirección:
+//  `?contacto_id=`, `?posible_cliente_id=`, `?cuenta_id=`, `?negocio_id=` y
+//  `?tipo=`. POST valida el asunto, guarda con actividad_guardar()
+//  (actividades.php) y redirige.
+//
+//  Tablas: escribe `actividades` (y la auditoría en `actividad`); lee
+//  `contactos`, `cuentas`, `negocios` y `usuarios` para los selectores.
+//  Módulo: `actividades`.
+//  Permisos: cualquier usuario con sesión crea o edita cualquier actividad,
+//  y puede asignársela a otro.
+//
+//  Validación mínima: sólo el asunto. No se controlan las fechas (formato,
+//  fin antes del inicio), ni que estado, prioridad o los ids vinculados
+//  existan; un id inexistente hace fallar el INSERT/UPDATE.
+// ============================================================
+
 require_login();
 
 $id = (int)($_GET['id'] ?? 0);
@@ -12,6 +33,7 @@ if ($id && !$a) {
 }
 
 // Alta desde la ficha de un registro: viene precargado el vínculo.
+// Vencimiento e inicio se proponen para mañana a las 10.
 if (!$id) {
     $a = [
         'tipo'               => $_GET['tipo'] ?? 'tarea',
@@ -40,11 +62,18 @@ if (is_post()) {
     if (!$errores) {
         $nuevoId = actividad_guardar($d, $id ?: null);
         flash($id ? 'Actividad actualizada.' : 'Actividad creada.', 'success');
+        // `volver` permitiría regresar a la ficha de origen, pero el formulario
+        // actual no lo manda. Si llegara, va sin validar a redirect(): url()
+        // le antepone la base de la aplicación, que es lo único que impide
+        // que apunte a otro sitio.
         $volver = $d['volver'] ?? '';
         redirect($volver !== '' ? $volver : 'actividades');
     }
     $a = array_merge($a ?? [], $d);
 }
+
+// Listas recortadas para los selectores: un vínculo que quede fuera de estos
+// límites no se puede mostrar y se pierde al guardar (ver la vista).
 
 render('actividad-form', [
     'a'         => $a,

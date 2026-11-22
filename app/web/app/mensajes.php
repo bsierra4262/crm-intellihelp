@@ -8,6 +8,24 @@ declare(strict_types=1);
 //  acá, y la conversación queda pegada al contacto. Si para leer y contestar
 //  hubiera que irse al correo, se perdería el hilo: el que atiende mañana no
 //  sabría qué se habló, porque quedó en la bandeja de alguien.
+//
+//  Módulo: Campañas (la pantalla es `conversacion`, ruta de ese módulo).
+//  Quién lo usa:
+//    · imap.php guarda acá cada respuesta que entra (mensaje_entrante);
+//    · pages/conversacion.php muestra el hilo y contesta (mensaje_responder);
+//    · views/conversacion.php sanea y parte el HTML al mostrarlo.
+//
+//  Tablas: escribe y lee `mensajes` (migracion-004-mensajes.sql); lee
+//  `contactos`, `envios`, `campanas`, `cuentas_correo` y `usuarios`.
+//  Depende de: db.php, helpers.php (e, normalizar_email, email_valido,
+//  recortar, log_app), envio.php (smtp_abrir, smtp_enviar, smtp_cerrar,
+//  nuevo_message_id) y cuentas_correo.php (cuenta_a_config).
+//
+//  Decisiones:
+//    · La conversación se arma por dirección de correo, no por contacto: una
+//      respuesta de alguien que no está cargado no se pierde.
+//    · En la base se guarda el cuerpo tal cual llegó (texto y HTML, sin
+//      sanear ni cortar la cita); el saneado y el corte se hacen al mostrar.
 // ============================================================
 
 /**
@@ -16,6 +34,21 @@ declare(strict_types=1);
  * El Message-ID es la clave única: si la casilla se relee (pasa cuando se
  * reinicia la marca de por dónde iba), el mismo correo no se duplica.
  *
+ * Asignación: el contacto es el primero vivo con ese correo principal (no se
+ * miran email2/email3) y el envío es el último 'enviado' a esa dirección, de
+ * cualquier campaña. Si el contacto se carga después, el mensaje queda con
+ * contacto_id NULL; igual aparece en la conversación porque esa se arma por
+ * dirección.
+ *
+ * Trampas:
+ *   · El chequeo previo y el INSERT no son atómicos: si dos lecturas de la
+ *     casilla se pisan, la segunda choca con el UNIQUE `uq_msg` y lanza
+ *     PDOException (que corta la vuelta de imap_revisar()).
+ *   · `message_id` e `in_reply_to` son VARCHAR(255) y no se recortan acá: un
+ *     encabezado más largo falla con MySQL en modo estricto.
+ *
+ * @param array $d de, de_nombre, para, asunto, texto, html, message_id,
+ *                 in_reply_to, referencias, fecha ('Y-m-d H:i:s'), cuenta_correo_id
  * @return int|null id del mensaje, o null si ya estaba guardado
  */
 function mensaje_entrante(array $d): ?int
@@ -23,6 +56,9 @@ function mensaje_entrante(array $d): ?int
     $de = normalizar_email((string)($d['de'] ?? ''));
     if ($de === '') { return null; }
 
+    // Sin Message-ID (pasa con algunos sistemas automáticos) se inventa uno
+    // estable con remitente, asunto y fecha: si se relee, da el mismo y no
+    // se duplica.
     $messageId = trim((string)($d['message_id'] ?? '')) ?: ('<sin-id-' . md5($de . ($d['asunto'] ?? '') . ($d['fecha'] ?? '')) . '@crm>');
     if (qv('SELECT 1 FROM mensajes WHERE message_id = ?', [$messageId])) { return null; }
 
@@ -51,6 +87,14 @@ function mensaje_entrante(array $d): ?int
  * Se busca por dirección de correo y no por id de contacto: quien responde una
  * campaña puede no estar cargado como contacto todavía, y su respuesta no se
  * puede perder por eso.
+ *
+ * Trae lo que la persona escribió (`de` = su correo) y lo que se le mandó
+ * (`para` = su correo), con el nombre del usuario que contestó. Ordena de lo
+ * más viejo a lo más nuevo y corta en $limite: en un hilo muy largo quedan
+ * afuera los ÚLTIMOS, no los primeros. Las columnas `de` y `para` no tienen
+ * índice: la consulta recorre la tabla entera.
+ *
+ * @return array<int,array> filas de `mensajes` + `usuario`; [] si el correo es vacío
  */
 function conversacion_de(string $email, int $limite = 100): array
 {
@@ -72,6 +116,15 @@ function conversacion_de(string $email, int $limite = 100): array
  * dentro de un marco aislado, que es como lo hacen los clientes de correo:
  * así el mensaje se ve tal cual lo mandaron —con su firma, sus colores y su
  * diseño— sin poder tocar nada de la pantalla que lo rodea.
+ *
+ * Es una lista negra hecha con expresiones regulares, no un saneador
+ * completo: no cubre todo (por ejemplo, esquemas escritos con entidades
+ * HTML como `&#106;avascript:`, o `href=javascript:…` sin comillas). La
+ * protección de verdad es el iframe con sandbox sin `allow-scripts` de la
+ * vista; esto es una segunda capa. Las imágenes remotas no se tocan: se
+ * cargan al abrir la conversación (el remitente puede saber que se leyó).
+ *
+ * @return string el HTML filtrado ('' si venía vacío)
  */
 function mensaje_html_seguro(string $html): string
 {
@@ -94,14 +147,26 @@ function mensaje_html_seguro(string $html): string
  * en `gmail_quote`, casi todos usan `blockquote`. Sin cortar ahí, una respuesta
  * de dos palabras aparece precedida de la campaña entera y hay que buscar con
  * la vista dónde empieza lo que la persona escribió.
+ *
+ * Se corta por posición en el texto, sin entender el árbol HTML: las
+ * etiquetas que abrían antes del corte quedan sin cerrar en `limpio` (el
+ * navegador las cierra solo dentro del iframe).
+ *
+ * @return array{limpio:string, citado:string}
  */
 function mensaje_partir_cita_html(string $html): array
 {
+    // Se prueban en orden de precisión: la marca de Gmail, la de Outlook y,
+    // si no hay ninguna, el primer blockquote.
     foreach (['/<div[^>]*class="[^"]*gmail_quote/i',
               '/<div[^>]*id="[^"]*(divRplyFwdMsg|appendonsend)/i',   // Outlook
               '/<blockquote/i'] as $re) {
         if (preg_match($re, $html, $m, PREG_OFFSET_CAPTURE)) {
             $limpio = trim(substr($html, 0, $m[0][1]));
+            // Ojo: con el `||` alcanza con que `limpio` no sea vacío, así que
+            // el strip_tags no decide nada. Si arriba del corte quedaron sólo
+            // etiquetas sin texto (`<div><br></div>`), se muestra la parte de
+            // arriba en blanco y lo escrito queda plegado en la cita.
             if (strip_tags($limpio) !== '' || $limpio !== '') {
                 return ['limpio' => $limpio, 'citado' => trim(substr($html, $m[0][1]))];
             }
@@ -110,13 +175,21 @@ function mensaje_partir_cita_html(string $html): array
     return ['limpio' => $html, 'citado' => ''];
 }
 
-/** Cuántos mensajes entrantes hay sin leer (para el aviso en pantalla). */
+/**
+ * Cuántos mensajes entrantes hay sin leer (para el aviso en pantalla).
+ * Nota: hoy no la llama ninguna pantalla; el aviso de respuestas llega por
+ * las notificaciones que crea marcar_respuesta().
+ */
 function mensajes_sin_leer(): int
 {
     return (int) qv("SELECT COUNT(*) FROM mensajes WHERE direccion = 'entrante' AND leido_en IS NULL");
 }
 
-/** Marca como leída la conversación con alguien. */
+/**
+ * Marca como leída la conversación con alguien: todos los entrantes de esa
+ * dirección que estaban sin leer. Es global, no por usuario: si uno la abre,
+ * queda leída para todos.
+ */
 function conversacion_marcar_leida(string $email): void
 {
     q("UPDATE mensajes SET leido_en = NOW()
@@ -134,6 +207,26 @@ function conversacion_marcar_leida(string $email): void
  * Las cabeceras In-Reply-To y References son las que hacen que al destinatario
  * le aparezca pegado al hilo en vez de suelto. Sin ellas, cada respuesta abre
  * una conversación nueva en su bandeja.
+ *
+ * Orden: se valida, se elige la casilla, se manda por SMTP y recién si salió
+ * se guarda en `mensajes` como 'saliente' (ya leído), se marca leída la
+ * conversación y se deja registro en la auditoría. Si el envío falla no se
+ * guarda nada.
+ *
+ * Elección de la casilla: la que recibió el original (si sigue activa); si
+ * no, la de la campaña (sin mirar si está activa o dada de baja); si no, la
+ * predeterminada activa. Sin ninguna, smtp_abrir() usa la configuración
+ * general.
+ *
+ * El texto se manda tal cual en la parte de texto y escapado (e + nl2br) en
+ * la de HTML: lo que escribe el usuario nunca se interpreta como HTML.
+ *
+ * @param int      $mensajeId id del mensaje al que se contesta (cualquiera, entrante o saliente)
+ * @param string   $texto     lo que escribió el usuario
+ * @param int|null $usuarioId quién contesta; null = el usuario de la sesión
+ * @return int id del mensaje saliente guardado
+ * @throws RuntimeException si el mensaje no existe, el texto está vacío, el
+ *                          remitente no es válido o el envío falla
  */
 function mensaje_responder(int $mensajeId, string $texto, ?int $usuarioId = null): int
 {
@@ -158,6 +251,8 @@ function mensaje_responder(int $mensajeId, string $texto, ?int $usuarioId = null
     }
     $cfg = $cuenta ? cuenta_a_config($cuenta) : null;
 
+    // «Re:» una sola vez: si ya lo trae (en cualquier combinación de
+    // mayúsculas) no se le agrega otro.
     $asunto = (string)$orig['asunto'];
     if (stripos($asunto, 're:') !== 0) { $asunto = 'Re: ' . $asunto; }
 

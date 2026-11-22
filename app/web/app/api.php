@@ -28,6 +28,26 @@ declare(strict_types=1);
 //  Todo responde JSON, también los errores inesperados: el manejador global
 //  de bootstrap.php contesta texto plano, y del otro lado hay un programa que
 //  no sabe qué hacer con una frase en castellano.
+//
+//  Quién lo usa: los tres controladores de pages/api/v1/ (disponibilidad,
+//  reserva, entrada), a los que llega index.php por las rutas 'api/v1/…'
+//  marcadas como públicas (sin sesión: bootstrap.php ni siquiera la abre).
+//  No pertenece a ningún módulo; cada controlador decide si exige el de
+//  Agenda (modulo_activo('agenda')).
+//
+//  Tablas:
+//    · api_tokens   (lee la clave por su SHA-256; suma `usos`/`ultimo_uso`);
+//    · api_limites  (contadores de límites y firmas ya usadas, 'sig:<firma>');
+//    · entradas_web (idempotencia: la fila de cada pedido y su respuesta).
+//  Depende de: db.php (q, q1, qv), google.php (descifrar, el secreto de la
+//  instalación), crm.php (limite_superado, entrada_web_*, normalizar_email,
+//  telefono_valido, texto_sin_enlaces), actividad.php (log_api, log_error) y
+//  helpers.php (method, finish_request).
+//
+//  CORS: no se manda ninguna cabecera Access-Control-*, a propósito. Quien
+//  llama es el servidor de la web, nunca un navegador; sin esas cabeceras un
+//  script de otra página no puede leer las respuestas (y tampoco tendría la
+//  clave ni el secreto para firmar).
 // ============================================================
 
 /** Tamaño máximo del cuerpo de un pedido, en bytes. */
@@ -197,7 +217,17 @@ function api_auditar(int $codigo, string $error = ''): void
     ]);
 }
 
-/** Manda las cabeceras y el cuerpo, sin cortar la ejecución. */
+/**
+ * Manda las cabeceras y el cuerpo, sin cortar la ejecución.
+ *
+ * Las cabeceras de caché son para el LiteSpeed de Hostinger y cualquier
+ * intermediario: una respuesta de horarios o de reserva nunca se puede servir
+ * guardada a otro pedido. Deja la línea en la auditoría (api_auditar()) con
+ * el código de error, si lo hay.
+ *
+ * @param int   $codigo código HTTP
+ * @param array $datos  cuerpo; si trae 'error' se registra en la auditoría
+ */
 function api_enviar(int $codigo, array $datos): void
 {
     if (!headers_sent()) {
@@ -211,6 +241,10 @@ function api_enviar(int $codigo, array $datos): void
     api_auditar($codigo, (string)($datos['error'] ?? ''));
 }
 
+/**
+ * Responde y termina el proceso (`exit`). Es la salida normal de todos los
+ * controladores: lo que venga después de una llamada no se ejecuta.
+ */
 function api_responder(int $codigo, array $datos): never
 {
     api_enviar($codigo, $datos);
@@ -238,16 +272,24 @@ function api_responder_y_seguir(int $codigo, array $datos): void
         header('Connection: close');
     }
     echo $cuerpo;
+    // La auditoría va antes de soltar la conexión: si el proceso muere en lo
+    // lento, la línea del pedido ya quedó escrita.
     api_auditar($codigo);
     finish_request();
 }
 
+/**
+ * Responde un error con la forma fija del contrato y termina (`exit`):
+ * {"ok": false, "error": <código para el programa>, "mensaje": <texto para la
+ * persona>, …$extra}. `$error` es el que la web usa para decidir qué hacer;
+ * `$mensaje` se le puede mostrar al visitante tal cual.
+ */
 function api_error(int $codigo, string $error, string $mensaje, array $extra = []): never
 {
     api_responder($codigo, ['ok' => false, 'error' => $error, 'mensaje' => $mensaje] + $extra);
 }
 
-/** 405 con la lista de métodos que sí se aceptan. */
+/** 405 con la lista de métodos que sí se aceptan (cabecera Allow). Termina si no coincide. */
 function api_metodo(array $permitidos): void
 {
     if (in_array(method(), $permitidos, true)) { return; }
@@ -263,9 +305,14 @@ function api_metodo(array $permitidos): void
 function api_fallo(\Throwable $e): never
 {
     // Si falta una tabla es que el código llegó antes que la migración.
+    // Ojo: este atajo responde sin pasar por log_error(), así que una columna
+    // mal escrita en una consulta (también 42S22) se vería como «migración
+    // pendiente» y no dejaría rastro en la sección CRON.
     if ($e instanceof \PDOException && ($e->getCode() === '42S02' || $e->getCode() === '42S22')) {
         api_error(503, 'migracion_pendiente', 'El CRM se está actualizando. Probá de nuevo en unos minutos.');
     }
+    // El código sale del archivo y la línea: el mismo error da siempre el
+    // mismo código, y así se agrupan los renglones repetidos.
     $codigo = 'ERR-' . strtoupper(substr(md5($e->getFile() . ':' . $e->getLine()), 0, 6));
     if (function_exists('log_error')) {
         log_error('error.api', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine());
@@ -312,6 +359,17 @@ function api_cuerpo_crudo(int $max = API_MAX_CUERPO): string
  * El orden importa: primero lo que no necesita la base (cabeceras, hora,
  * configuración), después la clave, y recién al final la firma, que es lo
  * único que prueba que quien llama tiene el secreto.
+ *
+ * Los límites de tasa (api_limitar()) los aplica cada controlador DESPUÉS de
+ * autenticar: un pedido que no pasa la firma no consume el cupo de la web.
+ * Como contrapartida, cada rechazo deja su línea en la auditoría.
+ *
+ * Efectos: en una escritura registra la firma como usada (api_firma_usada())
+ * y en todos los casos suma un uso a la clave. Responde 401/403/503 y termina
+ * si algo no cierra.
+ *
+ * @param string $alcance 'escritura' exige scope escritura con secreto; hoy
+ *                        los tres controladores piden 'escritura'
  */
 function api_autenticar(string $alcance = 'escritura'): array
 {
@@ -424,7 +482,17 @@ function api_cuerpo_hash(array $j): string
     return hash('sha256', (string) json_encode($ordenar($j), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 }
 
-/** 429 con Retry-After si se pasa. */
+/**
+ * 429 con Retry-After si se pasa; si no, no hace nada.
+ *
+ * Cuenta el pedido aunque después falle por otro motivo (horario tomado,
+ * feriado): el contador suma al consultar, no al terminar bien. Ventanas fijas
+ * (limite_superado() en crm.php), y si la tabla no está deja pasar.
+ *
+ * @param string $clave    'k:<token>:…' por clave o 'ip:<hash>:…' por visitante
+ * @param int    $max      pedidos permitidos en la ventana
+ * @param int    $segundos largo de la ventana
+ */
 function api_limitar(string $clave, int $max, int $segundos): void
 {
     if (!limite_superado($clave, $max, $segundos)) { return; }
@@ -438,7 +506,11 @@ function api_limitar(string $clave, int $max, int $segundos): void
 //  Validación (md/INTEGRACION-WEB.md §6.2, la misma regla en la web)
 // ------------------------------------------------------------
 
-/** ¿Es texto de una sola línea? */
+/**
+ * ¿Es texto de una sola línea? Sin ningún carácter de control (ni salto de
+ * línea ni tabulación). Lo que pasa esta prueba se puede usar en el asunto o
+ * en un encabezado de un correo sin riesgo de inyectar cabeceras.
+ */
 function api_una_linea(string $s): bool
 {
     return !preg_match('/[\x00-\x1F\x7F]/u', $s);
@@ -454,6 +526,10 @@ function api_limpiar_texto(string $s): string
 /**
  * Lee una fecha ISO 8601 con desplazamiento (o segundos Unix) y la devuelve
  * en segundos. Null si no se entiende.
+ *
+ * El desplazamiento (Z, -03:00) es obligatorio: una hora sin zona sería
+ * ambigua entre el reloj de la web y el del CRM. No valida que el instante
+ * tenga sentido (pasado, horario laboral): eso lo decide quien lo usa.
  */
 function api_leer_instante($v): ?int
 {
@@ -551,6 +627,8 @@ function api_validar_entrada(array $j, bool $esReserva): array
             $err['persona.' . $k] = 'Campo desconocido.';
         }
     }
+    // Texto recortado; un campo ausente o null vale '' y cualquier otro tipo
+    // (número, lista) da null, que cada validación de abajo trata como error.
     $str = static fn($v): ?string => is_string($v) ? trim($v) : ($v === null ? '' : null);
 
     // Nombre y empresa vuelven en el correo de confirmación, que sale con la
@@ -574,6 +652,7 @@ function api_validar_entrada(array $j, bool $esReserva): array
         $err['email'] = 'El correo no es válido.';
     }
 
+    // Teléfono y servicio son opcionales: vacíos pasan la validación.
     $telefono = $str($p['telefono'] ?? null);
     if ($telefono === null || mb_strlen($telefono) > 60 || !telefono_valido($telefono)) {
         $err['telefono'] = 'El teléfono no parece un número.';
@@ -605,6 +684,9 @@ function api_validar_entrada(array $j, bool $esReserva): array
     if (!preg_match(API_PATRON_VERSION, $version)) {
         $err['consentimiento.version'] = 'Falta la versión del texto aceptado.';
     }
+    // La fecha del consentimiento es la del navegador del visitante: se
+    // tolera un día para cualquier lado (relojes mal puestos, formularios que
+    // quedaron abiertos), pero no una fecha inventada de otro año.
     $fechaTs = api_leer_instante($c['fecha'] ?? null);
     if ($fechaTs === null || abs(time() - $fechaTs) > 86400) {
         $err['consentimiento.fecha'] = 'La fecha del consentimiento no es válida.';
@@ -675,7 +757,10 @@ function api_exigir_validos(array $errores): void
 //  Idempotencia
 // ------------------------------------------------------------
 
-/** Lo que se guarda en `entradas_web.respuesta` para contestar los reintentos. */
+/**
+ * Lo que se guarda en `entradas_web.respuesta` para contestar los reintentos:
+ * {"codigo": <HTTP>, "datos": <cuerpo>}. Lo lee api_previa_respuesta().
+ */
 function api_respuesta_guardable(int $codigo, array $datos): string
 {
     return (string) json_encode(['codigo' => $codigo, 'datos' => $datos], JSON_UNESCAPED_UNICODE);
@@ -721,6 +806,7 @@ function api_previa_respuesta(array $previa, string $cuerpoHash): array
     $codigo = (int)($guardada['codigo'] ?? 200);
     $datos  = $guardada['datos'];
     $datos['repetida'] = true;
+    // Un 201 repetido se contesta 200: el recurso ya no se crea ahora.
     return [$codigo === 201 ? 200 : $codigo, $datos];
 }
 
@@ -744,13 +830,22 @@ function api_atender_repetido(int $tokenId, string $idem, string $cuerpoHash): ?
  * Deja abierta la entrada del pedido y devuelve su id: una fila nueva, o la
  * que había quedado con error, retomada. Si en el medio apareció otro pedido
  * con la misma clave, lo contesta y termina.
+ *
+ * @param array      $fila   columnas de entradas_web (idempotencia, token, datos…)
+ * @param array|null $previa la fila con la misma clave que encontró
+ *                           api_atender_repetido(), o null
  */
 function api_entrada_abrir(array $fila, ?array $previa, string $cuerpoHash): int
 {
     if ($previa === null) {
+        // Si otro pedido con la misma clave insertó entre la búsqueda y este
+        // INSERT, la clave única lo frena: guardar devuelve 0 y deja esa fila
+        // en $previa (por referencia), que se trata abajo.
         $id = entrada_web_guardar($fila, $previa);
         if ($id > 0) { return $id; }
     }
+    // Retomar es condicional al estado 'error': de dos reintentos simultáneos
+    // sólo uno gana; el otro recibe la respuesta de la fila (en_proceso).
     if ($previa['estado'] === 'error' && entrada_web_retomar((int)$previa['id'], $fila)) {
         return (int)$previa['id'];
     }

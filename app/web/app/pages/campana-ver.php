@@ -2,6 +2,15 @@
 declare(strict_types=1);
 require_login();
 
+// ============================================================
+//  Ruta: /campana-ver?id=N  (con sesión; módulo «campanas»).
+//  La pantalla de una campaña: pasos pendientes, cifras, motivos de
+//  omisión, vista previa y la cola de destinatarios paginada de a 50 con
+//  filtro por estado y búsqueda. Pinta views/campana-ver.php.
+//  Lee campanas y envios; no escribe nada. Las acciones van a
+//  campana-accion y las cifras se refrescan solas desde api-campana.
+// ============================================================
+
 $id = (int)($_GET['id'] ?? 0);
 $c  = $id ? campana_get($id) : null;
 if (!$c) {
@@ -31,6 +40,9 @@ $envios = q("SELECT * FROM envios $where ORDER BY FIELD(estado,'error','rebotado
              LIMIT {$pg['per']} OFFSET {$pg['offset']}", $p)->fetchAll();
 
 // Vista previa real: se arma el mensaje con el primer destinatario de la cola.
+// Se arma sin cuenta, así que remitente y Reply-To pueden diferir de los del
+// envío real. Su HTML se pinta tal cual dentro de la página del CRM (ver la
+// vista), con los datos del destinatario sin escapar.
 $muestra = q('SELECT * FROM envios WHERE campana_id = ? ORDER BY id LIMIT 1', [$id])->fetch() ?: null;
 $vista   = $muestra ? campana_armar_mensaje($c, $muestra) : null;
 

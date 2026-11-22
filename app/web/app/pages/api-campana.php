@@ -2,6 +2,19 @@
 declare(strict_types=1);
 require_login();
 
+// ============================================================
+//  Ruta: GET /api-campana[?id=N]  (con sesión; módulo «campanas»).
+//  Responde JSON. La consultan cada seis segundos las pantallas de
+//  campañas y de una campaña (atributos data-vivo, script en app.js).
+//    · con id: las cifras de esa campaña y el estado de CADA destinatario;
+//    · sin id: las cifras de las campañas de la primera página del listado.
+//  Lee campanas y envios (vía campana_get / campanas_listar) y el ajuste
+//  `cron_en_curso_desde` que escribe app/cron.php mientras corre.
+//  No chequea rol ni propietario: cualquier usuario ve cualquier campaña.
+//  Ojo con el rendimiento: con id devuelve la cola entera sin paginar, y
+//  cada fila de campanas_listar lleva siete subconsultas sobre envios.
+// ============================================================
+//
 // Estado de las campañas en curso, para que la pantalla se actualice sola.
 //
 // Una campaña manda un correo cada 25-45 segundos y una corrida dura varios
@@ -16,7 +29,11 @@ header('Cache-Control: no-store');
 
 $id = (int)($_GET['id'] ?? 0);
 
-/** Cifras de una campaña, contadas sobre la cola. */
+/**
+ * Cifras de una campaña, contadas sobre la cola.
+ * Recibe una fila de campana_get() o campanas_listar(); `reuniones` sale de
+ * la columna de la tabla (la suma agenda.php).
+ */
 $cifras = static function (array $c): array {
     $total = (int)$c['total'];
     return [
@@ -52,6 +69,8 @@ if ($id > 0) {
     if (!$c) { json_out(['ok' => false], 404); }
 
     // El estado de cada destinatario, para actualizar la tabla sin recargar.
+    // Es TODA la cola, aunque la pantalla muestre de a 50: con miles de
+    // destinatarios cada consulta trae miles de filas.
     $filas = [];
     foreach (q('SELECT id, estado, enviado_en, respondido_en FROM envios WHERE campana_id = ?', [$id])->fetchAll() as $e) {
         $filas[] = [

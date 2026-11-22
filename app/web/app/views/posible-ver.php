@@ -1,4 +1,27 @@
 <?php
+// ============================================================
+//  Vista: ficha de un posible cliente.
+//
+//  La dibuja pages/posible-ver.php. Arriba, el botón «Convertir» (si todavía
+//  no se convirtió); a la izquierda el cambio rápido de estado (POST a la
+//  misma página), los datos y las notas del registro; a la derecha
+//  etiquetas, adjuntos, notas, actividades e historial.
+//
+//  Variables que recibe:
+//    $p            array  posible_get() (trae `propietario`)
+//    $notas        array  notas_de('posible_cliente', id)
+//    $actividades  array  actividades_de('posible_cliente_id', id)
+//    $linea        array  timeline('posible_cliente', id): sólo auditoría
+//
+//  Ojo con los módulos: a diferencia de las fichas de contacto y empresa,
+//  esta no recibe $verActividades ni $verAdjuntos. El botón «Nueva
+//  actividad», el panel de actividades y el de adjuntos salen siempre,
+//  aunque esos módulos estén apagados en producción.
+//
+//  Después de convertir, las notas, actividades y adjuntos se mudaron al
+//  contacto: esta ficha queda con esos paneles vacíos y un aviso con los
+//  enlaces a lo que se generó.
+// ============================================================
 /** @var array $p @var array $notas @var array $actividades @var array $linea */
 $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
 ?>
@@ -84,6 +107,7 @@ $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
 
     <div class="col-stack">
 
+<?php // Los parciales toman la entidad y el id de estas variables del ámbito de la vista. ?>
 <?php $etqEntidad = 'posible_cliente'; $etqId = (int)$p['id'];
       include APP . '/views/_etiquetas.php'; ?>
         <?php $adjEntidad = 'posible_cliente'; $adjId = (int)$p['id'];

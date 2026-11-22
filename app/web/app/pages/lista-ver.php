@@ -2,6 +2,23 @@
 declare(strict_types=1);
 require_login();
 
+// ============================================================
+//  Ruta `lista-ver?id=<id>` (módulo Campañas; cualquier usuario con sesión).
+//
+//  Los miembros de una lista, con buscador y paginación, y tres acciones por
+//  POST (cada una con su `accion`, CSRF y redirección de vuelta):
+//    · 'cargar'  → agrega los contactos que cumplen un filtro del CRM
+//                  (lista_cargar_contactos), siempre con correo;
+//    · 'sueltos' → agrega direcciones escritas a mano, enlazándolas al
+//                  contacto si existe;
+//    · 'quitar'  → saca un miembro (DELETE físico de lista_miembros).
+//  Los repetidos se descartan por la clave única (lista_id, email) de
+//  `lista_miembros` con INSERT IGNORE.
+//
+//  Vista: views/lista-ver.php, con $l, $data (paginado de lista_miembros),
+//  $f y $usuarios. Lógica en app/campanas.php.
+// ============================================================
+
 $id = (int)($_GET['id'] ?? 0);
 $l  = $id ? lista_get($id) : null;
 if (!$l) {
@@ -32,6 +49,9 @@ if (is_post() && ($_POST['accion'] ?? '') === 'cargar') {
 // y a este otro» sin tener que armar un filtro ni cargarlos como contactos.
 if (is_post() && ($_POST['accion'] ?? '') === 'sueltos') {
     verify_csrf();
+    // A diferencia de 'cargar', acá no se miran bajas ni rebotes: una
+    // dirección dada de baja entra igual a la lista (la vista la marca y el
+    // envío la saltea).
     $texto = (string)($_POST['correos'] ?? '');
     $n = 0; $malos = 0;
     foreach (preg_split('/[\s,;]+/', $texto) ?: [] as $em) {

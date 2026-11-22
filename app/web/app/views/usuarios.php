@@ -1,3 +1,17 @@
+<?php
+// ============================================================
+//  Vista de usuarios (sólo administración), desde pages/usuarios.php.
+//
+//  Una fila por usuario con rol, estado, Google Calendar (google_conectado
+//  hace una consulta por fila) y último acceso. Cada fila es un formulario
+//  a usuario-guardar.
+//
+//  Ojo con el HTML: el <form> se abre en la celda «Rol» y se cierra en la
+//  última celda. No es HTML válido; funciona porque el navegador asocia los
+//  campos al formulario abierto, pero cualquier cambio en la estructura de
+//  la tabla puede dejar el selector o el botón fuera del formulario.
+// ============================================================
+?>
 <?php /** @var array $rows */ ?>
 <div class="page-head" data-vivo="cabecera">
     <div>

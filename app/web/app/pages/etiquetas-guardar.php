@@ -2,8 +2,16 @@
 declare(strict_types=1);
 require_login();
 
-// Guarda las etiquetas de un registro. Las funciones existían desde el
-// principio y no las llamaba ninguna pantalla.
+// ============================================================
+//  Ruta: POST /etiquetas-guardar (requiere sesión + CSRF).
+//
+//  Guarda las etiquetas de un registro. Las funciones existían desde el
+//  principio y no las llamaba ninguna pantalla.
+//
+//  Campos: entidad, id y etiquetas (texto separado por comas, desde
+//  views/_etiquetas.php). Reemplaza la lista completa: lo que no viene se
+//  quita. Vuelve a la ficha del registro.
+// ============================================================
 
 if (!is_post()) { redirect('dashboard'); }
 verify_csrf();

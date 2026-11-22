@@ -7,17 +7,35 @@ declare(strict_types=1);
 //  Agendar en el cron de Hostinger (hPanel), cada 5 minutos:
 //      */5 * * * * /usr/bin/php /home/u566451014/domains/intellihelp.tech/public_html/crm/cron.php >/dev/null 2>&1
 //
-//  Hace estas cosas, en este orden:
-//    1. despacha los correos pendientes de las campañas (con su pausa)
-//    2. lee la casilla: rebotes y respuestas (los rebotes definitivos archivan
-//       el contacto, porque ya no se le puede escribir)
-//    3. completa las reservas que quedaron sin evento o sin correo, y manda
-//       los recordatorios de las reuniones de las próximas 24 h
+//  (Esa ruta es la de producción. La instalación de pruebas tiene su propio
+//  cron.php en public_html/crm-pruebas/, con su propia configuración y base;
+//  si se programa también, va como una segunda línea del cron.)
+//
+//  Hace estas cosas, en este orden (los números son los de las secciones de
+//  abajo):
+//    1 y 2, en vueltas de ~55 s hasta gastar CRON_CORRIDA_SEG (280 s):
+//      1. lee las casillas: rebotes y respuestas (los rebotes definitivos
+//         archivan el contacto, porque ya no se le puede escribir)
+//      2. despacha los correos pendientes de las campañas (con su pausa)
+//    3.  completa las reservas que quedaron sin evento de Google o sin correo
+//    3b. manda los recordatorios de las reuniones de las próximas 24 h
 //    3c. una vez por día, actualiza los feriados desde el calendario oficial
-//       y avisa si un feriado nuevo cae sobre reuniones ya agendadas
-//    4. purga lo que lleva más de 60 días en la papelera, borra los datos
-//       personales de las entradas de la web que ya no tienen contacto y
-//       limpia los contadores de límites vencidos
+//        y avisa si un feriado nuevo cae sobre reuniones ya agendadas
+//    4.  manda por correo las alertas pendientes (un solo correo por corrida)
+//    5.  una vez por día, purga lo que lleva más de `papelera_dias` (60) en
+//        la papelera: el único borrado físico del sistema
+//    6.  una vez por día, borra los datos personales de las entradas de la web
+//        que ya no tienen contacto y limpia los contadores de límites vencidos
+//
+//  Cada paso va en su propio try/catch: si uno falla, se anota en la salida y
+//  en `actividad` (tipo 'error', acción 'cron.<paso>_error') y la corrida
+//  sigue con el siguiente. La salida del cron de hPanel va a /dev/null, así
+//  que esos registros en `actividad` (pantalla CRON) son el único rastro de
+//  un error: nadie recibe un aviso.
+//
+//  Ajustes que lee y escribe: `cron_clave` (para la llamada por URL),
+//  `cron_turno`, `cron_en_curso_desde`, `cron_ultima_corrida`,
+//  `papelera_ultima_purga`, `entradas_web_ultima_limpieza`, `papelera_dias`.
 //
 //  Es seguro correrlo muchas veces: todo es idempotente y nada se duplica.
 // ============================================================
@@ -40,6 +58,10 @@ if (!$bootstrap) {
 }
 require $bootstrap;
 
+// Por URL: /cron.php?clave=<cron_clave>. Sin clave configurada se niega
+// siempre, así que por defecto la vía web está cerrada. La clave viaja en la
+// URL, de modo que queda en los registros de acceso del servidor; y se
+// compara con !== (no con hash_equals), lo que en teoría deja medir tiempos.
 if ($porWeb) {
     $clave = (string) setting_get('cron_clave', '');
     if ($clave === '' || (($_GET['clave'] ?? '') !== $clave)) {
@@ -58,6 +80,12 @@ if ($porWeb) {
 // que se puede perder a mitad de camino. Por eso NO es la única defensa: cada
 // envío se toma además con un UPDATE condicionado a su estado, que es atómico y
 // no depende de ninguna conexión en particular.
+//
+// Trampa: los bloqueos con nombre de MariaDB son de TODO el servidor, no de
+// cada base, y producción y pruebas comparten el servidor. Este nombre fijo
+// ('crm_cron', sin la base adelante, a diferencia de los de agenda.php y
+// feriados.php) hace que la corrida de una instalación bloquee a la de la
+// otra: si las dos están programadas a la misma hora, una se saltea entera.
 if (!qv("SELECT GET_LOCK('crm_cron', 0)")) {
     $msg = 'Ya hay una corrida en curso. Esta se saltea para no duplicar envíos.';
     if ($porWeb) { echo $msg . PHP_EOL; } else { fwrite(STDOUT, $msg . PHP_EOL); }
@@ -69,16 +97,21 @@ register_shutdown_function(static function (): void {
     try { qv("SELECT RELEASE_LOCK('crm_cron')"); } catch (\Throwable $e) {}
 });
 
+// Hora de arranque, para el tiempo total que se imprime al final, y las
+// líneas del resumen que arma cada paso.
 $t0     = microtime(true);
 $lineas = [];
 
-// Se deja anotado que la corrida ARRANCÓ, no sólo cuándo terminó. Una corrida
-// que manda correos dura varios minutos, y mientras tanto la pantalla mostraba
-// la hora de la corrida anterior: parecía que el cron estaba parado justo
-// cuando más trabajando estaba.
 // Una sola corrida a la vez. Corriendo cada minuto, la anterior puede seguir
 // trabajando cuando arranca la siguiente: dos a la vez leen la misma casilla
 // dos veces y cuentan de más. El que no toma el turno se va sin hacer ruido.
+//
+// Esta es la segunda defensa, además del GET_LOCK de arriba: el turno vive en
+// `app_settings.cron_turno` de ESTA base (no se cruza con la otra instalación)
+// y no depende de la conexión. Vence a los 600 s (cron_tomar_turno() en
+// campanas.php): si el proceso muere sin soltarlo, la corrida siguiente lo
+// retoma después de ese plazo. Una corrida que tardara más de 600 s
+// perdería el turno y podría solaparse con la siguiente.
 if (!cron_tomar_turno()) {
     $msg = date('c') . ' · otra corrida sigue en curso, este turno se saltea' . PHP_EOL;
     if ($porWeb) { echo $msg; } else { fwrite(STDOUT, $msg); }
@@ -90,6 +123,12 @@ register_shutdown_function(static function (): void {
     try { db_reanudar(); cron_soltar_turno(); } catch (\Throwable $e) {}
 });
 
+// Se deja anotado que la corrida ARRANCÓ, no sólo cuándo terminó. Una corrida
+// que manda correos dura varios minutos, y mientras tanto la pantalla mostraba
+// la hora de la corrida anterior: parecía que el cron estaba parado justo
+// cuando más trabajando estaba.
+// Si la corrida muere por un error fatal, esta marca queda puesta (sólo se
+// limpia al final del archivo) aunque el turno se suelte.
 setting_set('cron_en_curso_desde', date('Y-m-d H:i:s'));
 
 // ============================================================
@@ -104,6 +143,12 @@ setting_set('cron_en_curso_desde', date('Y-m-d H:i:s'));
 //  cinco da cinco vueltas seguidas. En los dos casos la casilla se mira
 //  aproximadamente cada minuto, que es lo que hace que una respuesta aparezca
 //  al toque en vez de cinco minutos después.
+//
+//  Las constantes viven en campanas.php: CRON_CICLO_SEG (55, cada vuelta),
+//  CRON_CORRIDA_SEG (280, el total) y CRON_PRESUPUESTO_SEG (45, lo que el
+//  despachador puede gastar dentro de una vuelta). Los pasos 3 a 6 corren una
+//  sola vez, después de las vueltas, así que la corrida entera dura los 280 s
+//  más lo que tarden ellos (la consulta de feriados espera hasta 15 s).
 // ============================================================
 $finDeCorrida = microtime(true) + CRON_CORRIDA_SEG;
 $vueltas = 0;
@@ -126,6 +171,12 @@ do {
     // porque abrir IMAP es caro y no tiene sentido hacerlo para no encontrar nada.
     // El despachador además vuelve a mirar en el medio del envío, aprovechando las
     // pausas entre correo y correo.
+    //
+    // imap_quizas_revisar(seg) devuelve null si la última lectura fue hace
+    // menos de `seg` segundos; si no, lee y devuelve los contadores (o
+    // 'error' con el motivo, por ejemplo una casilla con la clave vencida).
+    // No lanza excepciones: el catch de abajo es por si falla la consulta de
+    // campañas activas o la base.
     try {
         $activas = (int) qv("SELECT COUNT(*) FROM campanas
                              WHERE eliminado_en IS NULL AND estado IN ('enviando','programada')");
@@ -151,7 +202,9 @@ do {
     try {
         // El presupuesto sale de la constante, no de un número escrito acá: la
         // pantalla calcula con ella el ritmo de envío, y los dos valores tienen
-        // que coincidir.
+        // que coincidir. El 3 no es un tope de correos: campanas_despachar()
+        // lo multiplica por 6 para el LIMIT de pendientes que lee por campaña;
+        // el tope real lo pone el presupuesto de tiempo.
         $r = campanas_despachar(3, CRON_PRESUPUESTO_SEG);
         $lineas[] = sprintf('campañas: %d enviados, %d rebotados, %d omitidos, %d errores',
             $r['enviados'], $r['rebotados'], $r['omitidos'], $r['errores']);
@@ -190,6 +243,9 @@ if ($vueltas > 1) { $lineas[] = $vueltas . ' vueltas'; }
 // reinicio del servidor, un límite de tiempo), la reunión quedó tomada pero
 // nadie se enteró: ni el calendario del vendedor ni el invitado. Acá se
 // completan las que llevan más de dos minutos así.
+// function_exists: hoy bootstrap.php carga siempre agenda.php, así que la
+// función existe; la guarda quedó de cuando el cron podía convivir con un
+// núcleo desplegado más viejo. Si faltara, el paso se saltea callado.
 try {
     if (function_exists('agenda_completar_pendientes')) {
         $n = agenda_completar_pendientes();
@@ -205,6 +261,11 @@ try {
 }
 
 // ---- 3b. Recordatorios de reuniones ----
+// Correo al invitado de cada reserva confirmada que empieza en las próximas
+// 24 h y todavía no tiene `recordatorio_enviado_en`.
+// A diferencia de los otros pasos, este y los siguientes no llaman a
+// db_reanudar() en el catch: si la conexión se hubiera caído, el log_app()
+// del error fallaría también y el error no quedaría registrado.
 try {
     $n = agenda_recordatorios();
     $lineas[] = "agenda: $n recordatorios enviados";
@@ -222,6 +283,10 @@ try {
 // de las alertas: si un feriado nuevo cae sobre una reunión, el aviso sale por
 // correo en esta misma corrida. Si la fuente no responde, la agenda sigue con
 // lo que ya tenía y se vuelve a probar en un rato.
+// feriados_asegurar(true) devuelve null si todavía no tocaba sincronizar; si
+// tocó, los años al día, los feriados agregados y quitados, y 'error' si la
+// fuente falló. Un error de la fuente NO se registra en `actividad`: queda en
+// el ajuste `feriados_ultimo_error` y en la pantalla de feriados.
 try {
     if (function_exists('feriados_asegurar')) {
         $r = feriados_asegurar(true);
@@ -255,6 +320,14 @@ try {
 // ---- 5. Purga de la papelera ----
 // Es el único lugar del sistema que borra físicamente, y sólo lo que ya cumplió
 // su plazo. Se corre una vez por día para no castigar la base en cada pasada.
+//
+// La marca del día se escribe ANTES de purgar: si purgar_papelera() falla a
+// la mitad, ese día no se reintenta y lo que faltaba se borra al día
+// siguiente. Es a propósito del lado seguro (nunca dos purgas el mismo día),
+// pero un error acá se ve sólo en `actividad`.
+// date() usa la zona horaria de PHP (`app.timezone` de la configuración, UTC
+// si falta): «el día» cambia a la medianoche de esa zona. El plazo de la
+// purga, en cambio, lo calcula la base con NOW(), en la zona de MariaDB.
 try {
     if (date('Y-m-d') !== (string) setting_get('papelera_ultima_purga', '')) {
         setting_set('papelera_ultima_purga', date('Y-m-d'));
@@ -279,6 +352,9 @@ try {
 //     la fecha quedan, que son los números del embudo (Ley 25.326: no se
 //     guarda lo que ya no hace falta);
 //   · se borran los contadores de límites ya vencidos.
+// Igual que en la papelera, la marca del día se pone antes de trabajar: si
+// algo falla, se reintenta recién mañana. El plazo de anonimización es el
+// mismo de la papelera (`papelera_dias`, 60 por defecto).
 try {
     if (function_exists('entradas_web_anonimizar')
         && date('Y-m-d') !== (string) setting_get('entradas_web_ultima_limpieza', '')) {
@@ -298,6 +374,9 @@ try {
     }
 }
 
+// Fin de la corrida: la pantalla CRON pasa a mostrar esta hora y deja de
+// mostrar «en curso». El turno y el GET_LOCK los sueltan las funciones de
+// cierre registradas arriba, cuando termina el script.
 setting_set('cron_ultima_corrida', date('Y-m-d H:i:s'));
 setting_set('cron_en_curso_desde', '');
 

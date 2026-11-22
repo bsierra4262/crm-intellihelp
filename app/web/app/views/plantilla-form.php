@@ -1,6 +1,24 @@
 <?php
+// ============================================================
+//  Vista: editor visual de plantillas. La pinta pages/plantilla-form.php.
+//  Variables:
+//    $p            la plantilla (o los valores iniciales si es nueva).
+//    $id           id; 0 si es nueva.
+//    $errores      campo => mensaje.
+//    $datos        {bloques, ajustes}: el estado del editor.
+//    $asuntoVista  el asunto con los datos de ejemplo.
+//    $chequeo      bloques_verificar() de la versión inicial.
+//    $preajustes   diseños prearmados; $imagenes las últimas 60 subidas.
+//  El editor lo maneja assets/js/editor.js: lee window.__editor, dibuja los
+//  bloques, guarda el JSON en el campo oculto `bloques` y pide la vista
+//  previa a plantilla-vista (que se muestra en un iframe con srcdoc).
+//  El formulario manda siempre tipo=visual.
+//  Los comentarios HTML de las secciones (Paleta, Lienzo…) ya estaban y
+//  llegan al navegador; no se agregan más de ese tipo.
+// ============================================================
 /** @var ?array $p @var int $id @var array $errores @var array $datos
  *  @var string $asuntoVista @var array $chequeo @var array $preajustes @var array $imagenes */
+// Atajo: valor del campo ya escapado para meterlo en un atributo.
 $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
 ?>
 <div class="page-head">
@@ -122,6 +140,8 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
     </div>
 </div>
 
+<?php // Datos para editor.js. Ojo: json_encode sin JSON_HEX_TAG y con JSON_UNESCAPED_SLASHES deja ?>
+<?php // pasar tal cual una etiqueta de cierre de script escrita en un bloque, y eso corta este script. ?>
 <script>
 window.__editor = {
     datos: <?= json_encode($datos, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>,

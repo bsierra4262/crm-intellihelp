@@ -1,5 +1,28 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Alta y edición de un tipo de reunión (ruta `agenda-form?id=N`, módulo
+//  'agenda', con login). Sin id, crea uno nuevo.
+//
+//  GET: arma el formulario con el tipo y su horario laboral (o con los
+//  valores por defecto: 30 min, lunes a viernes de 9 a 18, zona de Argentina).
+//  POST: valida (CSRF, nombre, al menos un día, horas en orden, zona que
+//  exista, slug que no repita otro tipo del mismo dueño) y guarda con
+//  agenda_tipo_guardar(); si sale bien, redirige a `agenda`.
+//
+//  Permisos: cada quien edita sus tipos; un administrador, los de todos, y es
+//  el único que puede elegir sobre qué calendario (usuario) cae el tipo.
+//
+//  Escribe agenda_tipos y agenda_horarios (a través de agenda.php).
+//  Vista: views/agenda-form.php, que recibe t, id, errores, porDia, duenioU,
+//  conectado y candidatos.
+//
+//  No se valida del lado del servidor: el largo del nombre (120) ni del slug
+//  generado (60), el formato de las horas ni que el día esté entre 0 y 6. El
+//  formulario lo limita, pero un POST armado a mano llega igual a la base.
+// ============================================================
+
 require_login();
 
 $id  = (int)($_GET['id'] ?? 0);
@@ -18,6 +41,8 @@ if (!$id) {
           'zona_horaria' => AGENDA_ZONA_DEFECTO];
 }
 
+// porDia: dia (0 = domingo) => ['H:i', 'H:i']. Si un día tuviera varias
+// franjas en la base, el formulario sólo muestra la última (admite una por día).
 $horarios = $id ? agenda_horarios_de($id) : [];
 $porDia   = [];
 foreach ($horarios as $h) {
@@ -31,11 +56,16 @@ if (!$id) {
 // Quién es el dueño del calendario donde caen las reuniones. Hasta ahora esto
 // no se veía en ningún lado: la reunión se creaba en el calendario de quien
 // había armado el tipo, y no había forma de saber cuál era ni de comprobar que
-// esa cuenta tuviera Google conectado. Si no lo tiene, la reserva se toma igual
-// y el evento no se crea: el cliente recibe su enlace y la empresa no se entera.
+// esa cuenta tuviera Google conectado. Si no lo tiene, la agenda no puede leer
+// lo ocupado (gcal_ocupado() devuelve null) y no ofrece ningún horario: ni la
+// página pública ni la web toman reservas. Lo que agenda el equipo sin validar
+// el hueco sí se guarda, pero sin evento ni Meet.
 $duenio   = (int)($t['usuario_id'] ?? $uid);
 $duenioU  = q1('SELECT id, nombre, email FROM usuarios WHERE id = ?', [$duenio]) ?: [];
 $conectado = $duenio ? google_conectado($duenio) : false;
+// Sólo el administrador ve el selector de calendario. Si el dueño actual ya
+// no está activo, no figura en la lista y el selector arranca en otra persona:
+// guardar sin mirar cambia el dueño del tipo.
 $candidatos = auth_is_admin() ? users_activos() : [];
 
 $errores = [];
@@ -90,6 +120,7 @@ if (is_post()) {
         flash($id ? 'Tipo de reunión actualizado.' : 'Tipo de reunión creado. Ya podés compartir el enlace.', 'success');
         redirect('agenda');
     }
+    // Con errores se vuelve a dibujar el formulario con lo que se mandó.
     $t = array_merge($t ?? [], $d);
     $porDia = [];
     foreach ((array)($d['dias'] ?? []) as $dia) {

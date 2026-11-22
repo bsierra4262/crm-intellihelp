@@ -1,4 +1,18 @@
-<?php /** @var ?array $l @var int $id @var array $errores @var array $categorias */ ?>
+<?php
+// ============================================================
+//  Formulario de alta y edición de una lista de destinatarios (la renderiza
+//  pages/lista-form.php).
+//
+//  Recibe:
+//    · $l          la lista (o lo escrito, si falló la validación); null en el alta;
+//    · $id         id de la lista, 0 en el alta;
+//    · $errores    campo => mensaje; se muestran todos juntos arriba;
+//    · $categorias categorias_listar(), para el selector de segmento.
+//
+//  Postea a la misma URL (sin action), así conserva el ?id= de la edición.
+// ============================================================
+/** @var ?array $l @var int $id @var array $errores @var array $categorias */
+?>
 <div class="page-head">
     <div><h1><?= $id ? 'Editar lista' : 'Nueva lista' ?></h1></div>
     <div class="head-actions"><a class="btn btn-ghost" href="<?= e(url('listas')) ?>">Volver</a></div>

@@ -10,6 +10,21 @@ declare(strict_types=1);
 //  Los enlaces de mover y cancelar llegan sólo al correo de quien reservó.
 //  Sirven aunque sean de un correo viejo: si la reunión ya se movió, se
 //  sigue la cadena hasta la reserva vigente (agenda_reserva_vigente).
+//
+//  Aclaración para quien llega por las campañas: esto NO es un redirector de
+//  clics. El sistema no reescribe los enlaces de los correos para medir
+//  clics, así que no hay ninguna ruta que redirija a una URL recibida por
+//  parámetro. La relación con las campañas es el botón «Agendar»:
+//  agenda_de_usuario() arma /r/<usuario>/<tipo>?c=<id de campaña> y la
+//  reserva que sale de ahí se le atribuye a esa campaña (agenda.php).
+//
+//  index.php manda acá todo lo que empieza con /r/ y deja el resto del camino
+//  en `_ruta`. Pertenece al módulo «agenda», pero se controla acá adentro
+//  (ver abajo) en vez de en la lista de rutas del módulo.
+//  Todos los POST validan un token de formulario propio de la agenda
+//  (agenda_form_token_valido) en lugar del CSRF de sesión, porque quien
+//  reserva no tiene sesión; además hay límites por visitante para las vistas
+//  y para los cambios.
 // ============================================================
 
 $resto = trim((string)($_GET['_ruta'] ?? ''), '/');
@@ -133,6 +148,9 @@ if ($resto === 'mover') {
     exit;
 }
 
+// ---- Página de reserva: /r/<usuario>/<tipo> ----
+// <usuario> es la parte local del correo del vendedor y <tipo> el slug del
+// tipo de reunión. Lo que venga después de esos dos tramos se ignora.
 $partes  = explode('/', $resto);
 $usuario = $partes[0] ?? '';
 $slug    = $partes[1] ?? '';

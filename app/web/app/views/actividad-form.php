@@ -1,6 +1,33 @@
 <?php
+// ============================================================
+//  Vista: formulario de alta y edición de una actividad (tarea, llamada o
+//  reunión).
+//
+//  La dibuja pages/actividad-form.php. Módulo: `actividades`.
+//
+//  Variables que recibe:
+//    $a          array  la actividad (actividad_get) o los valores iniciales
+//                       del alta (con el vínculo que vino en la dirección)
+//    $id         int    0 en un alta
+//    $errores    array  campo => mensaje
+//    $usuarios   array  usuarios activos, para el responsable
+//    $contactos  array  hasta 3000 contactos, por apellido
+//    $cuentas    array  hasta 3000 empresas, por nombre
+//    $negocios   array  los 1000 negocios más nuevos
+//
+//  El script del final oculta los campos que no aplican al tipo (atributo
+//  `data-solo`). Ocultos igual viajan en el POST; actividad_guardar() es la
+//  que descarta lo que no corresponde (por ejemplo, `inicia_el` en una tarea).
+//
+//  Trampa importante: si el contacto, la empresa o el negocio vinculados no
+//  están en las listas recortadas (la base tiene más de 13.000 contactos),
+//  el selector queda en «Ninguno» y al guardar el vínculo se pierde.
+//  El posible cliente viaja en un campo oculto, sin selector.
+//  El formulario no manda `volver`: la página siempre vuelve a `actividades`.
+// ============================================================
 /** @var ?array $a @var int $id @var array $errores @var array $usuarios
  *  @var array $contactos @var array $cuentas @var array $negocios */
+// Atajo: el valor del campo ya escapado para HTML, con un valor por defecto.
 $v = fn(string $k, $def = '') => e($a[$k] ?? $def);
 // Los datetime-local necesitan "Y-m-dTH:i".
 $dt = function (?string $f) {
@@ -37,6 +64,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                 <input name="asunto" value="<?= $v('asunto') ?>" maxlength="200" required autofocus placeholder="Llamar para confirmar la propuesta">
                 <?php if (isset($errores['asunto'])): ?><i class="hint bad"><?= e($errores['asunto']) ?></i><?php endif; ?>
             </label>
+            <?php // Sin opción vacía: una actividad siempre tiene responsable (por defecto, quien la carga). ?>
             <label class="fld"><span>Responsable</span>
                 <select name="propietario_id">
                     <?php foreach ($usuarios as $u): ?>
@@ -78,6 +106,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                 <input type="number" name="duracion_min" value="<?= $v('duracion_min') ?>" min="1" step="1">
             </label>
 
+            <?php // «Completada» acá pone `completada_en` en actividad_guardar(); cualquier otro estado lo limpia. ?>
             <label class="fld"><span>Estado</span>
                 <select name="estado">
                     <?php foreach (estados_actividad() as $x): ?>
@@ -131,6 +160,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                 </select>
                 <i class="hint">El negocio al que empuja esta actividad, si aplica.</i>
             </label>
+            <?php // Sin selector: se conserva el posible cliente que traía la actividad o que vino en la dirección. ?>
             <input type="hidden" name="posible_cliente_id" value="<?= $v('posible_cliente_id') ?>">
             <label class="fld full"><span>Detalle</span>
                 <textarea name="descripcion" rows="4" placeholder="Repasar el alcance y los tiempos de entrega."><?= $v('descripcion') ?></textarea>
@@ -148,6 +178,7 @@ $tipo = $a['tipo'] ?? 'tarea';
 <script>
 // Mostrar sólo los campos que aplican al tipo elegido: una tarea no tiene
 // duración ni resultado, y una llamada no tiene fecha de fin.
+<?php // `data-solo` lista, separados por espacio, los tipos en los que el campo se ve. ?>
 (function () {
     var sel = document.getElementById('tipoActividad');
     function aplicar() {

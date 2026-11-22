@@ -1,3 +1,14 @@
+<?php
+// ============================================================
+//  Vista: galería de imágenes de las campañas. La pinta pages/imagenes.php
+//  (sólo administradores).
+//  Variables:
+//    $aviso  [tipo, texto] con el resultado de la última subida, o null.
+//    $rows   filas de `imagenes` con el nombre del autor, más nuevas primero.
+//  Cada imagen muestra su URL pública (ruta `img`), que es la que se pega en
+//  el bloque «Imagen» del editor; borrar no revisa si alguna plantilla la usa.
+// ============================================================
+?>
 <?php /** @var ?array $aviso @var array $rows */ ?>
 <div class="page-head">
     <div>

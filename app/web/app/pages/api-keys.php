@@ -2,6 +2,26 @@
 declare(strict_types=1);
 require_admin();
 
+// ============================================================
+//  API → claves de acceso para otros sistemas.
+//
+//  Ruta: api-keys (sólo administradores, también marcado así en index.php).
+//  Núcleo: no depende de ningún módulo. Vista: views/api-keys.php.
+//
+//  Acciones por POST (con CSRF):
+//    · crear: genera la clave (y, si es de escritura, su secreto) y la
+//      muestra UNA vez en la misma respuesta, sin redirigir: si se redirigiera,
+//      habría que pasarla por la sesión y quedaría guardada en el servidor;
+//    · baja: desactiva la clave (activo = 0). No se borra, para que la
+//      auditoría siga mostrando a quién correspondía; no hay forma de
+//      reactivarla desde acá.
+//  El permiso 'root' no se puede crear desde esta pantalla: sólo se muestra
+//  si ya existía en la base.
+//
+//  Tabla: api_tokens. La clave se guarda como SHA-256; el secreto, cifrado
+//  con cifrar() (google.php), porque hay que leerlo para verificar firmas.
+// ============================================================
+
 $nuevaClave   = null;
 $nuevoSecreto = null;
 $nuevoScope   = null;
@@ -31,6 +51,8 @@ if (is_post()) {
         // Se guarda sólo el SHA-256: la clave completa se muestra una única vez
         // y después no hay forma de recuperarla (ni para nosotros).
         $clave   = 'crm_' . bin2hex(random_bytes(20));
+        // El prefijo (crm_ + 8 hex) es lo único que se ve después en la lista,
+        // para reconocer cuál es cuál sin exponer la clave.
         $prefijo = substr($clave, 0, 12);
         // El secreto, en cambio, hay que poder leerlo para verificar cada firma:
         // se guarda cifrado y tampoco se vuelve a mostrar.
@@ -57,6 +79,7 @@ if (is_post()) {
         header('X-LiteSpeed-Cache-Control: no-cache');
 
     } elseif ($accion === 'baja') {
+        // Rige al instante: api_autenticar() y api/estado buscan sólo activo = 1.
         $id = (int)($_POST['id'] ?? 0);
         q('UPDATE api_tokens SET activo = 0 WHERE id = ?', [$id]);
         log_app('api.token_baja', ['entidad' => 'token', 'entidad_id' => $id, 'detalle' => 'Token desactivado']);

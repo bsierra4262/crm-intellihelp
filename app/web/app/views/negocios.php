@@ -1,7 +1,22 @@
+<?php
+// ============================================================
+//  Vista del listado de negocios.
+//
+//  La dibuja pages/negocios.php. Recibe:
+//    $f         los filtros aplicados (para volver a marcarlos)
+//    $data      negocios_listar(): rows, total, suma y la paginación
+//    $usuarios  usuarios activos, para el filtro de propietario
+//    $etapas    etapas del embudo predeterminado, para el filtro de etapa
+//
+//  Las zonas data-vivo las usa assets/js/secciones.js para refrescar cabecera
+//  y tabla sin recargar la página entera.
+// ============================================================
+?>
 <?php /** @var array $f @var array $data @var array $usuarios @var array $etapas */ ?>
 <div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Negocios</h1>
+        <?php // Los totales son de todo el filtro, no de la página, y suman ARS y USD juntos mostrados como pesos. ?>
         <p class="muted">
             <?= number_format($data['total'], 0, ',', '.') ?> negocios ·
             <?= money((float)($data['suma']['importe'] ?? 0)) ?> ·
@@ -86,6 +101,7 @@
                     <td data-label="Propietario" class="prio-4"><?= e($n['propietario'] ?: '—') ?></td>
                     <td class="acts" data-label="Acciones">
                         <a class="act" href="<?= e(url('negocio-form?id=' . (int)$n['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
+                        <?php // La papelera la maneja registro-eliminar; `volver` dice a qué pantalla regresar. ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="negocio">

@@ -1,5 +1,16 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Ruta: GET /buscar?q=... (requiere sesión). Búsqueda global de la barra.
+//
+//  Busca con LIKE '%q%' en contactos, empresas (cuentas), posibles clientes
+//  sin convertir y negocios, hasta 15 resultados de cada uno, sin los
+//  eliminados. No filtra por propietario (un comercial ve todo) ni por
+//  módulo: con Posibles o Negocios apagados, igual los busca y los muestra.
+//  Los comodines % y _ que escriba la persona no se escapan.
+//  Deja la búsqueda en la auditoría. Vista: views/buscar.php.
+// ============================================================
 require_login();
 
 $q = trim((string)($_GET['q'] ?? ''));
@@ -7,6 +18,7 @@ $r = ['contactos' => [], 'cuentas' => [], 'posibles' => [], 'negocios' => []];
 
 // Búsqueda global: la misma caja encuentra una persona, una empresa, un
 // posible cliente o una oportunidad, sin tener que elegir el módulo antes.
+// Menos de dos letras traería media base: no se busca.
 if (mb_strlen($q) >= 2) {
     $like = '%' . $q . '%';
     $r['contactos'] = q('SELECT ct.id, ct.nombre_completo, ct.email, ct.cargo, cu.nombre AS cuenta

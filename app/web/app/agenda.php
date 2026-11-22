@@ -27,7 +27,35 @@ require_once __DIR__ . '/feriados.php';
 //  Los feriados (feriados.php) no tienen turnos: ni en la web, ni en el
 //  enlace público, ni al mover una reunión, ni en los días de una cobertura.
 //
-//  No dependemos de ningún servicio externo ni de ninguna cuenta paga.
+//  No depende de ningún servicio pago (Calendly o similares): sólo de la API
+//  de Google Calendar de cada vendedor (gcal.php) y, para los feriados, del
+//  calendario oficial que sincroniza feriados.php.
+//
+//  Módulo: 'agenda' (modulos.php). Con el módulo apagado, las páginas públicas
+//  (pages/r.php, pages/reservar.php) responden «no disponible» y las internas
+//  (agenda, agenda-form, reservas, reserva-accion, reserva-mover) no se sirven.
+//
+//  Quién usa este archivo:
+//    · pages/r.php ............ /r/<usuario>/<tipo>, /r/mover y /r/cancelar (sin login)
+//    · pages/reservar.php ..... POST de la página pública (sin login)
+//    · pages/api/v1/*.php ..... disponibilidad y reserva desde intellihelp.tech
+//    · pages/agenda*.php, reserva*.php, reservas.php: pantallas internas
+//    · cron.php ............... agenda_completar_pendientes() y agenda_recordatorios()
+//
+//  Tablas:
+//    · agenda_tipos (lee/escribe) ... tipos de reunión de cada vendedor
+//    · agenda_horarios (lee/escribe)  horario laboral por día de la semana
+//    · agenda_reservas (lee/escribe)  una fila por reserva; mover crea otra
+//                                     fila y marca la vieja «reprogramada»
+//    · contactos, cuentas, actividades, actividad_invitados, campanas,
+//      entradas_web (escribe, al reservar)
+//    · api_limites (escribe) ........ tokens de formulario de un solo uso
+//    · notificaciones, app_settings (lee: coberturas, topes, etc.)
+//
+//  Fechas: en la base se guardan en la hora de la instalación (la de PHP,
+//  que db.php copia a la sesión de MySQL); los cálculos de horarios se hacen
+//  en segundos Unix y en la zona del tipo de reunión. Ver la sección «Zona
+//  horaria del tipo de reunión».
 // ============================================================
 
 /** Segundos que espera la consulta a Google en la verificación final de una reserva. */
@@ -36,12 +64,33 @@ const AGENDA_TIMEOUT_VERIFICACION = 6;
 /** Segundos que sirve la consulta a Google para mostrar horarios (páginas públicas y web). */
 const AGENDA_CACHE_HORARIOS = 60;
 
+// ------------------------------------------------------------
+//  Tipos de reunión: lectura y guardado
+// ------------------------------------------------------------
+
+/**
+ * Tipos de reunión de un vendedor, ordenados por nombre.
+ *
+ * @param int  $usuarioId   dueño de los tipos
+ * @param bool $soloActivos false para incluir los ocultos (la pantalla Agenda los muestra todos)
+ * @return array<int,array> filas de agenda_tipos
+ */
 function agenda_tipos_de(int $usuarioId, bool $soloActivos = true): array
 {
     $w = 'WHERE usuario_id = ?' . ($soloActivos ? ' AND activo = 1' : '');
     return q("SELECT * FROM agenda_tipos $w ORDER BY nombre", [$usuarioId])->fetchAll();
 }
 
+/**
+ * Un tipo de reunión por id, con el nombre y el correo de su dueño
+ * (`usuario`, `usuario_email`).
+ *
+ * No filtra por `activo` ni por si el dueño sigue activo: quien llama decide
+ * (pages/reservar.php controla `activo`; las reservas ya tomadas se siguen
+ * pudiendo mover y cancelar aunque el tipo se haya ocultado).
+ *
+ * @return array|null la fila, o null si no existe
+ */
 function agenda_tipo_get(int $id): ?array
 {
     return q1('SELECT t.*, u.nombre AS usuario, u.email AS usuario_email
@@ -49,7 +98,16 @@ function agenda_tipo_get(int $id): ?array
                WHERE t.id = ?', [$id]);
 }
 
-/** Busca un tipo por la URL pública: /r/<usuario>/<slug>. */
+/**
+ * Busca un tipo por la URL pública: /r/<usuario>/<slug>.
+ *
+ * <usuario> es la parte del correo del vendedor antes de la arroba. Sólo
+ * devuelve tipos activos de usuarios activos. Si dos usuarios comparten esa
+ * parte del correo (en dominios distintos) y el mismo slug, LIMIT 1 se queda
+ * con cualquiera de los dos.
+ *
+ * @return array|null el tipo con `usuario` y `usuario_email`, o null
+ */
 function agenda_tipo_por_slug(string $usuario, string $slug): ?array
 {
     return q1("SELECT t.*, u.nombre AS usuario, u.email AS usuario_email
@@ -65,12 +123,21 @@ function agenda_zona_valida(string $zona): string
     return in_array($zona, DateTimeZone::listIdentifiers(), true) ? $zona : AGENDA_ZONA_DEFECTO;
 }
 
+/**
+ * Horario laboral de un tipo: filas de agenda_horarios (dia 0 = domingo,
+ * desde y hasta en 'H:i:s', en la zona del tipo), ordenadas por día y hora.
+ */
 function agenda_horarios_de(int $tipoId): array
 {
     return q('SELECT * FROM agenda_horarios WHERE tipo_id = ? ORDER BY dia, desde', [$tipoId])->fetchAll();
 }
 
-/** Convierte un nombre en un slug apto para la URL pública. */
+/**
+ * Convierte un nombre en un slug apto para la URL pública: minúsculas sin
+ * tildes (plano()), y todo lo que no sea letra o número pasa a guion. Si no
+ * queda nada, 'reunion'. No recorta el largo: la columna `slug` admite 60
+ * caracteres y un nombre largo puede generar uno más largo.
+ */
 function slugificar(string $texto): string
 {
     $s = plano($texto);
@@ -78,6 +145,23 @@ function slugificar(string $texto): string
     return trim($s, '-') ?: 'reunion';
 }
 
+/**
+ * Crea o actualiza un tipo de reunión y reemplaza su horario laboral.
+ *
+ * No valida permisos ni duplicados: eso lo hace pages/agenda-form.php antes
+ * de llamar (quién puede elegir el dueño, slug repetido, horas al revés,
+ * zona existente). Acá sólo se normalizan los números con mínimos razonables.
+ *
+ * @param array    $d  lo del formulario: nombre, slug, descripcion, duracion_min,
+ *                     margen_min, aviso_min_horas, ventana_dias, zona_horaria,
+ *                     con_meet, activo, usuario_id, dias[], desde[dia], hasta[dia]
+ *                     (horas 'H:i')
+ * @param int|null $id el tipo a actualizar; null para crear uno nuevo
+ * @return int el id del tipo
+ *
+ * Efectos: escribe agenda_tipos y agenda_horarios (borra y vuelve a insertar,
+ * fuera de transacción) y deja el cambio en la auditoría.
+ */
 function agenda_tipo_guardar(array $d, ?int $id = null): int
 {
     $campos = [
@@ -107,6 +191,9 @@ function agenda_tipo_guardar(array $d, ?int $id = null): int
     foreach ((array)($d['dias'] ?? []) as $dia) {
         $desde = $d['desde'][$dia] ?? '09:00';
         $hasta = $d['hasta'][$dia] ?? '18:00';
+        // Comparación de textos: vale porque <input type="time"> manda siempre
+        // 'HH:MM' con dos dígitos. Un día al revés se descarta en silencio
+        // (la página ya lo rechazó con un error antes de llegar acá).
         if ($desde >= $hasta) { continue; }
         q('INSERT INTO agenda_horarios (tipo_id, dia, desde, hasta) VALUES (?, ?, ?, ?)',
           [$id, (int)$dia, $desde . ':00', $hasta . ':00']);
@@ -126,8 +213,13 @@ function agenda_tipo_guardar(array $d, ?int $id = null): int
 //  hora de la instalación, como el resto del CRM.
 // ------------------------------------------------------------
 
+/** Zona que se usa cuando el tipo no tiene una, o tiene una que no existe. */
 const AGENDA_ZONA_DEFECTO = 'America/Argentina/Buenos_Aires';
 
+/**
+ * La zona horaria del tipo de reunión como objeto. Nunca lanza: una zona
+ * vacía o inválida cae en AGENDA_ZONA_DEFECTO.
+ */
 function agenda_zona(array $tipo): DateTimeZone
 {
     $z = (string)($tipo['zona_horaria'] ?? '');
@@ -144,7 +236,14 @@ function agenda_local(int $ts, array $tipo, string $formato = 'Y-m-d H:i:s'): st
     return (new DateTimeImmutable('@' . $ts))->setTimezone(agenda_zona($tipo))->format($formato);
 }
 
-/** «Hora de Argentina (UTC−3)», para mostrarle al visitante en qué hora está viendo todo. */
+/**
+ * «Hora de Argentina (UTC−3)», para mostrarle al visitante en qué hora está viendo todo.
+ *
+ * El desfase es el de este momento: en una zona con horario de verano, una
+ * reunión del otro lado del cambio puede tener otro desfase que el mostrado.
+ * El nombre es el último tramo de la zona («Sao Paulo», «New York»), salvo las
+ * de Argentina, que dicen «Argentina».
+ */
 function agenda_zona_etiqueta(array $tipo): string
 {
     $tz  = agenda_zona($tipo);
@@ -278,12 +377,24 @@ function agenda_cobertura_del_dia(array $coberturas, string $fecha): ?int
     return null;
 }
 
+/**
+ * Las coberturas de un tipo según el ajuste `agenda_coberturas` (lee
+ * app_settings). Lista vacía si no hay ninguna o el JSON está mal escrito.
+ */
 function agenda_coberturas(int $tipoId): array
 {
     return agenda_coberturas_leer((string) setting_get('agenda_coberturas', ''), $tipoId);
 }
 
-/** Quién atiende el tipo ese día (Y-m-d en la zona del tipo). */
+/**
+ * Quién atiende el tipo ese día (Y-m-d en la zona del tipo).
+ *
+ * Lee el ajuste y, si hay cobertura, consulta si quien cubre sigue activo.
+ * Se llama una vez por día del rango al calcular huecos: hasta 31 lecturas
+ * del ajuste y 31 consultas por pedido de horarios.
+ *
+ * @return int id del usuario anfitrión (el dueño del tipo si nadie cubre)
+ */
 function agenda_anfitrion_id(array $tipo, string $fecha): int
 {
     $cubre = agenda_cobertura_del_dia(agenda_coberturas((int)$tipo['id']), $fecha);
@@ -342,6 +453,8 @@ function agenda_huecos_por_anfitrion(array $tipo, string $desde, string $hasta, 
 {
     $motivo = null;
     [, , $fechas] = agenda_ventana($tipo, $desde, $hasta, time());
+    // Tramos: [anfitrión, primer día, último día] de días seguidos con la
+    // misma persona. Cada tramo es una sola consulta a su Google Calendar.
     $tramos = [];
     foreach ($fechas as $f) {
         $u = agenda_anfitrion_id($tipo, $f);
@@ -353,6 +466,8 @@ function agenda_huecos_por_anfitrion(array $tipo, string $desde, string $hasta, 
     $sinCalendario = false;
     foreach ($tramos as [$u, $d1, $d2]) {
         $m = null;
+        // Con el anfitrión fijo, agenda_huecos_rango() no vuelve a entrar acá.
+        // La unión por fecha (+=) no pisa nada porque los tramos no se tocan.
         $huecos += agenda_huecos_rango(agenda_tipo_con_anfitrion($tipo, $u), $d1, $d2, $m, $ignorarReservaId, $op);
         if ($m === 'sin_calendario') { $sinCalendario = true; }
         elseif ($m !== null && $motivo === null) { $motivo = $m; }
@@ -454,12 +569,17 @@ function agenda_slots_dia(string $fecha, array $franjas, int $duracionSeg, int $
         } catch (\Throwable $e) {
             continue;
         }
+        // Se avanza en segundos y no en hora de reloj: en un cambio de horario
+        // de verano dentro de la franja, los inicios quedarían corridos. Las
+        // franjas de trabajo normales no cruzan esos cambios (son de madrugada).
         for ($t = $ini; $t + $duracionSeg <= $fin; $t += $duracionSeg) {
             if ($t < $minimoTs) { continue; }
             $tFin  = $t + $duracionSeg;
             $libre = true;
             foreach ($ocupado as $o) {
                 [$oi, $of] = array_values((array)$o) + [0, 0];
+                // Choque de intervalos con el margen sumado a los dos lados de
+                // lo ocupado: [oi - margen, of + margen) contra [t, tFin).
                 if ($t < (int)$of + $margenSeg && (int)$oi - $margenSeg < $tFin) { $libre = false; break; }
             }
             if ($libre) { $salida[] = $t; }
@@ -492,6 +612,8 @@ function agenda_huecos_rango(array $tipo, string $desde, string $hasta,
                              array $op = []): array
 {
     $motivo = null;
+    // Con coberturas cargadas (y sin anfitrión fijo) el rango se parte por
+    // anfitrión, y cada tramo vuelve a entrar acá ya con el anfitrión fijo.
     if (empty($tipo['anfitrion_fijo']) && agenda_coberturas((int)$tipo['id'])) {
         return agenda_huecos_por_anfitrion($tipo, $desde, $hasta, $motivo, $ignorarReservaId, $op);
     }
@@ -504,6 +626,9 @@ function agenda_huecos_rango(array $tipo, string $desde, string $hasta,
 
     // Los feriados no tienen turnos. Se sacan antes de consultar a Google: un
     // rango que es todo feriado no necesita mirar el calendario.
+    // Las fechas están en la zona del tipo y los feriados son fechas de la
+    // Argentina: para un tipo en otra zona, el día que se compara es el del
+    // vendedor, no el de la oficina.
     $feriados = feriados_del_rango($fechas[0], $fechas[count($fechas) - 1]);
     if ($feriados) {
         $fechas = array_values(array_filter($fechas, static fn(string $f): bool => !isset($feriados[$f])));
@@ -535,6 +660,8 @@ function agenda_huecos_rango(array $tipo, string $desde, string $hasta,
         return [];
     }
 
+    // La reunión que se mueve está en Google como un ocupado más: se saca sólo
+    // la franja que coincide exacto con su horario (ver el docblock).
     if ($ignorarReservaId) {
         $propia = q1('SELECT inicia_el, termina_el FROM agenda_reservas WHERE id = ?', [$ignorarReservaId]);
         if ($propia) {
@@ -546,6 +673,9 @@ function agenda_huecos_rango(array $tipo, string $desde, string $hasta,
         }
     }
 
+    // Lo reservado en el CRM y que todavía no llegó a Google (la reserva se
+    // guarda antes de crear el evento, o Google falló): sin esto, una reserva
+    // sin evento dejaría su horario libre para otro.
     $sql = "SELECT inicia_el, termina_el FROM agenda_reservas
             WHERE usuario_id = ? AND estado = 'confirmada' AND termina_el > ? AND inicia_el < ?";
     $p   = [$usuario, date('Y-m-d H:i:s', $tMin - $margen), date('Y-m-d H:i:s', $tMax + $margen)];
@@ -598,6 +728,9 @@ function agenda_hueco_libre(array $tipo, int $inicio, ?int $ignorarReservaId = n
     if (feriado_del_dia($fecha)) { $motivo = 'feriado'; return false; }
 
     // 1) ¿Es un horario que el tipo ofrece, sin mirar lo ocupado?
+    //    La grilla de inicios no depende del margen (se pasa 0 y nada
+    //    ocupado), así que es la misma que se le mostró al visitante. Si la
+    //    fecha cae fuera de la ventana del tipo, $fechas viene vacío.
     [, , $fechas] = agenda_ventana($tipo, $fecha, $fecha, time());
     $dow  = (int) agenda_fecha($fecha, $tz)->format('w');
     $base = $fechas
@@ -619,7 +752,10 @@ function agenda_hueco_libre(array $tipo, int $inicio, ?int $ignorarReservaId = n
     return true;
 }
 
-/** La excepción que corresponde a un motivo de agenda_hueco_libre(). */
+/**
+ * La excepción que corresponde a un motivo de agenda_hueco_libre().
+ * Cualquier motivo desconocido (o null) se trata como «horario tomado».
+ */
 function agenda_excepcion_hueco(?string $motivo): AgendaExcepcion
 {
     return match ($motivo) {
@@ -667,14 +803,28 @@ function agenda_excepcion_feriado(array $f): AgendaExcepcion
 //  bloqueo es por vendedor (su calendario es lo que se reparte) y el nombre
 //  lleva la base porque producción y pruebas comparten el servidor de MariaDB,
 //  y los bloqueos con nombre son del servidor, no de cada base.
+//
+//  Trampa: el bloqueo se suelta en el `finally` de quien lo pidió, después
+//  de confirmar la transacción propia (agenda_tx_abrir/cerrar). Si alguien
+//  llamara a agenda_reservar() o agenda_reprogramar() con una transacción ya
+//  abierta, la confirmación quedaría para después de soltar el bloqueo y otro
+//  pedido no vería la reserva todavía sin confirmar.
 // ------------------------------------------------------------
 
+/**
+ * Toma el bloqueo del calendario de un vendedor (GET_LOCK de MySQL, atado a
+ * la conexión: si el proceso muere, MySQL lo suelta solo).
+ *
+ * @param int $espera segundos que se espera si otro lo tiene
+ * @return bool true si se obtuvo; false si se agotó la espera
+ */
 function agenda_bloquear(int $usuarioId, int $espera = 10): bool
 {
     return (int) qv("SELECT GET_LOCK(CONCAT(DATABASE(), ':agenda:', ?), ?)",
                     [$usuarioId, max(0, $espera)]) === 1;
 }
 
+/** Suelta el bloqueo de agenda_bloquear(). Nunca lanza. */
 function agenda_liberar(int $usuarioId): void
 {
     try {
@@ -684,7 +834,14 @@ function agenda_liberar(int $usuarioId): void
     }
 }
 
-/** ¿Choca con una reserva confirmada del vendedor? (sin margen; para lo que agenda el equipo). */
+/**
+ * ¿Choca con una reserva confirmada del vendedor? (sin margen; para lo que agenda el equipo).
+ *
+ * Mira sólo agenda_reservas: no consulta Google ni el horario laboral. Es el
+ * control mínimo cuando el equipo agenda o mueve a cualquier hora.
+ *
+ * @param int|null $ignorarReservaId la reserva que se está moviendo
+ */
 function agenda_choca(int $usuarioId, int $inicio, int $fin, ?int $ignorarReservaId = null): bool
 {
     $sql = "SELECT 1 FROM agenda_reservas
@@ -702,6 +859,10 @@ function agenda_tx_abrir(): bool
     return true;
 }
 
+/**
+ * Cierra la transacción que abrió agenda_tx_abrir(): confirma o deshace.
+ * Si la abrió otro ($abierta = false), no hace nada y la decisión queda para él.
+ */
 function agenda_tx_cerrar(bool $abierta, bool $confirmar): void
 {
     if (!$abierta || !db()->inTransaction()) { return; }
@@ -736,6 +897,16 @@ function agenda_una_linea(?string $s): string
  *     descripcion_extra (la línea de origen, para la descripción de la reunión)
  *     entrada_id (la fila de entradas_web, que queda enlazada a lo que se creó)
  *     pagina (desde qué página llegó, para la línea de tiempo del contacto)
+ *
+ * Orden: datos → feriado → bloqueo → horario libre → topes → transacción.
+ * Con validar_hueco, la verificación final sí consulta Google (sin caché y con
+ * AGENDA_TIMEOUT_VERIFICACION de espera): la respuesta no es sólo base de
+ * datos, puede tardar esos segundos. Los topes de agenda_controlar_topes() no
+ * se aplican a lo que agenda el equipo (origen 'crm').
+ *
+ * Efectos: escribe agenda_reservas, cuentas, contactos, actividades,
+ * actividad_invitados, campanas (contador de reuniones) y entradas_web, y
+ * deja la reserva en la auditoría. Puede mandar una alerta de tope al vendedor.
  *
  * @return array la fila de agenda_reservas + 'cuenta_id' + 'contacto_nuevo'
  * @throws AgendaExcepcion
@@ -828,6 +999,8 @@ function agenda_reservar(array $tipo, array $d, array $o = []): array
 
         $abierta = agenda_tx_abrir();
         try {
+            // El token (128 bits al azar) es la llave de los enlaces públicos
+            // de mover y cancelar: quien lo tiene maneja la reunión sin login.
             $token = token32();
             q('INSERT INTO agenda_reservas (tipo_id, usuario_id, token, inicia_el, termina_el,
                                             invitado_nombre, invitado_email, invitado_empresa, invitado_telefono,
@@ -909,6 +1082,8 @@ function agenda_reservar(array $tipo, array $d, array $o = []): array
             throw $e;
         }
     } finally {
+        // Se suelta recién después del commit: hasta ese momento otro pedido
+        // no vería esta reserva en lo ocupado.
         agenda_liberar($usuarioId);
     }
 
@@ -941,6 +1116,9 @@ function agenda_reservar(array $tipo, array $d, array $o = []): array
 function agenda_controlar_topes(int $usuarioId, string $email): void
 {
     $maxCorreo = max(1, (int) setting_get('agenda_max_por_correo', '2'));
+    // Se cuenta la dirección base y cualquier variante «base+algo» del mismo
+    // dominio. El LIKE escapa % y _ para que un correo con guion bajo no
+    // funcione como comodín.
     [$local, $dominio] = array_pad(explode('@', $email, 2), 2, '');
     $base = explode('+', $local, 2)[0];
     $comodin = static fn(string $s): string => addcslashes($s, '%_\\');
@@ -954,6 +1132,8 @@ function agenda_controlar_topes(int $usuarioId, string $email): void
     }
 
     $tope = max(1, (int) setting_get('agenda_tope_diario', '15'));
+    // Cuenta filas creadas hoy, en cualquier estado. Un cambio de horario crea
+    // una fila nueva con el mismo origen, así que también suma al tope.
     $hoy  = (int) qv("SELECT COUNT(*) FROM agenda_reservas
                       WHERE usuario_id = ? AND origen IN ('web', 'publica') AND creado_en >= CURDATE()",
                      [$usuarioId]);
@@ -972,7 +1152,10 @@ function agenda_controlar_topes(int $usuarioId, string $email): void
     }
 }
 
-/** El identificador de invitación propio, el que se usaba siempre: se mantiene para las reservas viejas. */
+/**
+ * El identificador de invitación propio, el que se usaba siempre: se mantiene para las reservas viejas.
+ * También es el que se usa mientras Google no devolvió el suyo.
+ */
 function agenda_ics_uid_propio(int $reservaId, string $token): string
 {
     return 'reserva-' . $reservaId . '-' . $token . '@intellihelp.tech';
@@ -1008,7 +1191,12 @@ function agenda_reserva_completar(int $reservaId): array
     }
 
     try {
+        // Se relee ya con el bloqueo: el otro proceso pudo haberla completado
+        // entre la primera lectura y el GET_LOCK.
         $r = q1('SELECT * FROM agenda_reservas WHERE id = ?', [$reservaId]) ?? $r;
+        // «Primera vez» = ni evento ni correo. Una reserva movida cuyo evento
+        // original nunca se creó también cuenta como primera vez (y genera
+        // otra alerta «agendó una reunión», porque la nueva fila tiene otro id).
         $primeraVez = empty($r['gcal_event_id']) && empty($r['avisada_en']);
         $usuarioId  = (int)$r['usuario_id'];
 
@@ -1087,6 +1275,7 @@ function agenda_reserva_completar(int $reservaId): array
         try {
             q("DO RELEASE_LOCK(CONCAT(DATABASE(), ':agenda-completar:', ?))", [$reservaId]);
         } catch (\Throwable $e) {
+            // Conexión caída: el bloqueo se fue con ella.
         }
     }
     return q1('SELECT * FROM agenda_reservas WHERE id = ?', [$reservaId]) ?? [];
@@ -1097,6 +1286,12 @@ function agenda_reserva_completar(int $reservaId): array
  * se cortó después de responder, o el correo falló). Sólo las de las últimas
  * 24 h y por venir: un correo de confirmación que llega después de la reunión
  * confunde más de lo que ayuda.
+ *
+ * Los dos minutos de gracia le dejan tiempo a la respuesta de la web, que
+ * completa la reserva enseguida. Las reservas viejas (sin `origen`) no se
+ * tocan. Se toman 20 por vuelta, siempre las de id más bajo: si hay 20 que
+ * fallan siempre (un correo que el servidor rechaza), las que vienen detrás
+ * esperan hasta que esas salgan de las 24 h.
  *
  * @return int cuántas quedaron avisadas en esta vuelta
  */
@@ -1146,9 +1341,13 @@ function agenda_esquema_listo(): bool
  */
 function agenda_reserva_vigente(string $token): ?array
 {
+    // Sólo hexadecimal: lo que llega de la URL se limpia antes de consultar.
     $token = preg_replace('/[^a-f0-9]/', '', strtolower($token)) ?? '';
     if ($token === '') { return null; }
     $r = q1('SELECT * FROM agenda_reservas WHERE token = ?', [$token]);
+    // Se sigue la cadena hacia adelante (como mucho 50 saltos, por si un dato
+    // roto formara un ciclo). Si una reprogramación se hubiera bifurcado, se
+    // toma la hija más nueva.
     for ($i = 0; $r && $r['estado'] === 'reprogramada' && $i < 50; $i++) {
         $siguiente = q1('SELECT * FROM agenda_reservas WHERE reprogramada_de = ? ORDER BY id DESC LIMIT 1',
                         [(int)$r['id']]);
@@ -1173,7 +1372,18 @@ function agenda_reserva_vigente(string $token): ?array
  * así la reunión no desaparece del calendario de quien ya la había aceptado.
  *
  * $validarHueco = true para el invitado (/r/mover): sólo puede elegir uno de
- * los horarios que ofrece la agenda. El equipo puede moverla a cualquier hora.
+ * los horarios que ofrece la agenda. El equipo puede moverla a cualquier hora
+ * (sólo se controla que no pise otra reserva del CRM, sin mirar Google).
+ *
+ * Trampas:
+ *   · La reserva se lee antes de tomar el bloqueo y no se vuelve a leer
+ *     adentro: dos cambios a la vez sobre la misma reunión (el invitado y el
+ *     equipo) pueden dejar dos filas «confirmada» colgando de la misma.
+ *   · El evento de Google se mueve antes de la transacción: si la base falla
+ *     después, Google queda con el horario nuevo y el CRM con el viejo.
+ *
+ * Efectos: escribe agenda_reservas y actividades, mueve el evento en Google
+ * (sin avisar desde Google) y manda la invitación actualizada por correo.
  *
  * @return array la reserva nueva
  * @throws AgendaExcepcion
@@ -1198,6 +1408,8 @@ function agenda_reprogramar(string $token, int $nuevoInicio, bool $validarHueco 
         throw agenda_excepcion_feriado($feriado);
     }
     $fin       = $nuevoInicio + ((int)$tipo['duracion_min'] * 60);
+    // Se bloquea el calendario de quien ya tiene la reunión (puede ser quien
+    // cubrió), no el del dueño del tipo: una reunión tomada no cambia de manos.
     $usuarioId = (int)$r['usuario_id'];
 
     if (!agenda_bloquear($usuarioId)) {
@@ -1236,6 +1448,10 @@ function agenda_reprogramar(string $token, int $nuevoInicio, bool $validarHueco 
         $secuencia = max((int)($r['ics_secuencia'] ?? 0) + 1, (int)$secGoogle);
         $uid       = (string)(($r['ics_uid'] ?? '') ?: agenda_ics_uid_propio((int)$r['id'], (string)$r['token']));
 
+        // La fila nueva copia todo lo de la vieja (contacto, actividad, evento,
+        // Meet, consentimiento, origen) con token propio. avisada_en y
+        // recordatorio_enviado_en quedan vacíos: el correo de la invitación
+        // nueva y el recordatorio del horario nuevo todavía no salieron.
         $abierta = agenda_tx_abrir();
         try {
             q("UPDATE agenda_reservas SET estado = 'reprogramada' WHERE id = ?", [(int)$r['id']]);
@@ -1282,7 +1498,22 @@ function agenda_reprogramar(string $token, int $nuevoInicio, bool $validarHueco 
     return $nueva;
 }
 
-/** Cancela una reserva (desde el enlace del correo, aunque sea de un correo viejo, o desde el CRM). */
+/**
+ * Cancela una reserva (desde el enlace del correo, aunque sea de un correo viejo, o desde el CRM).
+ *
+ * Borra el evento de Google (sin que Google avise), marca la reserva
+ * «cancelada» con la secuencia siguiente, da de baja la actividad (borrado
+ * lógico) y le manda al invitado el aviso con la invitación CANCEL.
+ *
+ * No toma el bloqueo del vendedor ni usa transacción, y el UPDATE no exige
+ * que siga «confirmada»: dos cancelaciones a la vez mandan dos avisos, y una
+ * cancelación en paralelo con un cambio de horario puede dejar viva la fila
+ * nueva. El contador `reuniones` de la campaña no se descuenta.
+ *
+ * @param string $token  cualquier token de la cadena de cambios de horario
+ * @param string $motivo texto libre para la auditoría (se recorta a 200)
+ * @return bool true si se canceló; false si no había nada activo
+ */
 function agenda_cancelar(string $token, string $motivo = ''): bool
 {
     $r = agenda_reserva_vigente($token);
@@ -1342,6 +1573,12 @@ function agenda_cancelar(string $token, string $motivo = ''): bool
  * El número al azar es para que cada token sirva una sola vez
  * (agenda_form_token_valido() con $unaVez): antes, con uno solo se podían
  * mandar todas las reservas que se quisiera durante dos horas.
+ *
+ * @param string $uso reservar | mover | cancelar: entra en la firma, así un
+ *                    token de una página no sirve en otra. No lleva el token
+ *                    de la reserva: para mover o cancelar hace falta además
+ *                    el del enlace.
+ * @return string "<tipo>.<ts>.<nonce>.<hmac>"
  */
 function agenda_form_token(int $tipoId, string $uso = 'reservar'): string
 {
@@ -1373,11 +1610,16 @@ function agenda_form_token_valido(string $token, int $tipoId, ?string &$motivo =
     $esperada = hash_hmac('sha256', 'agenda-form|' . $uso . '|' . $tipoId . '|' . $m[2] . '|' . $m[3], crm_secret());
     if (!hash_equals($esperada, $m[4])) { $motivo = 'invalido'; return false; }
 
+    // Un minuto de tolerancia hacia el futuro por si el reloj se corre entre
+    // procesos; más que eso es un token fabricado o roto.
     $edad = time() - (int)$m[2];
     if ($edad < -60)   { $motivo = 'invalido'; return false; }
     if ($edad < 3)     { $motivo = 'rapido';   return false; }
     if ($edad > 7200)  { $motivo = 'vencido';  return false; }
 
+    // El registro de uso es una fila en api_limites con clave 'ft:<nonce>'
+    // que vence cuando el token ya no serviría igual. INSERT IGNORE: si la
+    // fila ya estaba, rowCount() es 0 y el token ya se usó.
     if ($unaVez) {
         try {
             $nuevo = q('INSERT IGNORE INTO api_limites (clave, ventana, conteo, vence_en) VALUES (?, 0, 1, ?)',
@@ -1445,7 +1687,11 @@ function agenda_entrada_marcar(int $entradaId, array $campos): void
     }
 }
 
-/** Versión y texto del consentimiento de la agenda pública (Ley 25.326). */
+/**
+ * Versión y texto del consentimiento de la agenda pública (Ley 25.326).
+ * Si se cambia el texto, hay que cambiar también la versión: cada reserva
+ * guarda la versión y el hash del texto que aceptó.
+ */
 const AGENDA_CONSENTIMIENTO_VERSION = 'r-2026-11';
 const AGENDA_CONSENTIMIENTO_TEXTO   = 'Acepto que Intellihelp use estos datos para coordinar la reunión '
                                     . 'y responder mi consulta, según el aviso de privacidad.';
@@ -1461,7 +1707,12 @@ function agenda_privacidad_url(): string
  * y la confirmación cuando hay que volver a mostrar el formulario con un
  * aviso (el horario ya lo tomaron, faltó la casilla, un dato mal escrito).
  *
- * @param array $extra error, campo, viejo (lo que ya había escrito), diaSel, origen
+ * @param array $extra error, campo, viejo (lo que ya había escrito), diaSel, origen, campana
+ *
+ * Consulta Google (con la caché de AGENDA_CACHE_HORARIOS) y genera un token
+ * de formulario nuevo en cada dibujo. No hace exit: quien llama decide.
+ * `conectado` mira el Google del dueño del tipo, aunque esos días atienda
+ * otra persona por una cobertura.
  */
 function agenda_render_publica(array $tipo, array $extra = []): void
 {
@@ -1511,7 +1762,13 @@ function agenda_origen_de_url(): array
     return $o;
 }
 
-/** Lo mismo, leído del formulario que se mandó. */
+/**
+ * Lo mismo, leído del formulario que se mandó.
+ *
+ * A diferencia de agenda_origen_de_url(), no descarta un referrer del propio
+ * sitio: viene de un campo oculto que el visitante puede reescribir, así que
+ * es un dato orientativo, no una prueba de dónde vino.
+ */
 function agenda_origen_de_post(): array
 {
     $o = [];
@@ -1532,10 +1789,14 @@ function agenda_origen_de_post(): array
  * con un clic. Se arma acá y no se delega en Google: si la API de Calendar no
  * responde, la invitación llega igual.
  *
- * @param string $metodo REQUEST para invitar, CANCEL para dar de baja
+ * @param string $metodo REQUEST para invitar, PUBLISH para el recordatorio, CANCEL para dar de baja
+ * @return string el texto .ics, con las líneas plegadas (ics_plegar())
  */
 function agenda_ics(array $reserva, array $tipo, string $metodo = 'REQUEST'): string
 {
+    // Las fechas de la base están en la hora de la instalación: strtotime()
+    // las lee en esa zona y se escriben en UTC (con la Z), que todo
+    // calendario entiende sin definir zonas en el archivo.
     $utc = static fn(string $f): string => gmdate('Ymd\THis\Z', strtotime($f));
 
     // El identificador tiene que ser SIEMPRE el mismo para la misma reunión:
@@ -1622,6 +1883,13 @@ function agenda_ics(array $reserva, array $tipo, string $metodo = 'REQUEST'): st
  * Usa el mismo motor de bloques que las campañas, así que sale con el diseño de
  * la empresa y respeta las reglas del correo (tablas y no divs, estilos en
  * línea, ancho de 600, versión en texto plano).
+ *
+ * @param array  $reserva fila de agenda_reservas (con token, horario, invitado e ics_*)
+ * @param array  $tipo    el tipo con el anfitrión que corresponde (agenda_tipo_de_reserva());
+ *                        el cron de recordatorios pasa la misma fila unida con el tipo
+ * @param string $clase   confirmacion | recordatorio | cancelacion
+ * @return bool true si el correo salió; false sin SMTP configurado, sin
+ *              correo del invitado o si el envío falló (queda en la auditoría)
  */
 function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacion'): bool
 {
@@ -1710,9 +1978,10 @@ function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacio
     $html  = bloques_render($bloques, $ajustes, $ctx);
     $texto = bloques_texto($bloques, $ctx);
 
-    // La invitación no se manda con la cancelación desde el CRM porque ahí ya
-    // se avisó por Google; acá va el CANCEL para que se borre del calendario
-    // de quien la había aceptado.
+    // La invitación va adjunta en los tres avisos, también en la cancelación
+    // (venga del enlace del correo o del CRM): Google borra el evento sin
+    // avisar a nadie (avisar = none), así que el CANCEL de este correo es lo
+    // único que saca la reunión del calendario de quien la había aceptado.
     // El método de la invitación cambia según el aviso:
     //   confirmación → REQUEST: es la invitación propiamente dicha, con los botones
     //                  «Sí / No / Quizás».
@@ -1746,7 +2015,18 @@ function agenda_avisar(array $reserva, array $tipo, string $clase = 'confirmacio
     return true;
 }
 
-/** Manda los recordatorios de las reuniones de las próximas 24 h (lo llama el cron). */
+/**
+ * Manda los recordatorios de las reuniones de las próximas 24 h (lo llama el cron).
+ *
+ * La consulta une la reserva con su tipo y con quien la atiende
+ * (r.usuario_id, que puede ser quien cubrió), y esa misma fila hace de
+ * «reserva» y de «tipo» para agenda_avisar(): `nombre` es el del tipo (la
+ * reserva guarda el del invitado en `invitado_nombre`). Una reunión reservada
+ * con menos de 24 h de anticipación recibe el recordatorio en la primera
+ * vuelta del cron, poco después de la confirmación.
+ *
+ * @return int cuántos recordatorios salieron
+ */
 function agenda_recordatorios(): int
 {
     $filas = q("SELECT r.*, t.nombre, t.duracion_min, t.con_meet, t.zona_horaria,

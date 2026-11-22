@@ -16,9 +16,28 @@ declare(strict_types=1);
 //  Una alerta sin `usuario_id` es para todo el equipo. Se usa cuando no hay un
 //  responsable claro: si una campaña no tiene dueño, la respuesta le importa a
 //  cualquiera que esté mirando.
+//
+//  Tabla `notificaciones`: usuario_id (NULL = equipo), tipo, titulo, detalle,
+//  entidad/entidad_id, url (ruta interna, sin BASE_PATH), creada_en,
+//  leida_en (NULL = sin leer) y email_en (cuándo salió por correo).
+//
+//  Quién la usa: agenda.php, crm.php, campanas.php y feriados.php llaman a
+//  notificar(); la campana del layout y pages/api-alertas.php cuentan las
+//  sin leer; pages/alertas.php las lista; app/cron.php llama a
+//  notif_enviar_pendientes().
+//
+//  Ojo: `leida_en` es una sola columna por alerta. Una alerta del equipo
+//  que marca como leída una persona queda leída para todos.
 // ============================================================
 
-/** Los tipos que existen, con su ícono y su clave de configuración. */
+/**
+ * Los tipos que existen, con su ícono y su clave de configuración.
+ *
+ * `ajuste` es la clave de `app_settings` que decide si ese tipo se avisa por
+ * correo ('1' sí). Todas vienen encendidas salvo 'rebote'.
+ *
+ * @return array<string,array{nombre:string,icono:string,ajuste:string,ayuda:string}>
+ */
 function notif_tipos(): array
 {
     return [
@@ -53,6 +72,12 @@ function notif_tipos(): array
  * Es a prueba de fallos a propósito: si por lo que sea no se puede escribir,
  * NO se rompe lo que la disparó. Una respuesta de un cliente tiene que quedar
  * registrada aunque el aviso falle.
+ *
+ * @param string $tipo   una clave de notif_tipos()
+ * @param string $titulo se recorta a 200 caracteres
+ * @param array  $d      opcionales: usuario_id (sin él, es para el equipo),
+ *                       detalle (500 car.), entidad, entidad_id, url (ruta
+ *                       interna como 'contacto-ver?id=3')
  */
 function notificar(string $tipo, string $titulo, array $d = []): void
 {
@@ -72,7 +97,12 @@ function notificar(string $tipo, string $titulo, array $d = []): void
     }
 }
 
-/** Alertas que le corresponden a una persona: las suyas y las del equipo. */
+/**
+ * Alertas que le corresponden a una persona: las suyas y las del equipo.
+ *
+ * @param bool $soloSinLeer sólo las que no tienen leida_en
+ * @param int  $limite      cuántas, de la más nueva a la más vieja
+ */
 function notif_de(int $usuarioId, bool $soloSinLeer = false, int $limite = 30): array
 {
     $w = $soloSinLeer ? ' AND leida_en IS NULL' : '';
@@ -81,12 +111,19 @@ function notif_de(int $usuarioId, bool $soloSinLeer = false, int $limite = 30): 
               ORDER BY id DESC LIMIT " . max(1, $limite), [$usuarioId])->fetchAll();
 }
 
+/** Cuántas alertas sin leer tiene una persona (las suyas más las del equipo). */
 function notif_sin_leer(int $usuarioId): int
 {
     return (int) qv('SELECT COUNT(*) FROM notificaciones
                      WHERE (usuario_id = ? OR usuario_id IS NULL) AND leida_en IS NULL', [$usuarioId]);
 }
 
+/**
+ * Marca como leídas una alerta ($id) o todas las de la persona (sin $id).
+ *
+ * La condición de usuario impide marcar alertas personales de otro. Las del
+ * equipo (usuario_id NULL) se marcan para todos: no hay lectura por persona.
+ */
 function notif_marcar_leidas(int $usuarioId, ?int $id = null): void
 {
     if ($id) {
@@ -100,6 +137,18 @@ function notif_marcar_leidas(int $usuarioId, ?int $id = null): void
 
 /**
  * Manda por correo las alertas que todavía no se avisaron. Lo llama el cron.
+ *
+ * Toma hasta 50 por corrida, sólo de los tipos con el aviso encendido. El
+ * correo va a la lista `avisar_email_a` de Ajustes (separada por comas) o, si
+ * está vacía, a todos los administradores activos: el primero como
+ * destinatario y el resto en copia. Las alertas personales (con usuario_id)
+ * también van a esa lista, no a su dueño.
+ *
+ * Si falla el envío no se marcan y se reintentan en la corrida siguiente.
+ * Las de tipos con el aviso apagado nunca se marcan: si después se enciende
+ * el aviso, salen todas las acumuladas.
+ *
+ * @return int cuántas alertas se avisaron (0 si no se mandó nada)
  *
  * Se agrupan en un solo correo por corrida: cinco reuniones agendadas en diez
  * minutos son cinco alertas en pantalla, pero un solo correo. Cinco correos
@@ -148,6 +197,8 @@ function notif_enviar_pendientes(): int
                            . 'por correo desde Ajustes.'];
     $bloques[] = ['tipo' => 'contacto'];
 
+    // El color de marca va fijo (violeta INTELLIHELP); no toma el de
+    // `app.brand` del config.
     $ctx  = contexto_marca();
     $html = bloques_render($bloques, ['marca' => '#663399', 'preencabezado' => $filas[0]['titulo']], $ctx);
     $txt  = bloques_texto($bloques, $ctx);

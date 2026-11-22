@@ -1,3 +1,20 @@
+<?php
+// ============================================================
+//  Vista de la pantalla «Importar».
+//
+//  La dibuja pages/importar.php y el formulario postea a la misma ruta (con
+//  enctype multipart para el archivo). Recibe:
+//    $resultado  el resumen de la corrida (con 'modo' => 'contactos'|'lista'),
+//                o null
+//    $error      mensaje de error, o null
+//    $usuarios   usuarios activos (propietario por defecto)
+//    $listas     listas de campaña (destino 'lista')
+//    $lotes      las últimas 15 corridas de import_lotes
+//    $maxSubida  upload_max_filesize del servidor, para avisarlo
+//
+//  El destino «lista» sólo se ofrece con el módulo de campañas encendido.
+// ============================================================
+?>
 <?php /** @var ?array $resultado @var ?string $error @var array $usuarios @var array $listas
  *  @var array $lotes @var string $maxSubida */ ?>
 <div class="page-head">
@@ -31,6 +48,7 @@
             <?php foreach ($resultado['detalle_omitidos'] as $motivo => $n): ?>
                 <div class="bar-row">
                     <span class="bar-label"><?= e($motivo) ?></span>
+                    <?php // El ancho de la barra es la proporción del motivo sobre el total de filas leídas. ?>
                     <span class="bar-track"><i class="bar-fill" style="width:<?= min(100, round(100 * $n / max(1, (int)$resultado['filas']))) ?>%"></i></span>
                     <span class="bar-val"><?= (int)$n ?></span>
                 </div>
@@ -60,6 +78,7 @@
                 </label>
                 <i class="hint">Tamaño máximo del servidor: <?= e($maxSubida) ?>.</i>
             </div>
+            <?php // Esta etiqueta «Qué importar» queda abierta y se repite dos líneas más abajo: es HTML mal formado (ver auditoría). ?>
             <label class="fld"><span>Qué importar</span>
             <?php /* Importar a una lista sólo tiene sentido con las campañas en
                      marcha: ofrecerlo apagado sería prometer un destino al que

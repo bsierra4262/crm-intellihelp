@@ -1,5 +1,21 @@
 <?php
 declare(strict_types=1);
+// ============================================================
+//  Ruta `importar` (sólo administradores): carga de archivos CSV.
+//
+//  Dos destinos (campo `destino`):
+//    · 'contactos'  CSV de Zoho → contactos y empresas, con modo simulación
+//                   (importar_contactos_zoho);
+//    · 'lista'      correos sueltos → miembros de una lista de campaña
+//                   (importar_lista_csv), sin simulación.
+//  El archivo se procesa desde el temporal de PHP y no se guarda.
+//
+//  Es núcleo (modulos.php no la apaga). La vista esconde el destino 'lista'
+//  cuando las campañas están apagadas, pero esta página lo acepta igual si
+//  llega en el POST. No hay límite de tiempo propio: un archivo grande corre
+//  con el max_execution_time del servidor.
+//  Vista: views/importar.php, con las últimas 15 corridas de import_lotes.
+// ============================================================
 require_admin();
 require_once APP . '/importador.php';
 
@@ -12,6 +28,8 @@ if (is_post()) {
     $destino = (string)($_POST['destino'] ?? 'contactos');
     $simular = !empty($_POST['simular']);
 
+    // Un archivo más grande que el límite (UPLOAD_ERR_INI_SIZE o FORM_SIZE)
+    // llega acá con el mismo mensaje genérico.
     if (!$archivo || ($archivo['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         $error = 'No llegó ningún archivo. Revisá que pese menos que el límite del servidor.';
     } else {
@@ -50,6 +68,8 @@ if (is_post()) {
     }
 }
 
+// listas_listar() es de campanas.php: se llama aunque el módulo de campañas
+// esté apagado.
 render('importar', [
     'resultado' => $resultado,
     'error'     => $error,

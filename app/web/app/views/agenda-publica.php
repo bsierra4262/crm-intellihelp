@@ -2,6 +2,27 @@
 /** @var array $tipo @var array $huecos @var string $diaSel @var bool $conectado
  *  @var int $campana @var ?string $motivo @var array $origen @var string $formToken
  *  @var ?string $error @var ?string $campo @var array $viejo */
+// ============================================================
+//  Página pública de reserva /r/<usuario>/<tipo> (sin login). La arma
+//  agenda_render_publica() (agenda.php), llamada desde pages/r.php y, para
+//  volver a mostrarla con un aviso, desde pages/reservar.php.
+//
+//  Recibe:
+//    · $tipo ....... tipo de reunión con `usuario` (nombre del dueño)
+//    · $huecos ..... fecha Y-m-d => inicios en segundos Unix (ya sin feriados)
+//    · $diaSel ..... el día que se muestra (uno de los de $huecos, o '')
+//    · $conectado .. si el dueño tiene Google conectado
+//    · $motivo ..... 'sin_calendario' | 'sin_horario' | null
+//    · $campana .... id de campaña de correo (viene en ?c=), 0 si no hay
+//    · $origen ..... UTM y referrer, que viajan en campos ocultos
+//    · $formToken .. token firmado de un solo uso ('reservar')
+//    · $error, $campo, $viejo: aviso, campo con el problema y lo ya escrito
+//
+//  El formulario se manda a `reservar` (pages/reservar.php). El horario viaja
+//  como segundos Unix en `inicio`; el servidor vuelve a comprobar que sea uno
+//  de los que ofrece la agenda. Las horas se muestran en la zona del tipo (lo
+//  dice la etiqueta de zona); los nombres de día y mes salen de la fecha.
+// ============================================================
 $dias = array_keys($huecos);
 $slotsDelDia = $huecos[$diaSel] ?? [];
 $nombresDia  = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
@@ -9,6 +30,8 @@ $meses       = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep
 $viejo       = $viejo ?? [];
 $origen      = $origen ?? [];
 $v           = static fn(string $k): string => e($viejo[$k] ?? '');
+// El horario que ya había elegido sólo se respeta si sigue entre los
+// ofrecidos ese día: si lo tomaron mientras tanto, no queda marcado.
 $elegido     = (int)($viejo['inicio'] ?? 0);
 if (!in_array($elegido, $slotsDelDia, true)) { $elegido = 0; }
 
@@ -89,6 +112,7 @@ $privacidad = agenda_privacidad_url();
                         </p>
                     </div>
                 <?php else: ?>
+                    <?php // strtotime() y date() en la misma zona (la de la instalación): sólo se usan para leer el día, el número y el mes de la fecha. ?>
                     <div class="slot-dias">
                         <?php foreach ($dias as $d): $t = strtotime($d); ?>
                             <a class="slot-dia <?= $d === $diaSel ? 'active' : '' ?>"

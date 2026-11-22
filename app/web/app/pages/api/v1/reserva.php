@@ -19,6 +19,12 @@ declare(strict_types=1);
 //  La respuesta NO trae el token de la reserva, el Meet ni los enlaces para
 //  cambiar el horario o cancelar: eso le llega sólo a quien reservó, por
 //  correo, que así demuestra que la dirección es suya.
+//
+//  Contrato: md/INTEGRACION-WEB.md §5.6. Límites: 30/min por clave
+//  (compartido con api/v1/entrada) y 3/hora, 6/día por visitante; los del
+//  visitante cuentan también los intentos que terminan en horario tomado o
+//  feriado. Módulo: Agenda. Tablas: entradas_web aquí; agenda_reservas,
+//  contactos, cuentas y actividades las escribe agenda_reservar().
 // ============================================================
 
 $entradaId = 0;
@@ -115,6 +121,9 @@ try {
 
     $zona = function_exists('agenda_zona') ? agenda_zona($tipo)
           : new DateTimeZone(date_default_timezone_get());
+    // inicia_el/termina_el son DATETIME en la hora del servidor (la base
+    // habla la misma hora que PHP, db.php): se leen así y se pasan a la zona
+    // del tipo con su desplazamiento.
     $iso  = static fn(string $f): string => (new DateTimeImmutable($f))->setTimezone($zona)->format('c');
 
     $respuesta = [
@@ -130,6 +139,11 @@ try {
         ],
         'mensaje'    => 'Reunión confirmada. Te mandamos un mail con el enlace de la videollamada.',
     ];
+    // La reserva ya está confirmada (y la entrada enlazada, dentro de la
+    // transacción de agenda_reservar). Si el proceso muere antes de esta
+    // línea, la entrada queda 'procesando' sin respuesta guardada y los
+    // reintentos reciben 409 en_proceso; si falla esta escritura, el catch de
+    // abajo la marca 'error' aunque la reunión exista.
     entrada_web_actualizar($entradaId, [
         'estado'         => 'ok',
         'error'          => null,
@@ -151,6 +165,7 @@ try {
         // respuesta ya salió: queda registrado y el cron la completa.
         log_error('error.api', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine());
     }
+    // Fin explícito: la respuesta ya salió y no queda nada por hacer.
     exit;
 } catch (\Throwable $e) {
     if ($entradaId > 0) {

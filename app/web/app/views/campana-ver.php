@@ -1,4 +1,18 @@
 <?php
+// ============================================================
+//  Vista: la pantalla de una campaña. La pinta pages/campana-ver.php.
+//  Variables:
+//    $c          campana_get(): la campaña con plantilla y cifras.
+//    $envios     la página actual de la cola (50 por página).
+//    $data       paginación + total; $f los filtros (estado, q, page).
+//    $vista      campana_armar_mensaje() con el primer destinatario, o null
+//                si la cola está vacía.
+//    $testing    modo prueba; $motivos omitidos agrupados por motivo.
+//    $aperturas  cuántos abrieron (píxel).
+//  Llama a campana_pasos() y campana_lista_para_enviar() para la lista de
+//  pasos. Los botones postean a campana-accion; las cifras con data-vivo-*
+//  se refrescan desde api-campana.
+// ============================================================
 /** @var int $aperturas @var array $c @var array $envios @var array $data @var array $f @var ?array $vista
  *  @var bool $testing @var array $motivos */
 // Son dos cifras distintas: «entregados» es cuántos llegaron,
@@ -7,6 +21,11 @@
 // nada por hacer.
 $hechos = (int)($c['procesados'] ?? $c['enviados']);
 $pct    = $c['total'] > 0 ? min(100, (int)round(100 * $hechos / $c['total'])) : 0;
+/**
+ * Imprime un botón de acción como formulario POST a campana-accion, con CSRF.
+ * Con $confirmar (titulo, texto, ok, peligro) el botón pide confirmación con
+ * el diálogo propio de app.js antes de enviar.
+ */
 $boton = function (string $accion, string $etiqueta, string $ic, string $clase = 'btn-ghost', array $confirmar = []) use ($c) {
     echo '<form class="inline-form" method="post" action="' . e(url('campana-accion')) . '">' . csrf_field()
        . '<input type="hidden" name="id" value="' . (int)$c['id'] . '">'
@@ -27,6 +46,7 @@ $boton = function (string $accion, string $etiqueta, string $ic, string $clase =
         </p>
     </div>
     <div class="head-actions">
+        <?php // «Preparar» se ofrece en cualquier estado, también en completada o cancelada. ?>
         <?php $boton('preparar', 'Preparar cola', 'refrescar'); ?>
         <?php if (in_array($c['estado'], ['borrador', 'pausada', 'programada'], true)): ?>
             <?php $boton('iniciar', 'Iniciar envío', 'campanas', 'btn-accent', [
@@ -161,6 +181,9 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
     <div class="card-head"><h2>Vista previa</h2><span class="small muted">Como lo va a recibir <?= e($vista['para']) ?></span></div>
     <p class="mb-3 m-0"><strong>Asunto:</strong> <?= e($vista['asunto']) ?></p>
     <div class="correo-vista">
+        <?php // El correo se inserta crudo en la página, sin iframe: corre en el mismo documento que el CRM. ?>
+        <?php // Su estilo (la media query con .btn y .px) también se aplica a la pantalla, y lo que traiga ?>
+        <?php // la plantilla o los datos del destinatario (nombre, empresa) se interpreta como HTML. ?>
         <?= $vista['html'] ?>
     </div>
 </div>

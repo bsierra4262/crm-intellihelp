@@ -17,6 +17,21 @@ Comprueba lo que tiene que ser cierto sí o sí después de correr
 
 Uso:  python test/verificar_unificacion.py [carpeta]
 """
+# ============================================================
+#  Notas que no entran en la ayuda de arriba:
+#
+#  · No forma parte de las baterias que corre `deploy.py test`: se corre a
+#    mano en la maquina de desarrollo, despues del unificador, contra los CSV
+#    de «Documentacion a consultar/CSV/» (datos reales, fuera de git).
+#  · Codigo de salida: 0 si todo paso, 1 si algo fallo o falta la salida.
+#  · Repite a proposito algunas reglas del unificador (plano, _tokens,
+#    misma_persona, la lista de provincias) en vez de importarlas: si se
+#    cambian alla, hay que cambiarlas aca, o la verificacion juzga con otra
+#    regla.
+#  · Precision sobre el punto 3 de la ayuda: lo que se comprueba es que
+#    ningun CORREO de Zoho se pierda. Un contacto de Zoho sin correo no se
+#    controla.
+# ============================================================
 from __future__ import annotations
 
 import csv
@@ -48,10 +63,14 @@ PROVINCIAS_OK = {
 }
 RE_EMAIL = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
 
+# Contadores globales de comprobaciones (T) y fallidas (F), y los nombres de
+# las que fallaron para el resumen final.
 T = F = 0
 fallos: list[str] = []
 
 
+# Registra una comprobacion: imprime [OK] o [XX] con el detalle y suma a los
+# contadores. No corta la ejecucion: se corren todas y se informa al final.
 def ok(nombre: str, cond: bool, detalle: str = "") -> None:
     global T, F
     T += 1
@@ -63,6 +82,8 @@ def ok(nombre: str, cond: bool, detalle: str = "") -> None:
         print(f"  [XX] {nombre}  {detalle}")
 
 
+# Copia de plano() y _tokens() del unificador: minusculas, sin acentos, sin
+# espacios de mas; y las palabras significativas de un nombre.
 def plano(s: str) -> str:
     s = unicodedata.normalize("NFKD", (s or "").strip().lower())
     s = "".join(c for c in s if not unicodedata.combining(c))
@@ -89,11 +110,19 @@ def misma_persona(a: dict, b: dict) -> bool:
     return any(x.startswith(y) or y.startswith(x) for x in n1 for y in n2)
 
 
+# Lee un CSV de salida del unificador (UTF-8 con BOM, separador «;»).
 def leer(ruta: str) -> list[dict]:
     with io.open(ruta, encoding="utf-8-sig", newline="") as f:
         return list(csv.DictReader(f, delimiter=";"))
 
 
+# Todos los correos validos de la base de Zoho (principal, secundario y
+# terciario). Asume separador «,»: el unificador detecta el separador y este
+# no, asi que con un DB Zoho.csv separado por «;» devolveria un conjunto vacio
+# y la comprobacion «no se perdio nada» pasaria sin controlar nada.
+# A diferencia de norm_email(), no saca <> ni comillas antes de validar: esas
+# direcciones quedan afuera del control.
+# Si ninguna codificacion sirve, devuelve un conjunto vacio (mismo efecto).
 def leer_zoho_emails(ruta: str) -> set[str]:
     for cod in ("utf-8-sig", "cp1252"):
         try:
@@ -112,6 +141,9 @@ def leer_zoho_emails(ruta: str) -> set[str]:
     return set()
 
 
+# Corre todas las comprobaciones sobre la carpeta de salida (la del
+# argumento o la por defecto) e imprime el resumen. La base de Zoho se lee
+# siempre de la ruta por defecto, aunque se pase otra carpeta.
 def main() -> int:
     carpeta = sys.argv[1] if len(sys.argv) > 1 else SALIDA
     unificados = os.path.join(carpeta, "contactos-unificados.csv")
@@ -133,6 +165,8 @@ def main() -> int:
     fichas_por_email = defaultdict(list)
     cols_mail = ["Correo electrónico", "Correo electrónico secundario",
                  "Correo electrónico terciario", "Otros correos"]
+    # Cada correo se cuenta una vez por fila; se guardan hasta 8 fichas por
+    # correo, que alcanzan para juzgar si son la misma persona.
     for r in filas:
         vistos_fila = set()
         for c in cols_mail:
@@ -164,6 +198,10 @@ def main() -> int:
     print(f"   ·  casillas compartidas por personas distintas (esperable): {len(compartidos)}")
 
     print("\n== Sin personas repetidas ==")
+    # Clave nombre + empresa con plano(), mas estricta que la del unificador
+    # (que ademas saca el tipo societario): «Acme SA» y «Acme» cuentan aca
+    # como empresas distintas, asi que esta comprobacion no da falsos errores
+    # por eso, pero tampoco detecta esos duplicados.
     personas = Counter()
     solo_nombre = Counter()
     for r in filas:
@@ -185,6 +223,9 @@ def main() -> int:
     perdidos = emails_zoho - en_final
     ok("todo correo que estaba en Zoho sigue en la base final", not perdidos,
        f"({len(perdidos)} perdidos de {len(emails_zoho)}) {list(perdidos)[:3]}")
+    # 13000 es un piso fijo, sacado del tamano de la base de Zoho de la
+    # migracion (13.573 contactos menos sus duplicados internos). Con otra
+    # base hay que ajustarlo.
     marcados = sum(1 for r in filas if r["Estado en el CRM"] == "Ya estaba en el CRM")
     ok("los contactos de Zoho quedaron marcados como existentes", marcados >= 13000,
        f"({marcados})")

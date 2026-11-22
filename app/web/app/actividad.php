@@ -1,24 +1,46 @@
 <?php
 declare(strict_types=1);
 
-/**
- * Actividad / auditoría — alimenta la sección "CRON".
- *
- * Dos canales:
- *   · app  → qué hace cada usuario (altas, ediciones, borrados, conversiones,
- *            importaciones, campañas, login/logout) + todos los errores.
- *   · api  → cada pedido a la API de sólo lectura.
- *
- * `log_evento()` NUNCA debe romper una request: todo va dentro de try/catch.
- * Si la tabla `actividad` no existe todavía, simplemente no registra.
- */
+// ============================================================
+//  Auditoría (tabla `actividad`): lo que alimenta la sección «CRON».
+//
+//  No confundir con actividades.php: aquello son las tareas, llamadas y
+//  reuniones del equipo (tabla `actividades`, en plural). Esto es el
+//  registro de lo que pasa en el sistema.
+//
+//  Dos canales:
+//    · app → qué hace cada usuario (altas, ediciones, borrados, conversiones,
+//            importaciones, campañas, login/logout) y todos los errores.
+//    · api → cada pedido a la API de lectura y a la API v1 de la web.
+//
+//  Escribir: log_evento() y sus atajos log_app(), log_api() y log_error().
+//  Leer: actividad_list(), actividad_conteo_tipos() y actividad_resumen()
+//  para la pantalla del CRON, y timeline() para el «Historial» de cada ficha
+//  (se filtra por `entidad` + `entidad_id`).
+//
+//  log_evento() NUNCA debe romper un pedido: todo va dentro de try/catch.
+//  Si la tabla `actividad` no existe todavía, simplemente no registra.
+//
+//  La IP de quien no tiene sesión se guarda como hash (Ley 25.326), ver
+//  log_ip(). El histórico no se borra nunca; la pantalla mira por defecto
+//  sólo los últimos ACTIVIDAD_VENTANA_MESES meses.
+//  Lo carga bootstrap.php para todas las rutas: es parte del núcleo.
+// ============================================================
 
 /**
  * Inserta un evento.
  *
- * @param string $canal  'app' | 'api'
+ * Sin `usuario_id` ni `actor` explícitos, se toman del usuario de la sesión.
+ * Los textos se recortan al largo de cada columna (actor 160, acción 120,
+ * detalle 500) para que un dato largo no haga fallar el INSERT.
+ * Nunca lanza: cualquier error se traga en silencio (tampoco queda en el log
+ * de PHP).
+ *
+ * @param string $canal  'app' | 'api' (otro valor se guarda como 'app')
  * @param string $accion identificador corto (ej. 'contacto.crear')
- * @param array  $o      tipo|actor|entidad|entidad_id|detalle|usuario_id
+ * @param array  $o      tipo|actor|entidad|entidad_id|detalle|usuario_id;
+ *                       `tipo` es nav | accion | auth | error | sistema
+ *                       (por defecto 'accion')
  */
 function log_evento(string $canal, string $accion, array $o = []): void
 {
@@ -67,12 +89,20 @@ function log_ip(): ?string
     return $h ? 'h:' . substr($h, 0, 40) : null;
 }
 
+/** Atajo: evento del canal 'app' (lo que hace la gente y los errores). */
 function log_app(string $accion, array $o = []): void { log_evento('app', $accion, $o); }
+/** Atajo: evento del canal 'api' (pedidos a la API). */
 function log_api(string $accion, array $o = []): void { log_evento('api', $accion, $o); }
 
 /**
  * Registra un error con un CÓDIGO estable por ubicación (mismo archivo:línea →
  * mismo código), para poder buscarlo y arreglar la causa.
+ *
+ * El código sale del md5 de la ruta completa del archivo más la línea: si
+ * cambia la ruta de instalación (crm/ y crm-pruebas/) o se mueve la línea, el
+ * mismo error cambia de código.
+ *
+ * @param string $severidad opcional, se antepone al mensaje (ej. 'warning')
  */
 function log_error(string $accion, string $mensaje, string $file, int $line, string $severidad = ''): void
 {
@@ -82,7 +112,10 @@ function log_error(string $accion, string $mensaje, string $file, int $line, str
     log_evento('app', $accion, ['tipo' => 'error', 'actor' => 'sistema', 'detalle' => $detalle]);
 }
 
-/** ¿Existe la tabla? (para degradar con gracia si aún no se migró). */
+/**
+ * ¿Existe la tabla? (para degradar con gracia si aún no se migró).
+ * Se consulta una sola vez por pedido y se recuerda.
+ */
 function actividad_disponible(): bool
 {
     static $ok = null;
@@ -104,6 +137,12 @@ const ACTIVIDAD_VENTANA_MESES = 4;
  * Todas las columnas van calificadas con el alias `a`: la consulta del listado
  * hace JOIN con `usuarios`, que también tiene `creado_en`, y sin el prefijo
  * MySQL la rechaza por ambigua.
+ *
+ * Filtros: canal, tipo, desde, hasta (Y-m-d) y q (texto en actor, acción,
+ * detalle o IP). Las fechas no se validan; van como parámetro, así que una
+ * fecha mal escrita sólo devuelve resultados raros, no rompe la consulta.
+ *
+ * @return array{0:string,1:array} el WHERE completo y sus parámetros
  */
 function actividad_where(array $f): array
 {
@@ -124,7 +163,13 @@ function actividad_where(array $f): array
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
-/** Lista paginada de eventos. */
+/**
+ * Lista paginada de eventos, del más nuevo al más viejo.
+ *
+ * @return array rows, total, page, per, offset, paginas, sin_tabla,
+ *               ventana_default (true si se está mirando sólo la ventana
+ *               por defecto) y ventana_meses
+ */
 function actividad_list(array $f): array
 {
     if (!actividad_disponible()) {
@@ -146,7 +191,10 @@ function actividad_list(array $f): array
     ];
 }
 
-/** Conteo por tipo dentro de la ventana por defecto. */
+/**
+ * Conteo por tipo dentro de la ventana por defecto, para las pestañas del
+ * CRON. Un tipo que no esté en la lista suma al total pero no tiene casilla.
+ */
 function actividad_conteo_tipos(string $canal): array
 {
     $out = ['total' => 0, 'nav' => 0, 'accion' => 0, 'auth' => 0, 'error' => 0, 'sistema' => 0];
@@ -161,7 +209,12 @@ function actividad_conteo_tipos(string $canal): array
     return $out;
 }
 
-/** Resumen para las tarjetas del CRON (total, hoy, errores, último). */
+/**
+ * Resumen para las tarjetas del CRON (total, hoy, errores, último).
+ *
+ * A diferencia del listado, recorre TODO el histórico del canal, sin la
+ * ventana de meses: es la consulta que más crece con el tiempo.
+ */
 function actividad_resumen(string $canal): array
 {
     if (!actividad_disponible()) {
@@ -182,8 +235,18 @@ function actividad_resumen(string $canal): array
 }
 
 /**
- * Línea de tiempo de un registro: mezcla lo que hizo la gente (auditoría) con
- * las actividades y notas asociadas. Es lo que en Zoho se ve en la ficha.
+ * Línea de tiempo de un registro: el «Historial» de la ficha.
+ *
+ * Sólo trae eventos de auditoría (tabla `actividad`) con esa entidad e id:
+ * altas, ediciones, cambios de estado, y las marcas que dejan
+ * actividad_guardar() y actividad_completar() al agendar o completar una
+ * actividad vinculada. Las notas y las actividades en sí NO se mezclan acá:
+ * cada ficha las muestra en su propio panel.
+ *
+ * Nunca lanza: si la consulta falla, devuelve lo que haya juntado (nada).
+ *
+ * @param string $entidad 'contacto' | 'cuenta' | 'posible_cliente' | 'negocio' | …
+ * @return array<int,array{cuando:string,clase:string,tipo:string,titulo:string,detalle:?string,actor:?string}>
  */
 function timeline(string $entidad, int $id, int $limite = 40): array
 {

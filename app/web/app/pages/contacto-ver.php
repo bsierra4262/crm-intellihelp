@@ -1,5 +1,24 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Página `contacto-ver?id=N`: la ficha de un contacto.
+//
+//  Junta todo lo que cuelga de la persona: notas, actividades, negocios,
+//  envíos de campañas y la línea de tiempo de auditoría, y lo pasa a
+//  views/contacto-ver.php.
+//
+//  Único POST: `accion=reactivar`, que vuelve a habilitar las campañas para
+//  un correo dado de baja (sólo administradores; ver reactivar_suscripcion()
+//  en campanas.php).
+//
+//  Tablas que lee: `contactos`, `notas`, `actividades`, `negocios`/`etapas`,
+//  `envios`/`campanas`, `actividad` (auditoría).
+//  Módulo: núcleo (Contactos). Las secciones de negocios, actividades,
+//  campañas y adjuntos dependen de que su módulo esté encendido.
+//  Permisos: cualquier usuario con sesión ve cualquier ficha.
+// ============================================================
+
 require_login();
 
 $id = (int)($_GET['id'] ?? 0);
@@ -14,6 +33,8 @@ if (!$c) {
 // Volver a habilitar a alguien que se había dado de baja. La pantalla de baja
 // le promete al destinatario que puede pedir el alta otra vez, así que tiene
 // que haber una forma de hacerlo desde acá.
+// Va por correo y no por contacto: la baja se registra por dirección, así que
+// reactivar alcanza también a otras fichas con el mismo correo.
 if (is_post() && ($_POST['accion'] ?? '') === 'reactivar') {
     verify_csrf();
     require_admin();
@@ -49,6 +70,8 @@ render('contacto-ver', [
              FROM envios en JOIN campanas ca ON ca.id = en.campana_id
              WHERE en.contacto_id = ? ORDER BY en.id DESC LIMIT 20', [$id])->fetchAll()
         : [],
+    // Sólo la auditoría de la tabla `actividad` (altas, ediciones, actividades
+    // agendadas y completadas), no las notas.
     'linea'       => timeline('contacto', $id),
     'verNegocios' => $verNegocios,
     'verActividades' => $verActividades,

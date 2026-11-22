@@ -1,5 +1,16 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Ruta: POST /adjunto-subir (requiere sesión + CSRF; módulo Adjuntos).
+//
+//  Dos acciones en un mismo endpoint, desde views/_adjuntos.php:
+//    · accion=borrar + id: borra el archivo del disco (sin papelera);
+//    · si no: sube `archivo` (multipart) para entidad + entidad_id.
+//  Ninguna de las dos mira quién subió el archivo ni de quién es el registro.
+//  Los errores (archivo grande, sin archivo) vuelven como aviso flash.
+//  Vuelve a la página anterior según la cabecera Referer.
+// ============================================================
 require_login();
 
 if (!is_post()) { redirect('dashboard'); }
@@ -19,6 +30,9 @@ try {
         flash('Archivo subido.', 'success');
     }
 } catch (\Throwable $e) {
+    // Se muestra el mensaje de la excepción tal cual: las de adjunto_guardar
+    // están escritas para la persona, pero un error de base también llegaría
+    // a la pantalla con su texto técnico.
     flash($e->getMessage(), 'error');
 }
 

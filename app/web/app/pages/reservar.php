@@ -1,17 +1,36 @@
 <?php
 declare(strict_types=1);
 
-// Confirmación de una reserva desde la página pública. No requiere sesión.
+// ============================================================
+//  Confirmación de una reserva desde la página pública (POST `reservar`, el
+//  formulario de views/agenda-publica.php). No requiere sesión.
 //
-// Es un formulario abierto a cualquiera, así que antes de tocar el calendario
-// pasa por cuatro filtros: el módulo Agenda en marcha, el campo trampa que una
-// persona no ve (`sitio_web`), el token firmado del formulario (sirve de CSRF y
-// descarta lo que se manda en menos de 3 segundos) y un límite de envíos por
-// hash de IP. Sin esto un programa podía llenar el calendario del vendedor.
+//  Es un formulario abierto a cualquiera, así que antes de tocar el calendario
+//  pasa por cuatro filtros: el módulo Agenda en marcha, el campo trampa que una
+//  persona no ve (`sitio_web`), el token firmado del formulario (sirve de CSRF y
+//  descarta lo que se manda en menos de 3 segundos) y un límite de envíos por
+//  hash de IP. Sin esto un programa podía llenar el calendario del vendedor.
+//
+//  Después: guarda la entrada de la web (entradas_web), toma la reserva con
+//  agenda_reservar() (que vuelve a validar todo con el calendario bloqueado),
+//  crea el evento y manda el correo con agenda_reserva_completar(), y dibuja
+//  views/agenda-ok.php. Si algo falla, vuelve a la página pública con el aviso
+//  y lo que la persona había escrito (agenda_render_publica()), o muestra
+//  views/agenda-error.php.
+//
+//  Escribe (a través de agenda.php): agenda_reservas, contactos, cuentas,
+//  actividades, entradas_web, api_limites. Módulo: 'agenda'.
+//
+//  Trampa: el tipo se busca por el id que viene en el formulario con
+//  agenda_tipo_get(), que no mira si el dueño sigue activo (la página
+//  /r/<usuario>/<tipo> sí). El token del formulario está atado a ese id.
+// ============================================================
 $bodyClass = 'publica';
 
 if (!is_post()) { redirect('login'); }
 
+// Módulo apagado: 404 (la ruta «no existe»). Módulo prendido pero sin la
+// migración 008: 503 (vuelve a estar cuando se migre).
 if (!modulo_activo('agenda') || !agenda_esquema_listo()) {
     http_response_code(modulo_activo('agenda') ? 503 : 404);
     render('agenda-error', ['titulo' => 'Agenda no disponible',
@@ -27,6 +46,9 @@ if (!$tipo || (int)$tipo['activo'] !== 1) {
     exit;
 }
 
+// Lo que la persona escribió se guarda en $viejo para volver a llenar el
+// formulario si hay que mostrarlo de nuevo. La validación de verdad la hace
+// agenda_reservar(); acá sólo se recortan espacios.
 $usuarioSlug = explode('@', (string)$tipo['usuario_email'])[0];
 $campanaId   = (int)($_POST['campana_id'] ?? 0) ?: null;
 $origenPost  = agenda_origen_de_post();
@@ -41,7 +63,12 @@ $viejo = [
     'inicio'     => $inicio,
 ];
 
-/** Vuelve a mostrar la página con un aviso y lo que la persona ya había escrito. */
+/**
+ * Vuelve a mostrar la página con un aviso y lo que la persona ya había escrito.
+ *
+ * Con $conHorario = false se descarta el horario elegido (cuando el problema
+ * es justamente ese horario) para que elija otro. Siempre hace exit.
+ */
 $volver = static function (string $error, ?string $campo = null, bool $conHorario = true)
     use ($tipo, $viejo, $campanaId, $origenPost, $inicio): void {
     if (!$conHorario) { $viejo['inicio'] = 0; }
@@ -66,7 +93,9 @@ if (trim((string)($_POST['sitio_web'] ?? '')) !== '') {
     exit;
 }
 
-// 2) Token del formulario.
+// 2) Token del formulario. Se pide de un solo uso: queda gastado aunque la
+//    reserva falle después, y cada vez que se vuelve a dibujar la página sale
+//    uno nuevo.
 $m = null;
 if (!agenda_form_token_valido((string)($_POST['form_token'] ?? ''), (int)$tipo['id'], $m, 'reservar', true)) {
     $volver(match ($m) {
@@ -88,7 +117,8 @@ if (!telefono_valido($viejo['telefono'] !== '' ? $viejo['telefono'] : null)) {
     $volver('El teléfono no parece un número. Poné sólo números; se aceptan también + ( ) - . y espacios.', 'telefono');
 }
 
-// 4) Límite de envíos por hash de IP.
+// 4) Límite de envíos por hash de IP. Cuenta el intento aunque después la
+//    reserva falle (por ejemplo, porque justo tomaron el horario).
 if (agenda_limite_publico()) {
     http_response_code(429);
     render('agenda-error', ['titulo' => 'Demasiados intentos seguidos',
@@ -173,6 +203,8 @@ try {
     // está mal escrito, la fecha pasó. Vuelve al formulario con lo que había
     // escrito; si el problema es el horario, con los horarios recalculados.
     agenda_entrada_marcar($entrada, ['estado' => 'error', 'error' => $e->motivo]);
+    // Estos tres no se arreglan corrigiendo el formulario: se muestra la
+    // página de error con el mensaje, sin volver a ofrecer horarios.
     if (in_array($e->motivo, ['sin_calendario', 'ocupado', 'limite'], true)) {
         render('agenda-error', ['titulo' => 'No pudimos agendar la reunión',
             'mensaje' => $e->getMessage(), 'bodyClass' => $bodyClass], 'Agenda');

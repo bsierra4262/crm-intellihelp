@@ -2,6 +2,20 @@
 declare(strict_types=1);
 require_login();
 
+// ============================================================
+//  Ruta `lista-form` (alta) y `lista-form?id=<id>` (edición). Módulo
+//  Campañas; cualquier usuario con sesión puede crear o editar cualquier
+//  lista (no hay dueño).
+//
+//  Sólo nombre, segmento (categoría) y descripción: los miembros se cargan
+//  en lista-ver. Al guardar se va a lista-ver de esa lista. Si falta el
+//  nombre, se vuelve a mostrar el formulario con lo escrito.
+//
+//  Vista: views/lista-form.php, con $l, $id, $errores y $categorias.
+//  Lógica en app/campanas.php (lista_get, lista_guardar) y
+//  app/cuentas_correo.php (categorias_listar).
+// ============================================================
+
 $id = (int)($_GET['id'] ?? 0);
 $l  = $id ? lista_get($id) : null;
 if ($id && !$l) {
@@ -21,6 +35,7 @@ if (is_post()) {
         flash($id ? 'Lista actualizada.' : 'Lista creada. Ahora cargala con contactos.', 'success');
         redirect('lista-ver?id=' . $nuevoId);
     }
+    // Con error, lo escrito pisa lo guardado para no perderlo al volver a pintar.
     $l = array_merge($l ?? [], $d);
 }
 

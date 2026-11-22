@@ -1,3 +1,18 @@
+<?php
+// ============================================================
+//  Vista de los objetivos de venta.
+//
+//  La dibuja pages/cuotas.php y postea a la misma ruta. Recibe:
+//    $usuarios  usuarios activos
+//    $cargadas  usuario_id => objetivo del período
+//    $ganado    usuario_id => importe ganado en el período (ARS y USD juntos)
+//    $periodo   AAAA-MM
+//    $aviso     [tipo, mensaje] del último POST, o null
+//
+//  Un objetivo vacío no se guarda como cero: borra la fila, y el
+//  cumplimiento se muestra como «—».
+// ============================================================
+?>
 <?php /** @var array $usuarios @var array $cargadas @var array $ganado @var string $periodo @var ?array $aviso */ ?>
 <div class="page-head">
     <div>
@@ -38,6 +53,7 @@
                     <tr>
                         <td data-label="Vendedor"><strong><?= e($u['nombre']) ?></strong></td>
                         <td data-label="Objetivo" class="num">
+                            <?php // El valor se escribe con punto decimal («1500000.5») porque el campo es type="number"; ver en pages/cuotas.php cómo se lee al volver. ?>
                             <input type="number" name="objetivo[<?= $uid ?>]" class="w-md"
                                    value="<?= $obj > 0 ? e((string)$obj) : '' ?>"
                                    min="0" step="0.01" inputmode="decimal" placeholder="sin objetivo">

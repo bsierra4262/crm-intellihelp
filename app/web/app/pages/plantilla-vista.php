@@ -2,12 +2,24 @@
 declare(strict_types=1);
 require_login();
 
+// ============================================================
+//  Ruta: /plantilla-vista  (con sesión; módulo «campanas»).
+//  Lee `plantillas` (sólo en GET); no escribe nada.
+//
+//  Ojo con el GET: devuelve el `cuerpo_html` guardado tal cual, como página
+//  del mismo dominio del CRM (sólo con X-Frame-Options). Si una plantilla
+//  tiene HTML con scripts (tipo 'html', que se guarda sin sanear), corren
+//  con la sesión de quien la abra.
+// ============================================================
+//
 // Dos usos:
 //   POST  → el editor manda los bloques y recibe el HTML ya armado. Es el
 //           mismo renderizador que usa el envío real, así que la vista previa
 //           no puede diferir de lo que le llega al destinatario.
 //   GET   → abre la plantilla guardada en una pestaña, para verla completa.
 
+// Los mismos datos de ejemplo que usa plantilla-form; si se cambian acá hay
+// que cambiarlos allá.
 $ctx     = contexto_marca();
 $ejemplo = [
     'nombre' => 'Juan', 'apellido' => 'Pérez', 'empresa' => 'ACME S.A.',
@@ -27,6 +39,7 @@ if (is_post()) {
     $html  = render_plantilla(bloques_render($lista, $aj, $ctx), $ejemplo);
     $texto = render_plantilla(bloques_texto($lista, $ctx), $ejemplo);
 
+    // json_out termina el pedido.
     json_out([
         'ok'      => true,
         'html'    => $html,

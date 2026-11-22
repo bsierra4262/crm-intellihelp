@@ -11,6 +11,23 @@ declare(strict_types=1);
 //  Por eso pedimos acceso OFFLINE: guardamos el refresh_token del usuario
 //  (cifrado) para poder agendar reuniones aunque no tenga sesión abierta —
 //  la agenda pública la usa un cliente de afuera, no el vendedor.
+//
+//  Flujo: pages/google-login.php genera el `state` (en la sesión) y redirige a
+//  google_auth_url(); Google vuelve a pages/google-callback.php, que valida el
+//  state, cambia el código por tokens (google_exchange_code()), lee la
+//  identidad del id_token y guarda los tokens (google_guardar_tokens()).
+//  Después, gcal.php pide un access_token vigente con google_access_token(),
+//  que lo renueva solo con el refresh_token.
+//
+//  Tabla: google_tokens (una fila por usuario; refresh y access token
+//  cifrados con AES-256-GCM, ver cifrar()). Configuración: $CONFIG['google']
+//  (client_id, client_secret, allowed_domain, auto_provision) y
+//  $CONFIG['app']['secret'] (la clave de cifrado). El login es del núcleo; el
+//  calendario lo usa el módulo Agenda.
+//
+//  Trampa: si cambia `app.secret`, todo lo cifrado deja de poder leerse
+//  (descifrar() devuelve ''): cada vendedor tiene que volver a entrar con
+//  Google, y las claves de escritura de la API hay que generarlas de nuevo.
 // ============================================================
 
 /** Permisos que pide la aplicación. */
@@ -22,11 +39,13 @@ const GOOGLE_SCOPES = [
     'https://www.googleapis.com/auth/calendar.events.freebusy',
 ];
 
+/** La sección `google` de la configuración del servidor ([] si no está). */
 function google_cfg(): array
 {
     return $GLOBALS['CONFIG']['google'] ?? [];
 }
 
+/** ¿Está configurado el cliente OAuth (client_id y client_secret)? */
 function google_enabled(): bool
 {
     $g = google_cfg();
@@ -46,7 +65,14 @@ function google_redirect_uri(): string
     return preg_replace('#^http://#', 'https://', $uri);
 }
 
-/** URL a la que enviamos al usuario para autenticarse. */
+/**
+ * URL a la que enviamos al usuario para autenticarse.
+ *
+ * @param string $state                valor al azar guardado en la sesión; vuelve
+ *                                     en el callback y se compara (anti-CSRF)
+ * @param bool   $forzarConsentimiento pide la pantalla de permisos (prompt=consent),
+ *                                     única forma de que Google mande el refresh_token
+ */
 function google_auth_url(string $state, bool $forzarConsentimiento = false): string
 {
     $g = google_cfg();
@@ -59,16 +85,26 @@ function google_auth_url(string $state, bool $forzarConsentimiento = false): str
         'access_type'           => 'offline',
         'include_granted_scopes' => 'true',
         // Sin 'consent' Google no vuelve a mandar el refresh_token en los
-        // logins siguientes; sólo lo forzamos cuando todavía no lo tenemos.
+        // logins siguientes. Hoy pages/google-login.php lo pide SIEMPRE (pasa
+        // true): ver ahí por qué no alcanza con pedirlo «la primera vez».
         'prompt'                => $forzarConsentimiento ? 'consent select_account' : 'select_account',
     ];
+    // `hd` sólo filtra el selector de cuentas de Google: se puede saltear
+    // editando la URL. El control real del dominio está en el callback, sobre
+    // el claim `hd` del id_token.
     if (!empty($g['allowed_domain'])) {
         $params['hd'] = $g['allowed_domain'];
     }
     return 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params);
 }
 
-/** POST a un endpoint de Google y devuelve el JSON decodificado. */
+/**
+ * POST a un endpoint de Google y devuelve el JSON decodificado.
+ *
+ * No mira el código HTTP: el error, si lo hay, viene en el cuerpo
+ * ('error', 'error_description'). Sin conexión devuelve []. 20 s de espera
+ * en total, sin un tiempo de conexión aparte.
+ */
 function google_post(string $url, array $campos): array
 {
     $ch = curl_init($url);
@@ -84,7 +120,11 @@ function google_post(string $url, array $campos): array
     return is_string($res) ? (json_decode($res, true) ?: []) : [];
 }
 
-/** Intercambia el "code" por tokens. */
+/**
+ * Intercambia el "code" por tokens: access_token, id_token, expires_in, scope
+ * y, sólo si hubo consentimiento explícito, refresh_token. El redirect_uri
+ * tiene que ser el mismo que se mandó en google_auth_url().
+ */
 function google_exchange_code(string $code): array
 {
     $g = google_cfg();
@@ -97,7 +137,10 @@ function google_exchange_code(string $code): array
     ]);
 }
 
-/** Renueva el access_token a partir del refresh_token. */
+/**
+ * Renueva el access_token a partir del refresh_token. Si el permiso fue
+ * revocado, Google responde {'error': 'invalid_grant'} y no hay access_token.
+ */
 function google_refresh(string $refreshToken): array
 {
     $g = google_cfg();
@@ -109,7 +152,15 @@ function google_refresh(string $refreshToken): array
     ]);
 }
 
-/** Decodifica el payload de un id_token (JWT) recibido directo de Google por TLS. */
+/**
+ * Decodifica el payload de un id_token (JWT) recibido directo de Google por TLS.
+ *
+ * No verifica la firma, ni `aud`, ni `exp`: OpenID Connect lo permite cuando
+ * el token llega en la respuesta del endpoint de tokens por TLS, como acá.
+ * Nunca usar esta función con un id_token que venga del navegador.
+ *
+ * @return array los claims (email, email_verified, hd, name, picture…), o [] si no se entiende
+ */
 function google_decode_id_token(string $idToken): array
 {
     $partes = explode('.', $idToken);
@@ -126,6 +177,14 @@ function google_decode_id_token(string $idToken): array
 //  Guardado de tokens por usuario (cifrado con el secreto de la app)
 // ============================================================
 
+/**
+ * El secreto de la instalación: `app.secret` de la configuración.
+ *
+ * Lo usan cifrar()/descifrar() y, fuera de este archivo, los tokens firmados
+ * de la agenda pública. El respaldo derivado del nombre y el usuario de la
+ * base se puede adivinar: por eso la API de escritura exige un secreto
+ * configurado de al menos 32 caracteres (api_secreto_app_ok()).
+ */
 function crm_secret(): string
 {
     $s = (string)($GLOBALS['CONFIG']['app']['secret'] ?? '');
@@ -134,6 +193,13 @@ function crm_secret(): string
     return $s !== '' ? $s : ('crm:' . ($GLOBALS['CONFIG']['db']['name'] ?? '') . ':' . ($GLOBALS['CONFIG']['db']['user'] ?? ''));
 }
 
+/**
+ * Cifra con AES-256-GCM. La clave es el SHA-256 de crm_secret().
+ *
+ * @return string base64(iv de 12 bytes + tag de 16 bytes + texto cifrado);
+ *                cada llamada usa un iv nuevo, así que el mismo texto da
+ *                resultados distintos
+ */
 function cifrar(string $texto): string
 {
     $clave = hash('sha256', crm_secret(), true);
@@ -143,6 +209,11 @@ function cifrar(string $texto): string
     return base64_encode($iv . $tag . $ct);
 }
 
+/**
+ * Descifra lo que produjo cifrar(). Devuelve '' si el formato no es válido,
+ * si el dato fue alterado (el tag de GCM no coincide) o si se cifró con otro
+ * secreto: quien llama trata '' como «no hay dato».
+ */
 function descifrar(string $blob): string
 {
     $raw = base64_decode($blob, true);
@@ -157,9 +228,19 @@ function descifrar(string $blob): string
     return $out === false ? '' : $out;
 }
 
-/** Guarda los tokens del usuario. El refresh_token sólo se pisa si viene uno nuevo. */
+/**
+ * Guarda los tokens del usuario. El refresh_token sólo se pisa si viene uno nuevo.
+ *
+ * Se llama desde el callback (login) y desde google_access_token() en cada
+ * renovación. Cada escritura actualiza `google_tokens.actualizado_en`, que
+ * gcal_falla_pendiente() usa como «se reconectó después de la falla».
+ *
+ * @param array $tok respuesta del endpoint de tokens de Google
+ */
 function google_guardar_tokens(int $usuarioId, array $tok): void
 {
+    // Vence un minuto antes de lo que dice Google, para no usar un token que
+    // caduca en medio de la llamada.
     $expira = date('Y-m-d H:i:s', time() + (int)($tok['expires_in'] ?? 3600) - 60);
     $access = !empty($tok['access_token']) ? cifrar((string)$tok['access_token']) : null;
     if (!empty($tok['refresh_token'])) {
@@ -190,6 +271,10 @@ function google_conectado(int $usuarioId): bool
 /**
  * Devuelve un access_token válido del usuario, renovándolo si venció.
  * Null si el usuario nunca conectó su cuenta o si Google revocó el permiso.
+ *
+ * Efectos: puede llamar a Google (hasta 20 s) y guardar el token nuevo. Si la
+ * renovación falla, el refresh_token queda guardado igual y no hay pausa entre
+ * intentos: cada llamada siguiente vuelve a probar la renovación.
  */
 function google_access_token(int $usuarioId): ?string
 {
@@ -214,7 +299,13 @@ function google_access_token(int $usuarioId): ?string
     return (string)$tok['access_token'];
 }
 
-/** Desconecta la cuenta de Google de un usuario (revoca y borra). */
+/**
+ * Desconecta la cuenta de Google de un usuario (revoca y borra).
+ *
+ * La revocación es de buena fe: si Google no responde, la fila se borra igual
+ * y el permiso queda vivo del lado de Google hasta que el usuario lo quite
+ * desde su cuenta. Deja la línea 'google.desconectar' en la auditoría.
+ */
 function google_desconectar(int $usuarioId): void
 {
     $r = q1('SELECT refresh_token FROM google_tokens WHERE usuario_id = ?', [$usuarioId]);

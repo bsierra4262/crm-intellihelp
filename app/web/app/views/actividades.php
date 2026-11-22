@@ -1,4 +1,26 @@
 <?php /** @var array $f @var array $data @var array $usuarios */
+// ============================================================
+//  Vista: listado de actividades.
+//
+//  La dibuja pages/actividades.php. Pestañas de vistas rápidas, filtros
+//  (GET), tabla paginada y, por fila, completar o reabrir (POST a
+//  `actividad-completar`), editar y mandar a la papelera (POST a
+//  `registro-eliminar`).
+//
+//  Variables que recibe:
+//    $f         array  filtros (q, tipo, estado, propietario_id, vista,
+//                      vencidas, page)
+//    $data      array  actividades_listar(): rows (con propietario, contacto
+//                      y cuenta), total y paginación
+//    $usuarios  array  usuarios activos, para el filtro de responsable
+//
+//  «Relacionado con» muestra el contacto o, si no hay, la empresa; una
+//  actividad vinculada sólo a un negocio o a un posible cliente sale con «—».
+//  El formulario de filtros conserva `vista` pero no `vencidas`: filtrar
+//  desde la vista que abre el contador de vencidas vuelve a «Pendientes».
+// ============================================================
+
+// `vencidas=1` (el enlace del contador) equivale a la pestaña «Vencidas».
 $vistaActual = ($f['vencidas'] ?? '') === '1' ? 'vencidas' : ($f['vista'] ?: 'pendientes');
 $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta semana',
            'vencidas' => 'Vencidas', 'completadas' => 'Completadas'];
@@ -14,6 +36,7 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
 </div>
 
 <div class="seg mb-4">
+    <?php // Cada pestaña conserva los filtros y vuelve a la página 1; «Pendientes» es la vista sin parámetro. ?>
     <?php foreach ($vistas as $k => $etiqueta): ?>
         <a class="seg-item <?= $vistaActual === $k ? 'active' : '' ?>"
            href="<?= e(url('actividades' . query_con(['vista' => $k === 'pendientes' ? null : $k, 'vencidas' => null, 'page' => null]))) ?>"><?= e($etiqueta) ?></a>
@@ -77,6 +100,7 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
                 <tr>
                     <td data-label="Asunto">
                         <a href="<?= e(url('actividad-form?id=' . (int)$a['id'])) ?>"><strong><?= e($a['asunto']) ?></strong></a>
+                        <?php // `meet_url` lo escribe la integración con Google Calendar; se usa como enlace sin revisar el esquema. ?>
                         <?php if ($a['meet_url']): ?>
                             <a href="<?= e($a['meet_url']) ?>" target="_blank" rel="noopener" class="chip"><?= icon('video', 12) ?>Meet</a>
                         <?php endif; ?>

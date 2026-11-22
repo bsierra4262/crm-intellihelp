@@ -1,5 +1,23 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Página `cuenta-form`: alta (sin `id`) y edición (`?id=N`) de una empresa.
+//
+//  GET dibuja views/cuenta-form.php. POST valida (nombre, CUIT con dígito
+//  verificador, nombre no repetido, teléfono y los datos de cuenta_falta()),
+//  guarda con cuenta_guardar() y redirige a la ficha.
+//
+//  Tablas: escribe `cuentas`; lee `cuentas` (repetidas) y `usuarios`.
+//  Módulo: núcleo (Empresas).
+//  Permisos: cualquier usuario con sesión edita cualquier empresa.
+//
+//  Ojo: cuenta_falta() acá funciona como validación obligatoria (CUIT, tipo
+//  y sector son requisitos para guardar desde el formulario), aunque en el
+//  resto del sistema —importación, alta al vuelo, web— la empresa entra
+//  igual y sólo queda marcada como pendiente.
+// ============================================================
+
 require_login();
 
 $id = (int)($_GET['id'] ?? 0);
@@ -24,6 +42,10 @@ if (is_post()) {
         $errores['cuit'] = 'El CUIT no pasa la validación del dígito verificador.';
     }
     // Nombre repetido: es la causa número uno de bases duplicadas.
+    // La comparación es por igualdad exacta (la intercalación de la base
+    // ignora mayúsculas); «ACME S.A.» y «Acme SA» pasan como distintas. No es
+    // la misma regla que empresa_clave(), la que usa la entrada web.
+    // Además corre aunque el nombre esté vacío y pisa el mensaje de arriba.
     $repetida = q1('SELECT id FROM cuentas WHERE nombre = ? AND eliminado_en IS NULL AND id <> ? LIMIT 1',
                    [trim((string)$d['nombre']), $id]);
     if ($repetida) {
@@ -39,6 +61,8 @@ if (is_post()) {
         }
     }
 
+    // Lo que falta para que la ficha no quede pendiente; no pisa un error más
+    // específico que ya tenga el campo (CUIT inválido, nombre repetido).
     foreach (cuenta_falta($d) as $queFalta) {
         $campo = ['nombre' => 'nombre', 'CUIT' => 'cuit',
                   'tipo' => 'tipo', 'sector' => 'sector'][$queFalta] ?? null;
@@ -52,6 +76,7 @@ if (is_post()) {
         flash($id ? 'Empresa actualizada.' : 'Empresa creada.', 'success');
         redirect('cuenta-ver?id=' . $nuevoId);
     }
+    // Con errores se vuelve a dibujar con lo escrito encima de la ficha.
     $c = array_merge($c ?? [], $d);
 }
 

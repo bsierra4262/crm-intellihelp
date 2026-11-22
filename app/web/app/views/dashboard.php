@@ -3,6 +3,9 @@
  *  @var int $vencidas @var array $campanas @var bool $mio
  *  @var bool $verPosibles @var bool $verNegocios @var bool $verActividades @var bool $verCampanas
  *  @var bool $separado */
+// Vista del panel, desde pages/dashboard.php (ver ahí qué es cada variable).
+// Las zonas con data-vivo las vuelve a pedir vivo.js cada pocos segundos.
+// Las tarjetas de módulos apagados no se dibujan.
 $u = auth_user();
 
 // Lo que falta terminar de cargar, en un solo número. Es lo más accionable que
@@ -98,6 +101,7 @@ $pendientes = (int)($m['cont_pend'] ?? 0) + (int)($m['cta_pend'] ?? 0);
         <div class="card stat">
             <span class="stat-label">Ganado este mes</span>
             <span class="stat-value accent"><?= money($ganadoMes) ?></span>
+            <?php // Ojo: muestra la fecha de hoy, no el 1.º del mes desde el que suma la consulta. ?>
             <span class="stat-foot">desde el <?= date('d/m') ?></span>
         </div>
     <?php endif; ?>

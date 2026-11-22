@@ -8,13 +8,33 @@ declare(strict_types=1);
 //  concretos que ya aparecieron una vez. No prueba lógica: prueba que la
 //  interfaz siga cumpliendo las reglas del proyecto.
 //
-//  Uso:  php test/ui_test.php
+//  Cómo trabaja: NO ejecuta nada. Lee como texto app.css, los .js de
+//  assets/js, las vistas de app/views, varios módulos de app/ y páginas de
+//  app/pages, más cron.php, reinicio.php, migrar.php y las migraciones de
+//  app/db (las busca al lado de app/web/, como en el repositorio, o adentro
+//  del webroot, como queda desplegado), y comprueba con str_contains y
+//  expresiones regulares que cada arreglo siga en su lugar. Por eso es
+//  frágil a propósito: un cambio de redacción en el código fuente (otro
+//  nombre de variable, otra comilla) puede hacer fallar una comprobación
+//  aunque el comportamiento siga bien; en ese caso se ajusta la búsqueda.
+//
+//  Contra qué base: ninguna. No toca la base ni la red.
+//
+//  Uso:  php test/ui_test.php                         (desde el repo)
 //        CRM_SRC=/ruta/al/app/web php test/ui_test.php
+//  OJO: acá CRM_SRC apunta a la carpeta web (la que tiene index.php y
+//  assets/), no a web/app como en run_tests.php. En el servidor lo corre
+//  `python bin/deploy.py test` con CRM_SRC=<webroot>.
+//  No necesita extensiones especiales. Salida: 0 todo bien, 1 alguna falla
+//  (también 1 si no encuentra app.css).
 // ============================================================
 
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
 
+// ---- Fuentes que se revisan ----
+// $CSS y $JS: hoja de estilos y script principal. $html: todas las vistas
+// concatenadas, cada una precedida por su nombre. $layout: el marco común.
 $WEB = getenv('CRM_SRC') ?: (__DIR__ . '/../app/web');
 $CSS = @file_get_contents($WEB . '/assets/css/app.css');
 $JS  = @file_get_contents($WEB . '/assets/js/app.js');
@@ -30,7 +50,12 @@ foreach ($vistas as $v) {
 }
 $layout = (string) @file_get_contents($WEB . '/app/views/layout.php');
 
+// Contadores globales: $T total, $F fallidas, $fallos nombres para el resumen.
 $T = 0; $F = 0; $fallos = [];
+/**
+ * Registra una comprobación e imprime [OK] o [XX]; si falla, imprime al lado
+ * el $detalle (qué se encontró o por qué importa).
+ */
 function ok(string $nombre, bool $cond, string $detalle = ''): void {
     global $T, $F, $fallos;
     $T++;
@@ -38,7 +63,13 @@ function ok(string $nombre, bool $cond, string $detalle = ''): void {
     else { $F++; $fallos[] = $nombre; echo "  [XX] $nombre" . ($detalle !== '' ? "  $detalle" : '') . "\n"; }
 }
 
-/** Extrae el cuerpo de una regla CSS por selector exacto. */
+/**
+ * Extrae el cuerpo de una regla CSS por selector exacto.
+ *
+ * Sólo encuentra el selector cuando está al principio de la regla o después
+ * de una coma o una llave; si aparece varias veces, junta todos los cuerpos.
+ * Devuelve '' si no existe. No entiende @media: busca en toda la hoja.
+ */
 function regla(string $css, string $selector): string
 {
     $out = '';
@@ -107,6 +138,8 @@ $archivosSueltos = preg_match_all('/<input[^>]*type=["\']file["\'][^>]*>/i', $ht
 // hacía fallar la comprobación aunque el componente siguiera estando.
 $dentroDeCampo   = preg_match_all('/class="[^"]*\bfilefield\b[^"]*"[\s\S]{0,200}?type=["\']file["\']/i', $html);
 ok('todo campo de archivo usa el componente propio', $archivosSueltos === $dentroDeCampo,
+   // Si hay al menos un toggle propio (class="track") en cualquier vista, esta
+   // comprobación pasa aunque otro checkbox esté crudo.
    "→ $archivosSueltos campos, $dentroDeCampo con componente");
 ok('los on/off usan el toggle propio', !preg_match('/type=["\']checkbox["\'][^>]*>(?![\s\S]{0,80}class="track")/', $html)
    || substr_count($html, 'class="track"') > 0);
@@ -118,6 +151,8 @@ echo "== El atributo hidden ==\n";
 // veía siempre, ofreciendo aprobar «0 marcadas». Un elemento marcado como
 // escondido tiene que estar escondido, lo diga quien lo diga.
 ok('hidden gana sobre cualquier display', str_contains($CSS, '[hidden]{display:none!important}'));
+// $conDisplay sólo se usa como detalle del mensaje: la comprobación real es
+// que no exista el parche viejo .alertas-n[hidden].
 $conDisplay = [];
 foreach (['.barra-sel', '.alertas-n', '.avisos'] as $sel) {
     $r = regla($CSS, $sel);
@@ -157,6 +192,8 @@ ok('los formularios bajan a una columna en el celular',
    preg_match('/@media \(max-width:520px\)[\s\S]{0,400}grid-fields\{grid-template-columns:1fr/', $CSS) === 1);
 
 echo "== Coherencia visual ==\n";
+// Este recorrido quedó vacío (no comprueba nada) y $hex no se usa: las
+// comprobaciones reales de este grupo son las tres de abajo.
 foreach ($vistas as $v) {
     $c = (string) file_get_contents($v);
     $base = basename($v);
@@ -168,6 +205,8 @@ ok('los listados usan la misma estructura de encabezado',
    substr_count($html, 'class="page-head"') >= 8);
 ok('los filtros usan la misma estructura', substr_count($html, 'class="filters card"') >= 6);
 
+// ASSETS_V se calcula en bootstrap.php con filemtime de los assets; así
+// el navegador baja la hoja nueva en cuanto cambia.
 echo "== Cache-busting ==\n";
 ok('los assets van versionados', str_contains($layout, 'ASSETS_V'));
 // La versión de los assets sale de la fecha de los archivos: un número a mano
@@ -275,6 +314,8 @@ ok('el login explica por qué se cerró', str_contains($entrar, 'inactividad'));
 //  Regresiones
 //  Cada una es un defecto que estuvo de verdad en el código.
 // ============================================================
+// Fuentes de los módulos que revisan los grupos siguientes. cron.php vive en
+// app/ en el repo y dentro del webroot al desplegar: se prueban las dos.
 $campanas  = (string) @file_get_contents($WEB . '/app/campanas.php');
 $bloques   = (string) @file_get_contents($WEB . '/app/bloques.php');
 $agendaPhp = (string) @file_get_contents($WEB . '/app/agenda.php');
@@ -401,6 +442,8 @@ ok('los archivos no quedan dentro del sitio',
    str_contains($reg, "rtrim(STORAGE, '/') . '/adjuntos'"),
    '→ dentro del web root cualquiera los bajaría sin sesión');
 
+// Teléfonos: formato al mostrar, pattern en el navegador y validación en el
+// servidor.
 echo "== Datos y formatos ==\n";
 ok('los teléfonos se muestran legibles', str_contains($hlp, 'function telefono_formato'));
 $vistas2 = '';
@@ -419,6 +462,9 @@ ok('y los listados lo usan', substr_count($vistas2, 'telefono_formato(') >= 4);
 // (El ejemplo no se escribe acá: la marca de cierre de PHP dentro de un
 // comentario de una línea saca al intérprete del modo código, y a partir de
 // ahí el archivo se imprime como texto en vez de ejecutarse. Pasó.)
+// Recorre cada <input ...> respetando los bloques PHP de adentro: $prof
+// cuenta cuántos bloques están abiertos y sólo un «>» fuera de ellos cierra
+// la etiqueta.
 $telSinPatron = 0;
 foreach (glob($WEB . '/app/views/*.php') ?: [] as $arch) {
     $src = (string) file_get_contents($arch);
@@ -905,6 +951,10 @@ echo "== Lo que pasa mientras la campaña manda se ve mientras pasa ==\n";
 // aparecía junto mucho después, cuando ya no sirve para reaccionar.
 // En el repositorio cron.php vive al lado de `web/`; desplegado queda adentro
 // del propio webroot. Se buscan los dos, si no la comprobación pasa en vacío.
+// Ojo con las comparaciones de strpos: si la búsqueda de la izquierda no
+// aparece, strpos devuelve false y «false < número» da true en PHP, así que
+// la comprobación de orden de abajo pasaría aunque imap_quizas_revisar no
+// estuviera en el cron. La de este renglón sólo mira que el archivo exista.
 ok('se encontró el archivo del cron para poder revisarlo', $cronPhp !== '');
 ok('el cron lee la casilla ANTES de ponerse a despachar',
    $cronPhp !== '' && strpos($cronPhp, 'imap_quizas_revisar') < strpos($cronPhp, 'campanas_despachar'),
@@ -1143,6 +1193,9 @@ ok('y el tablero cuenta con la misma regla',
    '→ si el tablero contara distinto, el número del panel y el del filtro no coincidirían');
 
 
+// ---- Integración con la web (API v1) y agenda pública ----
+// Comprobaciones estáticas de lo pedido en md/INTEGRACION-WEB.md; los §4 #N
+// remiten a los puntos de esa sección. Lo dinámico lo prueba api_test.php.
 echo "== Entradas desde la web y agenda (md/INTEGRACION-WEB.md) ==\n";
 $leer = static fn(string $rel): string => (string) @file_get_contents($WEB . '/' . $rel);
 /** El cuerpo de una función de PHP, hasta la llave que la cierra en la columna 0. */
@@ -1186,6 +1239,9 @@ ok('el permiso «Escritura (web)» se puede elegir al crear una clave',
 ok('el secreto se guarda cifrado y sale de random_bytes',
    str_contains($leer('app/pages/api-keys.php'), 'cifrar($secreto)') && str_contains($leer('app/pages/api-keys.php'), 'random_bytes(32)'));
 
+// Las comprobaciones de orden con strpos dentro de $cuerpoFn tienen la misma
+// trampa que arriba: si la PRIMERA llamada buscada no está, strpos da false
+// y la comparación pasa igual.
 // Agenda (§4).
 ok('el calendario del vendedor se bloquea con el nombre de la base (§4 #2)',
    str_contains($agendaSrc, "GET_LOCK(CONCAT(DATABASE(), ':agenda:', ?)"));
@@ -1228,6 +1284,8 @@ foreach (['agenda-mover.php', 'entradas-web.php', 'agenda-publica.php', 'agenda-
     ok("«{$vista}» sin estilos en línea", !str_contains($leer('app/views/' . $vista), 'style="'));
 }
 
+// La de la migración 008 sólo corre si se encuentra el archivo al lado del
+// webroot (en el repo, app/db); si no, la comprobación no se cuenta.
 // Migración y reinicio.
 $mig = (string) @file_get_contents(dirname($WEB) . '/db/migracion-008-entradas-web.sql');
 if ($mig !== '') {
@@ -1239,6 +1297,7 @@ $reinicio = (string) @file_get_contents(dirname($WEB) . '/reinicio.php') . (stri
 ok('el reinicio vacía las entradas de la web y los contadores',
    str_contains($reinicio, "'entradas_web'") && str_contains($reinicio, "'api_limites'"));
 ok('y siembra el tipo «diagnostico» que usa la landing', str_contains($reinicio, "'slug'         => 'diagnostico'"));
+// ---- Feriados (feriados.php, migración 009, pantalla y cron) ----
 echo "== Feriados en la agenda ==\n";
 $feriadosSrc = $leer('app/feriados.php');
 $cronSrc     = (string) @file_get_contents(dirname($WEB) . '/cron.php') . (string) @file_get_contents($WEB . '/cron.php');
@@ -1262,9 +1321,11 @@ ok('la fuente tiene un tiempo de espera', str_contains($cuerpoFn($feriadosSrc, '
 ok('un calendario incompleto no borra nada', str_contains($cuerpoFn($feriadosSrc, 'feriados_sincronizar'), 'FERIADOS_MINIMO_ANIO'));
 ok('el cron sincroniza los feriados una vez por día', str_contains($cronSrc, 'feriados_asegurar(true)'));
 ok('las reuniones agendadas en un feriado se marcan en la lista', str_contains($leer('app/views/reservas.php'), '>Feriado</span>'));
+// Pasa también si no existe la carpeta db al lado del webroot.
 ok('la migración 009 crea la tabla y los ajustes',
    str_contains((string) @file_get_contents(dirname($WEB) . '/db/migracion-009-feriados.sql'), 'CREATE TABLE IF NOT EXISTS `feriados`')
    || !is_dir(dirname($WEB) . '/db'));
+// ---- Resumen y código de salida (0 = todo bien, 1 = alguna falla) ----
 echo "\n" . str_repeat('=', 60) . "\n";
 printf("  %d comprobaciones de interfaz · %d correctas · %d fallidas\n", $T, $T - $F, $F);
 if ($fallos) {

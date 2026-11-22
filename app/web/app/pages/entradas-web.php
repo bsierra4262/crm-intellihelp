@@ -12,6 +12,17 @@ require_login();
 //
 //  Lo ve todo el equipo (la pantalla de reuniones lleva un botón hasta acá);
 //  elegir quién atiende las consultas es de administración.
+//
+//  Ruta: entradas-web (con sesión, cualquier rol). Núcleo: no está en ningún
+//  módulo, igual que api/v1/entrada. Vista: views/entradas-web.php.
+//  Tabla: entradas_web (con contactos, cuentas, agenda_reservas y usuarios
+//  para mostrar nombres); el ajuste `web_dueno_id` (quién recibe las
+//  consultas). Las consultas SQL viven en crm.php (entradas_web_where,
+//  entradas_web_listar, entradas_web_por_canal…).
+//
+//  ?exportar=1 baja la misma búsqueda en CSV, sin paginar y con los datos
+//  personales; también está abierto a cualquier usuario con sesión.
+//  csv_celda() neutraliza las celdas que una planilla tomaría como fórmula.
 // ============================================================
 
 if (!entradas_web_disponible()) {
@@ -35,14 +46,20 @@ if (is_post()) {
             flash('Ese usuario no está activo.', 'error');
             redirect('entradas-web');
         }
+        // Vacío = automático: entrada_web_dueno() elige al dueño del tipo de
+        // reunión de diagnóstico. Rige para las consultas que entren de acá en
+        // adelante; las tareas ya creadas no cambian de dueño.
         setting_set('web_dueno_id', $id > 0 ? (string)$id : '');
         $nombre = $id > 0 ? (string) qv('SELECT nombre FROM usuarios WHERE id = ?', [$id]) : 'automático';
         log_app('entradas_web.dueno', ['detalle' => 'Responsable de las consultas de la web: ' . $nombre]);
         flash('Listo: las consultas nuevas de la web van a ' . ($id > 0 ? $nombre : 'quien corresponda según la agenda') . '.', 'success');
     }
+    // Post/Redirect/Get: se vuelve con los mismos filtros de la dirección.
     redirect('entradas-web' . query_con([]));
 }
 
+// Filtros tal cual llegan; los valida y arma el WHERE entradas_web_where()
+// con parámetros (nada de esto se concatena al SQL).
 $f = [
     'q'      => trim((string)($_GET['q'] ?? '')),
     'tipo'   => (string)($_GET['tipo'] ?? ''),

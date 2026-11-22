@@ -1,4 +1,24 @@
 <?php /** @var ?array $aviso @var array $rows @var ?array $editar @var array $usuarios */
+// ============================================================
+//  Vista de «Cuentas de correo» (la renderiza pages/cuentas-correo.php;
+//  sólo administradores).
+//
+//  Recibe:
+//    · $aviso    [tipo, texto] con el resultado del último POST, o null;
+//    · $rows     cuentas_correo_listar(): todas las no dadas de baja, con
+//                `enviados_hoy` y `usuario` (dueño);
+//    · $editar   la cuenta a editar (?editar=<id>), el POST que no pasó la
+//                validación, o null para el alta;
+//    · $usuarios users_activos(), para elegir el dueño.
+//
+//  Partes: avisos de configuración que deja las respuestas invisibles, tabla
+//  de cuentas con cupo del día y estado, y el formulario de alta/edición
+//  (salida SMTP + entrada IMAP). Las contraseñas nunca se imprimen: el
+//  campo va vacío y sólo el placeholder dice si ya hay una guardada.
+// ============================================================
+
+// Atajo: el valor escapado de un campo de la cuenta en edición, o el
+// valor por defecto si no hay.
 $e2 = fn(string $k, $def = '') => e($editar[$k] ?? $def);
 ?>
 <div class="page-head" data-vivo="cabecera">
@@ -54,6 +74,8 @@ foreach ($rows as $rc) {
             <?php if (!$rows): ?>
                 <tr><td colspan="6" class="empty">Todavía no hay cuentas cargadas. Agregá la primera con el formulario de abajo.</td></tr>
             <?php else: foreach ($rows as $c):
+                // Porcentaje del tope diario ya usado hoy (la barra se pone
+                // en rojo al llegar al 100 %).
                 $pct = $c['limite_diario'] > 0
                      ? min(100, (int)round(100 * $c['enviados_hoy'] / $c['limite_diario'])) : 0;
             ?>
@@ -71,6 +93,7 @@ foreach ($rows as $rc) {
                         <span class="small muted"><?= (int)$c['enviados_hoy'] ?> / <?= (int)$c['limite_diario'] ?></span>
                     </td>
                     <td data-label="Estado">
+                        <?php // El error manda sobre la verificación: cuenta_probar() puede dejar las dos marcas. ?>
                         <?php if (!$c['activo']): ?>
                             <span class="badge badge-neutral">Inactiva</span>
                         <?php elseif ($c['ultimo_error']): ?>
@@ -182,6 +205,7 @@ foreach ($rows as $rc) {
                         <option value="<?= (int)$u['id'] ?>" <?= (string)($editar['usuario_id'] ?? '') === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <?php // Ojo: hoy el dueño sólo se muestra; ninguna pantalla restringe el uso de la cuenta por él. ?>
                 <i class="hint">Quién puede usarla. «Compartida» la habilita para todo el equipo.</i>
             </label>
         </div>
@@ -206,6 +230,7 @@ foreach ($rows as $rc) {
         </div>
 
         <div class="filter-actions">
+            <?php // En el alta, «Activa» viene prendida; en la edición, refleja lo guardado. ?>
             <label class="switch">
                 <input type="checkbox" name="activo" value="1" <?= !isset($editar['activo']) || $editar['activo'] ? 'checked' : '' ?>>
                 <span class="track"></span><span>Activa</span>

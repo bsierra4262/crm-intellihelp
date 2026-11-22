@@ -10,6 +10,41 @@ require_once __DIR__ . '/envio.php';
 //  máquina de nadie. Se arma una COLA (tabla `envios`) y un cron la despacha
 //  de a poco. Si se corta la luz, si cierran el navegador o si se reinicia el
 //  servidor, la campaña sigue por donde quedó, sin repetir un solo correo.
+//
+//  Módulo: «campanas» (ver modulos.php). En producción se enciende aparte;
+//  las rutas públicas que dependen de esto (`baja`, `px`, `img`) NO están en
+//  la lista del módulo, así que siguen respondiendo aunque se apague: un
+//  enlace de baja de un correo viejo tiene que funcionar siempre.
+//
+//  Qué hay acá, en orden:
+//    · El turno del cron (cron_tomar_turno / cron_soltar_turno).
+//    · Plantillas: listar, leer, guardar y reemplazar variables.
+//    · Listas de destinatarios y sus miembros.
+//    · Campañas: alta, cola (`campana_preparar`), pasos previos, ritmo y el
+//      despachador que llama app/cron.php (`campanas_despachar`).
+//    · Bajas, rebotes, respuestas y la purga de la papelera.
+//
+//  Tablas que se leen o escriben: plantillas, listas, lista_miembros,
+//  campanas, envios, envio_eventos, desuscripciones, contactos,
+//  posibles_clientes, cuentas, cuentas_correo, agenda_tipos, usuarios,
+//  app_settings (turno del cron) y todas las de tablas_papelera() en la purga.
+//
+//  Depende de: envio.php (SMTP), bloques.php (render del editor visual),
+//  cuentas_correo.php (casillas y cupos), crm.php (contactos_where), imap.php
+//  (imap_quizas_revisar, opcional) y los helpers de db.php / helpers.php.
+//
+//  Estados de un envío (`envios.estado`):
+//    pendiente → enviando → enviado | rechazado (5xx en RCPT) | error (tras
+//    20 intentos fallidos). «omitido» es lo que nunca se intentó (baja,
+//    inválido, campaña cancelada). «rebotado» lo pone después el lector IMAP
+//    o marcar_rebote() sobre un envío que ya había salido.
+//
+//  Estados de una campaña: borrador → (programada) → enviando ⇄ pausada →
+//  completada | cancelada. No hay paso de aprobación: cualquier usuario con
+//  sesión y el módulo encendido puede iniciar cualquier campaña.
+//
+//  Trampa: los valores de las variables ({{nombre}}, {{empresa}}…) se
+//  insertan en el HTML tal cual, sin escapar (ver render_plantilla()).
 // ============================================================
 
 // Cada cuánto se despierta el cron en el hosting, y cuánto trabaja cada vez.
@@ -21,8 +56,13 @@ require_once __DIR__ . '/envio.php';
 // El cron marca el pulso; el ritmo lo pone el script. hPanel no siempre deja
 // programar cada minuto —hay planes donde el mínimo es cada cinco—, así que en
 // vez de depender de eso, cada corrida trabaja en VUELTAS de un minuto hasta
-// gastar su presupuesto. Con el cron cada minuto da una vuelta; con el cron
-// cada cinco da cinco. En los dos casos la casilla se mira una vez por minuto.
+// gastar su presupuesto (CRON_CORRIDA_SEG). Ojo: la corrida da siempre unas
+// cinco vueltas, esté el cron cada uno o cada cinco minutos; con el cron cada
+// minuto, las corridas que arrancan mientras otra sigue viva encuentran el
+// turno tomado y se van sin hacer nada. En los dos casos la casilla se mira
+// una vez por minuto.
+// Con estos valores, por vuelta salen uno o dos correos por campaña: el primero
+// sin esperar y otro si la pausa sorteada entra en los 45 segundos.
 const CRON_CICLO_SEG       = 55;   // cuánto dura cada vuelta
 const CRON_CORRIDA_SEG     = 280;  // el total, con margen antes de los 5 minutos
 const CRON_PERIODO_SEG     = 60;   // cada cuánto sale un correo, a efectos del ritmo
@@ -43,6 +83,14 @@ const CRON_PRESUPUESTO_SEG = 45;   // lo que se despacha DENTRO de cada vuelta
  * El turno vence solo. Si el proceso se muere a la mitad —tope de tiempo del
  * hosting, reinicio— nadie va a poder liberarlo, y sin vencimiento el cron
  * quedaría trabado indefinidamente esperando a un proceso que ya no existe.
+ *
+ * El valor guardado en `app_settings.cron_turno` es el timestamp Unix de quien
+ * tomó el turno ('0' = libre). Se llama `setting_refrescar()` porque
+ * setting_get() cachea los ajustes por pedido.
+ *
+ * @param int $venceSeg a los cuántos segundos un turno tomado se da por
+ *                      abandonado (mínimo 60).
+ * @return bool true si esta corrida ganó el turno.
  */
 function cron_tomar_turno(int $venceSeg = 600): bool
 {
@@ -71,18 +119,33 @@ function cron_soltar_turno(): void
 //  Plantillas
 // ------------------------------------------------------------
 
+/**
+ * Plantillas que no están en la papelera, agrupadas por carpeta (las sin
+ * carpeta al final) y por nombre.
+ *
+ * @param bool $soloActivas true para el selector de la campaña: sólo las
+ *                          marcadas «Disponible para campañas».
+ */
 function plantillas_listar(bool $soloActivas = false): array
 {
     $w = 'WHERE eliminado_en IS NULL' . ($soloActivas ? ' AND activo = 1' : '');
     return q("SELECT * FROM plantillas $w ORDER BY carpeta IS NULL, carpeta, nombre")->fetchAll();
 }
 
+/** Una plantilla por id, o null si no existe o está en la papelera. */
 function plantilla_get(int $id): ?array
 {
     return q1('SELECT * FROM plantillas WHERE id = ? AND eliminado_en IS NULL', [$id]);
 }
 
-/** Datos de la empresa que usan las plantillas. */
+/**
+ * Datos de la empresa que usan las plantillas.
+ *
+ * Salen de Ajustes (`empresa_*`) y alimentan los bloques de encabezado,
+ * contacto y WhatsApp. Se resuelven al GUARDAR la plantilla, no al enviar:
+ * si después se cambia el teléfono en Ajustes, las plantillas ya guardadas
+ * siguen con el viejo hasta que se vuelvan a guardar.
+ */
 function contexto_marca(): array
 {
     return [
@@ -95,6 +158,21 @@ function contexto_marca(): array
     ];
 }
 
+/**
+ * Crea o actualiza una plantilla.
+ *
+ * Hay dos tipos: 'visual' (se arma con bloques y el HTML se genera acá) y
+ * 'html' (el HTML viene escrito a mano en `cuerpo_html`). La pantalla sólo
+ * manda 'visual', pero el tipo 'html' se acepta igual si llega en el POST y
+ * en ese caso el HTML se guarda sin ningún saneamiento.
+ *
+ * @param array    $d  datos del formulario: nombre, asunto, tipo, bloques
+ *                     (JSON con {bloques, ajustes} o la lista sola),
+ *                     cuerpo_html, cuerpo_texto, carpeta, preajuste, activo.
+ * @param int|null $id null para crear.
+ * @return int id de la plantilla.
+ * Efectos: escribe `plantillas` y deja registro en el log de actividad.
+ */
 function plantilla_guardar(array $d, ?int $id = null): int
 {
     $tipo = ($d['tipo'] ?? 'visual') === 'html' ? 'html' : 'visual';
@@ -107,6 +185,8 @@ function plantilla_guardar(array $d, ?int $id = null): int
     $texto   = trim((string)($d['cuerpo_texto'] ?? ''));
 
     if ($tipo === 'visual') {
+        // Se aceptan los dos formatos históricos del JSON: {bloques, ajustes}
+        // (el actual) o la lista de bloques suelta (plantillas viejas).
         $crudo = $d['bloques'] ?? '[]';
         $datos = is_array($crudo) ? $crudo : (json_decode((string)$crudo, true) ?: []);
         $lista = is_array($datos['bloques'] ?? null) ? $datos['bloques'] : (is_array($datos) ? $datos : []);
@@ -144,7 +224,14 @@ function plantilla_guardar(array $d, ?int $id = null): int
     return $nuevo;
 }
 
-/** Variables que se pueden usar en asunto y cuerpo. */
+/**
+ * Variables que se pueden usar en asunto y cuerpo.
+ *
+ * Es el catálogo que muestra el editor (clave => descripción). Agregar una
+ * acá no alcanza: también hay que resolverla en render_plantilla().
+ * `{{cargo}}` figura en el catálogo pero campana_armar_mensaje() no la llena,
+ * así que en un envío real sale vacía.
+ */
 function variables_plantilla(): array
 {
     return [
@@ -162,7 +249,20 @@ function variables_plantilla(): array
     ];
 }
 
-/** Reemplaza las variables de una plantilla por los datos del destinatario. */
+/**
+ * Reemplaza las variables de una plantilla por los datos del destinatario.
+ *
+ * Se usa igual para el asunto, el HTML y el texto plano, así que los valores
+ * NO se escapan: un nombre o una empresa con `<` o `"` entra crudo al HTML
+ * del correo (y a la vista previa de campana-ver). Sin nombre de pila,
+ * {{nombre}} vale «Hola» para que «{{nombre}},» no quede como «,».
+ *
+ * @param string $texto plantilla con variables {{...}}.
+ * @param array  $datos nombre, apellido, empresa, cargo, email, remitente,
+ *                      remitente_empresa, empresa_web, agenda, baja.
+ * @return string el texto con las variables reemplazadas; las desconocidas
+ *                quedan tal cual.
+ */
 function render_plantilla(string $texto, array $datos): string
 {
     $nombre   = trim((string)($datos['nombre'] ?? ''));
@@ -193,6 +293,14 @@ function render_plantilla(string $texto, array $datos): string
 //  Listas de destinatarios
 // ------------------------------------------------------------
 
+/**
+ * Listas vivas con su segmento y la cantidad de miembros.
+ *
+ * El id de categoría se concatena en el SQL: es seguro sólo porque el tipo
+ * `?int` ya lo obliga a ser un número.
+ *
+ * @param int|null $categoriaId filtrar por segmento; null = todas.
+ */
 function listas_listar(?int $categoriaId = null): array
 {
     $w = 'WHERE l.eliminado_en IS NULL' . ($categoriaId ? ' AND l.categoria_id = ' . $categoriaId : '');
@@ -202,11 +310,19 @@ function listas_listar(?int $categoriaId = null): array
               $w ORDER BY c.orden IS NULL, c.orden, l.nombre")->fetchAll();
 }
 
+/** Una lista por id, o null si no existe o está en la papelera. */
 function lista_get(int $id): ?array
 {
     return q1('SELECT * FROM listas WHERE id = ? AND eliminado_en IS NULL', [$id]);
 }
 
+/**
+ * Crea o actualiza una lista (nombre, descripción, segmento).
+ *
+ * @param array    $d  nombre, descripcion, categoria_id.
+ * @param int|null $id null para crear.
+ * @return int id de la lista. Deja registro en el log de actividad.
+ */
 function lista_guardar(array $d, ?int $id = null): int
 {
     $nombre = trim((string)($d['nombre'] ?? ''));
@@ -227,6 +343,16 @@ function lista_guardar(array $d, ?int $id = null): int
 /**
  * Carga en una lista todos los contactos que cumplen un filtro del CRM.
  * Devuelve cuántos se agregaron (los repetidos se ignoran por la clave única).
+ *
+ * Ya acá se descartan los que no tienen correo, los marcados «no incluir en
+ * campañas» y los que rebotaron; igual campana_preparar() lo vuelve a mirar
+ * al armar la cola, porque entre una cosa y otra pueden pasar semanas.
+ * Se inserta de a uno: con filtros de miles de contactos son miles de
+ * consultas, pero la carga es manual y poco frecuente.
+ *
+ * @param int   $listaId lista destino.
+ * @param array $filtro  el mismo formato que usa la pantalla de contactos
+ *                       (lo traduce contactos_where() de crm.php).
  */
 function lista_cargar_contactos(int $listaId, array $filtro): int
 {
@@ -260,6 +386,11 @@ function lista_cargar_contactos(int $listaId, array $filtro): int
  * Así que cuando hay un contacto atrás, manda el contacto. La copia queda como
  * respaldo para los correos sueltos importados, que no tienen ficha detrás y
  * son el motivo por el que esas columnas existen.
+ *
+ * Espera los alias `m` (lista_miembros), `ct`, `cu` y `pc` que arma
+ * lista_miembro_join(). Ojo: el JOIN no filtra `ct.eliminado_en`, así que un
+ * contacto mandado a la papelera sigue figurando y sigue recibiendo campañas
+ * mientras esté en la lista.
  */
 function lista_miembro_sql(): string
 {
@@ -278,6 +409,14 @@ function lista_miembro_join(): string
             LEFT JOIN posibles_clientes pc ON pc.id = m.posible_cliente_id';
 }
 
+/**
+ * Miembros de una lista, paginados, con sus datos vivos y sus marcas
+ * (dado de baja, no incluir, rebotado).
+ *
+ * @param int   $listaId
+ * @param array $f q (búsqueda libre) y page.
+ * @return array lo de paginar() + rows + total.
+ */
 function lista_miembros(int $listaId, array $f = []): array
 {
     $datos = lista_miembro_sql();
@@ -287,6 +426,9 @@ function lista_miembros(int $listaId, array $f = []): array
     if (!empty($f['q'])) {
         // Se busca sobre los datos vivos, no sobre la copia: si no, buscar el
         // correo nuevo de alguien no lo encontraba en la lista donde está.
+        // A diferencia de lista_miembro_sql(), acá el COALESCE no lleva
+        // NULLIF: un contacto con el correo vacío ('') se busca por la cadena
+        // vacía y no cae a la copia de la lista.
         $w[] = "(COALESCE(ct.email, pc.email, m.email) LIKE ?
                  OR CONCAT_WS(' ', ct.nombre, ct.apellido, pc.nombre, pc.apellido, m.nombre) LIKE ?
                  OR COALESCE(cu.nombre, pc.empresa, m.empresa) LIKE ?)";
@@ -318,6 +460,13 @@ function lista_miembros(int $listaId, array $f = []): array
  *
  * El correo nuevo puede chocar con otro miembro que ya lo tenía: en ese caso
  * el que sobra se borra, porque son la misma persona en la misma lista.
+ *
+ * Si el contacto se quedó sin correo, la copia pasa a un marcador fijo
+ * ('sin-correo@invalido.local') para no violar el NOT NULL; campana_preparar()
+ * lo descarta como inválido. Ese marcador también entra en la clave única
+ * (lista_id, email): dos contactos sin correo en la misma lista chocan.
+ *
+ * @return int cuántas filas de lista_miembros se actualizaron.
  */
 function lista_sincronizar_contacto(int $contactoId): int
 {
@@ -344,6 +493,16 @@ function lista_sincronizar_contacto(int $contactoId): int
 //  Campañas
 // ------------------------------------------------------------
 
+/**
+ * Listado paginado de campañas con sus cifras contadas sobre la cola.
+ *
+ * Lo usan la pantalla de campañas y api-campana (que lo consulta cada pocos
+ * segundos). No trae `reuniones` calculado: esa cifra sale de la columna
+ * `campanas.reuniones` que suma agenda.php vía `c.*`.
+ *
+ * @param array $f estado, q (nombre), categoria_id, page.
+ * @return array lo de paginar() + rows + total.
+ */
 function campanas_listar(array $f = []): array
 {
     $w = ['c.eliminado_en IS NULL'];
@@ -381,6 +540,16 @@ function campanas_listar(array $f = []): array
     return $pg + ['rows' => $rows, 'total' => $total];
 }
 
+/**
+ * Una campaña con todo lo que hace falta para mostrarla y para enviarla:
+ * nombres de lista, plantilla y responsable, el asunto y el cuerpo de la
+ * plantilla, y las cifras contadas sobre la cola en el momento.
+ *
+ * Las columnas `total`, `enviados`, etc. de la tabla quedan tapadas por las
+ * subconsultas del mismo nombre (van después de `c.*`).
+ *
+ * @return array|null null si no existe o está en la papelera.
+ */
 function campana_get(int $id): ?array
 {
     return q1('SELECT c.*, l.nombre AS lista, pl.nombre AS plantilla, pl.asunto AS plantilla_asunto,
@@ -404,6 +573,18 @@ function campana_get(int $id): ?array
                WHERE c.id = ? AND c.eliminado_en IS NULL', [$id]);
 }
 
+/**
+ * Crea o actualiza una campaña con lo que llega del formulario.
+ *
+ * No valida que la plantilla, la lista o la cuenta existan (eso lo marca
+ * después campana_pasos()), ni que el remitente esté autorizado en el
+ * servidor de salida. Las pausas tienen piso (5 y 10 s) y el límite diario
+ * mínimo es 1; no hay techo.
+ *
+ * @param array    $d  campos del formulario campana-form.
+ * @param int|null $id null para crear.
+ * @return int id de la campaña. Deja registro en el log de actividad.
+ */
 function campana_guardar(array $d, ?int $id = null): int
 {
     $campos = [
@@ -458,6 +639,18 @@ function campana_guardar(array $d, ?int $id = null): int
  *   5. repetido dentro de la misma campaña (lo impide la clave única)
  *
  * Es idempotente: se puede volver a preparar sin duplicar ni reenviar.
+ * Volver a preparar sí suma a la cola a quienes se agregaron a la lista
+ * después; y si a alguien le cambió el correo después de recibir la campaña,
+ * entra de nuevo con la dirección nueva (la clave única es campaña+correo).
+ *
+ * Los omitidos también se insertan (estado 'omitido' con su motivo): así la
+ * pantalla puede mostrar por qué no le llegó a cada uno.
+ *
+ * No mira el estado de la campaña: preparar una completada o cancelada deja
+ * filas 'pendiente' que nadie despacha hasta que se vuelva a iniciar.
+ *
+ * @return array{agregados:int, omitidos:int, motivos:array<string,int>}
+ * @throws RuntimeException si la campaña no existe o le falta lista o plantilla.
  */
 function campana_preparar(int $campanaId): array
 {
@@ -476,6 +669,10 @@ function campana_preparar(int $campanaId): array
                    FROM lista_miembros m $join
                    WHERE m.lista_id = ?", [(int)$c['lista_id']])->fetchAll();
 
+    // Una consulta a desuscripciones por miembro: con listas de miles son miles
+    // de consultas, aceptable porque se prepara a mano y de vez en cuando.
+    // Sólo se miran las marcas del contacto (ct.*): las de un posible cliente
+    // (pc.no_email, pc.email_rebotado) no se consultan acá.
     foreach ($miembros as $m) {
         $email  = normalizar_email($m['email']);
         $motivo = null;
@@ -484,6 +681,9 @@ function campana_preparar(int $campanaId): array
         elseif (!empty($m['no_email']))                              { $motivo = 'Marcado como «no incluir en campañas»'; }
         elseif (!empty($m['email_rebotado']))                        { $motivo = 'El correo rebotó antes'; }
 
+        // INSERT IGNORE: si la fila ya existe (misma campaña y correo) no se
+        // toca, ni siquiera su estado. El token es el que después identifica
+        // al destinatario en la baja y en el píxel de apertura.
         $st = q('INSERT IGNORE INTO envios (campana_id, contacto_id, email, nombre, empresa, estado, motivo, token, proximo_intento_en)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
                 [$campanaId, ($m['contacto_id'] ?? null) ?: null, $email, $m['nombre'], $m['empresa'],
@@ -504,7 +704,12 @@ function campana_preparar(int $campanaId): array
     return $res;
 }
 
-/** Recalcula los contadores de la campaña desde la cola real. */
+/**
+ * Recalcula los contadores de la campaña desde la cola real.
+ *
+ * Las columnas guardadas sirven a quien no hace las subconsultas (reportes,
+ * por ejemplo). El despachador lo llama después de cada correo.
+ */
 function campana_recontar(int $campanaId): void
 {
     q("UPDATE campanas c SET
@@ -516,7 +721,15 @@ function campana_recontar(int $campanaId): void
        WHERE c.id = ?", [$campanaId]);
 }
 
-/** Cambia el estado de una campaña (iniciar, pausar, reanudar, cancelar). */
+/**
+ * Cambia el estado de una campaña (iniciar, pausar, reanudar, cancelar).
+ *
+ * No controla transiciones: cualquier estado válido se puede pisar con
+ * cualquier otro. Al pasar a 'enviando' se fija `inicio_en` sólo la primera
+ * vez; al pasar a 'completada' se fija `fin_en`.
+ *
+ * @throws InvalidArgumentException si el estado no es uno de los conocidos.
+ */
 function campana_estado(int $id, string $estado): void
 {
     $validos = ['borrador', 'programada', 'enviando', 'pausada', 'completada', 'cancelada'];
@@ -537,6 +750,10 @@ function campana_estado(int $id, string $estado): void
  * Es lo que reemplaza a `{{agenda}}`. Si el responsable todavía no publicó
  * ningún tipo de reunión devuelve cadena vacía, y quien llama tiene que
  * avisarlo: un botón «Agendar» sin enlace es peor que no tener botón.
+ *
+ * El enlace es /r/<parte local del correo del usuario>/<slug del primer tipo
+ * activo>. Con `$campanaId` lleva `?c=<id>`, que agenda.php usa para sumarle
+ * la reunión a la campaña.
  */
 function agenda_de_usuario(?int $usuarioId, ?int $campanaId = null): string
 {
@@ -658,7 +875,13 @@ function campana_pasos(array $c): array
     return $pasos;
 }
 
-/** ¿Se puede arrancar la campaña? */
+/**
+ * ¿Se puede arrancar la campaña?
+ *
+ * Sí cuando no falta ningún paso bloqueante. La cola se excluye a propósito:
+ * «Iniciar» la prepara sola. Hoy sólo lo usa la vista para el texto del
+ * último paso; campana-accion NO lo consulta antes de iniciar.
+ */
 function campana_lista_para_enviar(array $c): bool
 {
     foreach (campana_pasos($c) as $p) {
@@ -667,7 +890,6 @@ function campana_lista_para_enviar(array $c): bool
     return true;
 }
 
-/** ¿Estamos dentro de la ventana horaria permitida de la campaña? */
 /**
  * Cuánto va a tardar una campaña en salir entera.
  *
@@ -679,7 +901,15 @@ function campana_lista_para_enviar(array $c): bool
  *
  * Se tienen en cuenta las tres cosas que limitan: el ritmo, el tope
  * diario de la casilla y la franja horaria en la que se permite enviar.
+ * El «tope diario» que se usa es el de la CAMPAÑA (`limite_diario`), aunque
+ * el texto diga «de la casilla»; el cupo propio de la cuenta de correo no
+ * entra en la cuenta.
  *
+ * Es una estimación: supone que la corrida trabaja todos los minutos
+ * (CRON_PERIODO_SEG) y que ninguna otra campaña comparte la casilla.
+ *
+ * @param array    $c          la campaña (pausas, franja, límite).
+ * @param int|null $pendientes cuántos faltan; null = usa `$c['total']`.
  * @return array{por_hora:int, horas:float, texto:string, freno:?string}
  */
 function campana_ritmo(array $c, ?int $pendientes = null): array
@@ -734,6 +964,12 @@ function campana_ritmo(array $c, ?int $pendientes = null): array
     return ['por_hora' => $porHora, 'horas' => $horas, 'texto' => $texto, 'freno' => $freno];
 }
 
+/**
+ * ¿Estamos dentro de la ventana horaria permitida de la campaña?
+ *
+ * Sin franja cargada, siempre sí. Compara cadenas 'HH:MM:SS' con la hora de
+ * PHP; la base usa el mismo huso porque db.php alinea `time_zone` al conectar.
+ */
 function campana_en_horario(array $c): bool
 {
     if (empty($c['enviar_desde']) || empty($c['enviar_hasta'])) {
@@ -749,7 +985,13 @@ function campana_en_horario(array $c): bool
     return $ahora >= $c['enviar_desde'] && $ahora <= $c['enviar_hasta'];
 }
 
-/** Cuántos correos se mandaron hoy en esta campaña (para el límite diario). */
+/**
+ * Cuántos correos se mandaron hoy en esta campaña (para el límite diario).
+ *
+ * Cuenta por `enviado_en`, que sólo se llena al entregar: los rechazados y
+ * los errores no gastan cupo. `DATE(enviado_en)` no aprovecha índice, pero
+ * el filtro por campana_id ya acota.
+ */
 function campana_enviados_hoy(int $campanaId): int
 {
     return (int) qv('SELECT COUNT(*) FROM envios WHERE campana_id = ? AND DATE(enviado_en) = CURDATE()',
@@ -759,6 +1001,14 @@ function campana_enviados_hoy(int $campanaId): int
 /**
  * Arma el mensaje concreto para un destinatario de la campaña.
  * Se separa del despacho para poder mostrar una vista previa real en pantalla.
+ *
+ * @param array      $c      la campaña tal como la devuelve campana_get()
+ *                           (necesita cuerpo_html, cuerpo_texto y asuntos).
+ * @param array      $envio  la fila de `envios` (token, email, nombre, empresa).
+ * @param array|null $cuenta la casilla de salida, para remitente y Reply-To
+ *                           cuando la campaña no los define.
+ * @return array el mensaje en el formato que espera smtp_enviar(), más
+ *               `baja_url`. No escribe nada en la base.
  */
 function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): array
 {
@@ -768,6 +1018,8 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
     // a esta campaña y se pueda medir cuántas reuniones trajo.
     $agenda = agenda_de_usuario((int)($c['propietario_id'] ?? 0), (int)$c['id']);
 
+    // La cola guarda el nombre completo en un solo campo: la primera palabra
+    // se toma como nombre de pila y el resto como apellido.
     $partes = preg_split('/\s+/', trim((string)$envio['nombre'])) ?: [];
     $datos = [
         'nombre'            => $partes[0] ?? '',
@@ -836,11 +1088,32 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
  * promete la pantalla: una campaña de 500 destinatarios tardaría 42 horas en
  * vez de 5.
  *
- * @param int      $segundos     presupuesto de tiempo de esta corrida
+ * Garantías contra el doble envío: la clave única campaña+correo en la cola
+ * y el UPDATE condicional que «reclama» cada fila antes de mandarla. Queda un
+ * hueco: si el servidor SMTP aceptó el mensaje pero el proceso muere (o se
+ * cae la conexión a la base) antes de marcarlo 'enviado', la fila queda en
+ * 'enviando' y el rescate de 15 minutos la vuelve a la cola: ese correo sale
+ * dos veces. Lo mismo si se pierde la respuesta 250 del DATA (smtp_enviar
+ * devuelve 'error' y se reintenta).
+ *
+ * Cualquier excepción corta toda la corrida (sin cerrar las sesiones SMTP
+ * abiertas); la atrapa quien llama: app/cron.php o campana-accion.
+ *
+ * @param int      $maxPorCorrida se multiplica por 6 para el LIMIT de
+ *                                pendientes que se leen por campaña; en la
+ *                                práctica el tope real lo pone $segundos.
+ * @param int      $segundos     presupuesto de tiempo de esta corrida (0 =
+ *                               manda uno y corta, que es lo que usa el
+ *                               arranque manual)
  * @param int|null $soloCampana  trabajar sólo sobre esta campaña (el arranque
  *                               manual manda el primer correo en el acto, sin
  *                               tocar las demás campañas que estén corriendo)
- * @return array resumen de lo hecho
+ * @return array resumen de lo hecho: enviados, rebotados, errores, omitidos
+ *               y los ids de las campañas que se trabajaron.
+ * Efectos: escribe envios, envio_eventos, campanas, contactos, cuentas_correo,
+ * manda correos, duerme (sleep) entre uno y otro y puede leer la casilla IMAP.
+ * NO consulta es_testing(): en la instalación de pruebas los correos salen
+ * de verdad.
  */
 function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $soloCampana = null): array
 {
@@ -865,6 +1138,7 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
             'detalle' => $rescatados . ' envío(s) trabados volvieron a la cola']);
     }
 
+    // El id se concatena ya convertido a entero, así que no hay inyección.
     $filtro = $soloCampana ? ' AND id = ' . (int)$soloCampana : '';
     $campanas = q("SELECT * FROM campanas
                    WHERE eliminado_en IS NULL AND estado IN ('enviando','programada') $filtro
@@ -873,11 +1147,16 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
     // Una sesión SMTP abierta POR CUENTA: varias campañas que comparten la
     // misma casilla reusan la conexión, y las que usan casillas distintas
     // avanzan en paralelo sin pisarse.
+    // «En paralelo» dentro de la misma vuelta, en realidad una detrás de otra:
+    // el presupuesto ($hasta) es uno solo para todas, así que la primera
+    // campaña se lo gasta y las siguientes mandan uno cada una (el primero de
+    // cada campaña sale sin mirar el presupuesto) y cortan.
     $sesiones = [];
     foreach ($campanas as $c) {
         $cid = (int)$c['id'];
 
         // Programada que todavía no llegó su hora: no se toca.
+        // Una programada sin fecha arranca en la primera corrida.
         if ($c['estado'] === 'programada') {
             if (!empty($c['programada_para']) && strtotime((string)$c['programada_para']) > time()) {
                 continue;
@@ -886,6 +1165,10 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
             $c['estado'] = 'enviando';
         }
 
+        // El límite diario y el cupo de la casilla se miran UNA vez por
+        // campaña y por vuelta, no antes de cada correo: dentro de la vuelta se
+        // puede pasar por uno o dos. Varias campañas que comparten casilla
+        // también pueden pasar juntas el cupo de la cuenta en la misma vuelta.
         if (!campana_en_horario($c))                                    { continue; }
         if (campana_enviados_hoy($cid) >= (int)$c['limite_diario'])     { continue; }
 
@@ -893,6 +1176,8 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
         $cuenta = !empty($c['cuenta_correo_id'])
             ? cuenta_correo_get((int)$c['cuenta_correo_id'])
             : cuenta_correo_predeterminada();
+        // Una cuenta desactivada no frena la campaña: se cae a la configuración
+        // de Ajustes / la predeterminada (smtp_cfg) en vez de a la elegida.
         if ($cuenta && (int)$cuenta['activo'] !== 1) { $cuenta = null; }
         if ($cuenta && !cuenta_tiene_cupo($cuenta)) {
             // La casilla llegó a su tope diario: la campaña espera a mañana en
@@ -986,6 +1271,10 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
                 $res['rebotados']++;
             } else {
                 // Error temporal: se reintenta más tarde, con el tope de Pulsemail.
+                // Cae acá todo lo que no es un 5xx en el RCPT, incluido un 5xx
+                // definitivo en MAIL FROM o al cerrar el DATA (mensaje
+                // rechazado por contenido): también se reintenta hasta 20 veces.
+                // La espera crece de a 5 minutos, con techo de 60.
                 $intentos = (int)$envio['intentos'] + 1;
                 if ($intentos >= 20) {
                     q("UPDATE envios SET estado = 'error', motivo = ? WHERE id = ?",
@@ -1015,6 +1304,10 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
             // deja anotado para cuándo puede salir el siguiente y se corta acá:
             // sigue la próxima corrida del cron, sin perder el ritmo.
             if (microtime(true) + $pausa > $hasta) {
+                // Ojo: pisa la fecha de TODAS las pendientes de la campaña,
+                // incluidas las que esperaban su reintento (5, 10… 60 min):
+                // esas vuelven a probar en segundos y no con la espera
+                // creciente de arriba.
                 q("UPDATE envios SET proximo_intento_en = DATE_ADD(NOW(), INTERVAL ? SECOND)
                    WHERE campana_id = ? AND estado = 'pendiente'", [$pausa, $cid]);
                 break;
@@ -1059,12 +1352,13 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
     return $res;
 }
 
-/** En modo testing sólo se le puede escribir a la lista blanca interna. */
+// La lista blanca del modo testing que promete la documentación no está
+// implementada: acá no hay ninguna función que la aplique y el despachador
+// no la consulta.
 // ------------------------------------------------------------
 //  Bajas y rebotes
 // ------------------------------------------------------------
 
-/** Da de baja un correo de todas las campañas presentes y futuras. */
 /**
  * Vuelve a habilitar a alguien que se había dado de baja.
  *
@@ -1076,6 +1370,12 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
  *
  * Queda registrado quién la reactivó: es una decisión que alguien tiene que
  * poder justificar.
+ *
+ * Además de borrar la baja, destilda «no incluir en campañas» en todos los
+ * contactos y posibles clientes con ese correo principal. No toca la marca de
+ * rebote (`email_rebotado`) ni restaura contactos archivados por rebote.
+ *
+ * @return bool true si había una baja registrada para ese correo.
  */
 function reactivar_suscripcion(string $email): bool
 {
@@ -1089,6 +1389,23 @@ function reactivar_suscripcion(string $email): bool
     return $n > 0;
 }
 
+/**
+ * Da de baja un correo de todas las campañas presentes y futuras.
+ *
+ * Es la lista negra global: la fila en `desuscripciones` manda sobre todo lo
+ * demás. Además marca «no incluir en campañas» en contactos y posibles
+ * clientes con ese correo principal y saca de la cola los envíos pendientes
+ * de cualquier campaña.
+ *
+ * Si el correo ya estaba dado de baja, se actualizan motivo y detalle pero
+ * no la campaña ni la IP originales. El contador `campanas.desuscriptos` se
+ * suma igual en cada llamada, así que repetir la baja lo infla.
+ *
+ * @param string   $email     se normaliza acá.
+ * @param string   $motivo    'baja' (la pidió la persona) o 'rebote_duro'.
+ * @param int|null $campanaId campaña desde la que llegó la baja, si la hay.
+ * @param string|null $detalle texto libre para el registro.
+ */
 function desuscribir(string $email, string $motivo = 'baja', ?int $campanaId = null, ?string $detalle = null): void
 {
     $email = normalizar_email($email);
@@ -1116,6 +1433,16 @@ function desuscribir(string $email, string $motivo = 'baja', ?int $campanaId = n
  * «Archivar» acá significa mandarlo a la papelera, no borrarlo: sigue estando
  * y se puede restaurar. La eliminación definitiva la hace el cron recién a los
  * 60 días (ver `purgar_papelera()`), por si el archivado fue un error.
+ *
+ * Ojo con el alcance: el UPDATE sobre `envios` marca como rebotados TODOS los
+ * envíos 'enviado' o 'enviando' a ese correo, de cualquier campaña y de
+ * cualquier fecha, y lo hace también con un rebote temporal ($duro = false).
+ * Un rebote duro, además, da de baja el correo (desuscribir con motivo
+ * 'rebote_duro').
+ *
+ * @param string $email   se normaliza acá.
+ * @param string $detalle el motivo que dio el servidor, para el registro.
+ * @param bool   $duro    true si el rebote es definitivo.
  */
 function marcar_rebote(string $email, string $detalle = '', bool $duro = false): void
 {
@@ -1167,6 +1494,13 @@ function dias_papelera(): int
  * Es el único lugar del sistema que borra físicamente. Hasta que se cumple
  * el plazo, todo sigue recuperable desde la papelera.
  *
+ * Trampa con las campañas: `envios` tiene ON DELETE CASCADE sobre
+ * `campanas`, así que purgar una campaña borra su cola y con ella los
+ * tokens. Desde ese momento los enlaces de baja de esos correos ya
+ * entregados dejan de funcionar (la página dice «enlace no válido»).
+ *
+ * Lo llama el cron. Las tablas salen de tablas_papelera().
+ *
  * @return array<string,int> cuántos se borraron de cada módulo
  */
 function purgar_papelera(?int $dias = null): array
@@ -1198,7 +1532,17 @@ function purgar_papelera(?int $dias = null): array
     return $out;
 }
 
-/** Marca que un destinatario respondió (lo llama el lector IMAP). */
+/**
+ * Marca que un destinatario respondió (lo llama el lector IMAP).
+ *
+ * Se atribuye al envío entregado más reciente a ese correo que todavía no
+ * tenía respuesta, sin mirar el In-Reply-To: cualquier correo de esa persona
+ * cuenta como respuesta a la última campaña que recibió. Avisa al
+ * responsable de la campaña con una notificación que lleva a la conversación.
+ *
+ * @param string $email  remitente de la respuesta (se normaliza).
+ * @param string $asunto asunto de la respuesta, para el registro y el aviso.
+ */
 function marcar_respuesta(string $email, string $asunto = ''): void
 {
     $email = normalizar_email($email);

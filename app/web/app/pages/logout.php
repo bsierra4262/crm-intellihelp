@@ -1,6 +1,15 @@
 <?php
 declare(strict_types=1);
 
+// ============================================================
+//  Ruta: GET /logout (requiere sesión). Cierra la sesión y vuelve al login.
+//
+//  La llama el botón de salir de la barra lateral (un enlace, por eso es GET
+//  y no lleva token CSRF) e idle.js cuando vence el tiempo, con
+//  `?expiro=inactividad|expiro`. Deja la salida en la auditoría (tipo 'auth')
+//  y pasa el motivo al login para que muestre el aviso.
+// ============================================================
+
 // El cierre puede ser manual (el botón de la barra) o automático: idle.js manda
 // «?expiro=» cuando se acabó el tiempo. Se distinguen en la auditoría porque no
 // significan lo mismo: uno es una decisión, el otro es que la sesión se venció.

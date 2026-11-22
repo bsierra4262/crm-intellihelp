@@ -15,6 +15,24 @@
  * a mano. Parece rebuscado y no lo es: hay trece pantallas con desplegables
  * adentro de tablas que scrollean, y ahí una lista común queda recortada por el
  * borde de la tabla.
+ *
+ * Quién lo carga: layout.php, con `defer`, con o sin sesión, después de
+ * campos.js. Envuelve TODOS los <select> de la página salvo los múltiples,
+ * los de `size` mayor a 1 y los marcados con data-nativo="1". Vuelve a correr
+ * con el evento `vivo:actualizado` de secciones.js.
+ *
+ * Marcado que genera (los estilos están en app.css, sección «La lista
+ * desplegada también es nuestra»):
+ *   div.sel[data-sel] > select.sel-real + button.sel-btn > span.sel-txt
+ *   y, mientras está abierta, div.sel-lista[role=listbox] > div.sel-op
+ *   colgada del body.
+ *
+ * Accesibilidad, lo que hay y lo que falta: el botón anuncia aria-haspopup y
+ * aria-expanded, la lista tiene roles listbox/option y se maneja con flechas,
+ * Inicio, Fin, Escape, Enter y escribiendo las primeras letras. No hay
+ * aria-activedescendant (el lector de pantalla no anuncia la opción resaltada)
+ * y el botón no toma el rótulo del <label>: su nombre accesible es el texto
+ * de la opción elegida.
  */
 (function () {
     'use strict';
@@ -27,6 +45,16 @@
     //  Armado
     // ------------------------------------------------------------------
 
+    /**
+     * Envuelve un <select> con su botón propio. Si ya estaba envuelto no hace
+     * nada, así que se puede llamar sobre toda la página tantas veces como
+     * haga falta.
+     *
+     * El estado `disabled` se copia una sola vez, al envolver: si después se
+     * habilita o deshabilita el select por código, el botón no se entera.
+     *
+     * @param {HTMLSelectElement} sel
+     */
     function envolver(sel) {
         // Los de selección múltiple y los de tamaño fijo se dejan como están:
         // ahí el control nativo hace cosas que esto no reemplaza.
@@ -60,6 +88,11 @@
             e.preventDefault(); e.stopPropagation();
             (abierto === caja) ? cerrar() : abrir(caja);
         });
+        // Ojo con el orden de los manejadores: este corre primero y abre la
+        // lista; después el mismo evento llega al keydown de `document` (más
+        // abajo), que ya la ve abierta. Con las flechas eso mueve la marca una
+        // opción; con Enter o Espacio elige la opción actual y la cierra en el
+        // acto, así que con esas dos teclas la lista no llega a verse.
         btn.addEventListener('keydown', function (e) {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault(); abrir(caja);
@@ -69,6 +102,11 @@
         sel.addEventListener('change', function () { pintar(caja); });
     }
 
+    /**
+     * Copia al botón el texto de la opción elegida en el select real.
+     *
+     * @param {HTMLElement} caja el div.sel que envuelve al select.
+     */
     function pintar(caja) {
         var sel = caja.querySelector('select');
         var txt = caja.querySelector('.sel-txt');
@@ -83,6 +121,16 @@
     //  Abrir, elegir, cerrar
     // ------------------------------------------------------------------
 
+    /**
+     * Abre la lista de un desplegable: cierra la que hubiera abierta, arma
+     * una fila por opción (con textContent, nunca HTML), la cuelga del body,
+     * la ubica y deja marcada la opción elegida. No abre si el select está
+     * deshabilitado o no tiene opciones.
+     *
+     * Los manejadores de clic de cada fila se van con la capa al cerrarla.
+     *
+     * @param {HTMLElement} caja el div.sel que envuelve al select.
+     */
     function abrir(caja) {
         cerrar();
         var sel = caja.querySelector('select');
@@ -117,7 +165,11 @@
         marcar(sel.selectedIndex);
     }
 
-    /** Pone la lista pegada al campo, y arriba si abajo no entra. */
+    /**
+     * Pone la lista pegada al campo, y arriba si abajo no entra.
+     * Coordenadas de ventana: la capa es position:fixed, por eso hay que
+     * recalcular en cada scroll.
+     */
     function ubicar() {
         if (!abierto || !capa) { return; }
         var r = abierto.getBoundingClientRect();
@@ -133,6 +185,13 @@
         }
     }
 
+    /**
+     * Elige la opción i en el select real, avisa con `input` y `change` si
+     * cambió, cierra la lista y devuelve el foco al botón.
+     *
+     * @param {HTMLElement} caja
+     * @param {number} i índice de la opción.
+     */
     function elegir(caja, i) {
         var sel = caja.querySelector('select');
         if (sel.selectedIndex !== i) {
@@ -148,6 +207,7 @@
         caja.querySelector('.sel-btn').focus();
     }
 
+    /** Cierra la lista abierta, si hay una, y deja `abierto` y `capa` en null. */
     function cerrar() {
         if (capa && capa.parentNode) { capa.parentNode.removeChild(capa); }
         if (abierto) {
@@ -157,6 +217,12 @@
         capa = null; abierto = null;
     }
 
+    /**
+     * Resalta la fila i (la «activa» del teclado) y la trae a la vista.
+     * Es sólo visual: no elige nada hasta Enter o clic.
+     *
+     * @param {number} i índice de la opción.
+     */
     function marcar(i) {
         if (!capa) { return; }
         capa.querySelectorAll('.sel-op').forEach(function (f) { f.classList.remove('activa'); });
@@ -164,6 +230,7 @@
         if (f) { f.classList.add('activa'); f.scrollIntoView({ block: 'nearest' }); }
     }
 
+    /** @returns {number} índice de la fila resaltada, o -1 si no hay ninguna. */
     function activa() {
         var f = capa && capa.querySelector('.sel-op.activa');
         return f ? parseInt(f.dataset.i, 10) : -1;
@@ -172,8 +239,13 @@
     // ------------------------------------------------------------------
     //  Teclado: tiene que poder usarse sin tocar el mouse
     // ------------------------------------------------------------------
+    // tecleo: letras escritas seguidas para buscar una opción; se vacía tras
+    // 700 ms sin teclear (tecleoReloj).
     var tecleo = '', tecleoReloj = null;
 
+    // Un solo manejador para todos los desplegables; sólo actúa con una lista
+    // abierta. Escape: cerrar() deja `abierto` en null antes de la expresión
+    // que intenta devolver el foco al botón, así que el foco no vuelve.
     doc.addEventListener('keydown', function (e) {
         if (!abierto) { return; }
         var sel = abierto.querySelector('select');
@@ -214,6 +286,10 @@
     // ------------------------------------------------------------------
     //  Arranque, y cada vez que aparecen campos nuevos
     // ------------------------------------------------------------------
+    /**
+     * Envuelve todos los <select> que encuentre bajo raiz.
+     * @param {ParentNode} [raiz] por defecto, toda la página.
+     */
     function armar(raiz) {
         (raiz || doc).querySelectorAll('select').forEach(envolver);
     }

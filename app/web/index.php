@@ -1,7 +1,36 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Front controller: la única puerta de entrada HTTP de la aplicación.
+//
+//  El `.htaccess` manda acá todo pedido que no sea un archivo real, con la
+//  ruta en `?r=` (ej. /crm/contacto-ver?id=3 → index.php?r=contacto-ver&id=3).
+//  Este archivo:
+//    1. arranca la aplicación (bootstrap.php: config, base, sesión, auto-cierre);
+//    2. busca la ruta en la tabla `$rutas` (lo que no está ahí es 404);
+//    3. exige sesión si la ruta no es pública (si no, al login);
+//    4. bloquea la ruta si su módulo está apagado (modulos.php);
+//    5. exige rol administrador si la ruta lo pide;
+//    6. anota la visita en la bitácora (tabla `actividad`, sección CRON);
+//    7. incluye el controlador `app/pages/<ruta>.php`.
+//
+//  Trampas:
+//    · El controlador se incluye por el nombre de la ruta, así que sólo se
+//      puede llegar a un archivo de `pages/` que figure como clave de
+//      `$rutas`: no hay forma de pedir un archivo arbitrario.
+//    · Las pantallas de administración se protegen dos veces: acá (`admin`)
+//      y adentro de cada controlador con require_admin(). Si se agrega una
+//      ruta de administración, conviene marcarla en las dos partes.
+//    · Una ruta nueva que pertenezca a un módulo apagable tiene que figurar
+//      también en modulos(); si no, queda siempre habilitada.
+//    · Las rutas "public" no tienen sesión obligatoria, pero la sesión
+//      igual se abre (salvo la API v1, ver bootstrap.php).
+// ============================================================
+
 require __DIR__ . '/app/bootstrap.php';
 
+// Sin ruta (la raíz /crm/) se entra por 'home', que redirige al panel.
 $ruta = current_route();
 if ($ruta === '' || $ruta === '/') {
     $ruta = 'home';
@@ -11,6 +40,10 @@ if ($ruta === '' || $ruta === '/') {
  * Rutas registradas.
  *   public → accesible sin sesión
  *   admin  → sólo rol administrador
+ *
+ * La clave es a la vez la dirección y el nombre del controlador:
+ * 'contacto-ver' se atiende con app/pages/contacto-ver.php, y 'api/v1/reserva'
+ * con app/pages/api/v1/reserva.php.
  */
 $rutas = [
     // --- Acceso ---
@@ -122,12 +155,19 @@ if (str_starts_with($ruta, 'r/')) {
     $_GET['_ruta'] = substr($ruta, 2);
 }
 
+// Ruta desconocida: 404 con la pantalla de error del sistema. Se responde
+// antes de mirar la sesión, así que una dirección inexistente da 404 aunque
+// no se haya ingresado.
 if (!isset($rutas[$rutaBase])) {
     http_response_code(404);
     require APP . '/pages/404.php';
     exit;
 }
 
+// Sin sesión válida (o con un usuario desactivado: auth_user() lo detecta y
+// cierra la sesión) se manda al login. Los endpoints JSON también reciben esta
+// redirección; el caso de la sesión vencida con respuesta 440 lo resuelve
+// antes bootstrap.php.
 $def = $rutas[$rutaBase];
 if (empty($def['public']) && !auth_user()) {
     redirect('login');
@@ -170,4 +210,6 @@ if (method() === 'GET' && !vivo_pedido() && in_array($rutaBase, $rutasNav, true)
     log_app('ver.' . $rutaBase, ['tipo' => 'nav', 'detalle' => 'Ingresó a la pantalla «' . $rutaBase . '»']);
 }
 
+// Pasados todos los controles, se ejecuta el controlador. Cada uno termina
+// dibujando una vista (render), respondiendo JSON (json_out) o redirigiendo.
 require APP . '/pages/' . $rutaBase . '.php';

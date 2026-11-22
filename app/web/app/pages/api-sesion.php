@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+// Ruta: /api-sesion (requiere sesión). Responde JSON.
+
 /**
  * Latido de sesión. Lo llama idle.js ante actividad real, como mucho una vez
  * por minuto, para que la sesión no venza mientras se trabaja en una pantalla
@@ -12,6 +14,9 @@ declare(strict_types=1);
  */
 header('Content-Type: application/json; charset=utf-8');
 
+// En la práctica esta rama casi no se alcanza: sin sesión, index.php ya
+// redirigió al login (302) antes de llegar acá, y una sesión vencida la cortó
+// bootstrap.php con 440.
 $uid = current_user_id();
 if (!$uid) {
     http_response_code(440);
@@ -22,6 +27,7 @@ if (!$uid) {
 $ahora   = time();
 $idleTtl = (int)($GLOBALS['CONFIG']['app']['idle_ttl'] ?? 600);
 $absTtl  = (int)($GLOBALS['CONFIG']['app']['abs_ttl']  ?? 28800);
+// `abs_resto`: segundos que le quedan a la sesión antes del tope absoluto.
 $resto   = max(0, $absTtl - ($ahora - (int)($_SESSION['login_en'] ?? $ahora)));
 
 echo json_encode(['ok' => true, 'idle' => $idleTtl, 'abs_resto' => $resto]);

@@ -1,5 +1,14 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Ruta: POST /usuario-guardar (sólo administrador + CSRF).
+//
+//  Cambia el rol ('admin' | 'comercial') y el estado activo de un usuario,
+//  desde la tabla de views/usuarios.php. Un usuario desactivado pierde la
+//  sesión en su pedido siguiente (auth_user lo detecta). No hay alta ni baja
+//  de usuarios: se crean solos al ingresar con Google.
+// ============================================================
 require_admin();
 
 if (!is_post()) { redirect('usuarios'); }

@@ -1,3 +1,17 @@
+<?php
+// ============================================================
+//  Vista interna «Mover la reunión» (la arma pages/reserva-mover.php).
+//
+//  Recibe: $r (la reserva confirmada), $tipo (con quien la atiende), $huecos
+//  (fecha Y-m-d => inicios en segundos Unix) y $motivo ('sin_calendario',
+//  'sin_horario' o null).
+//
+//  Cada horario es un formulario propio con CSRF que manda a
+//  `reserva-accion` (accion=reprogramar, inicio=<segundos>), con confirmación
+//  antes de mandar. Los botones muestran la hora en la zona del tipo; el texto
+//  de la confirmación, en la de la instalación.
+// ============================================================
+?>
 <?php /** @var array $r @var array $tipo @var array $huecos @var ?string $motivo */ ?>
 <div class="page-head">
     <div>

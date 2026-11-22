@@ -3,16 +3,46 @@
 --  MariaDB 10.4+ / MySQL 8.0+  ·  utf8mb4
 --
 --  Uso:  mysql -u USUARIO -p BASE < app/db/schema.sql
+--        (o `python bin/deploy.py schema [--pruebas]`, que sube este archivo y
+--        lo importa con el cliente mysql del servidor)
 --
 --  Convenciones (valen para TODAS las tablas de negocio):
 --    · id            BIGINT UNSIGNED autoincremental
 --    · creado_por    usuario que dio el alta
 --    · creado_en / actualizado_en
---    · eliminado_en  borrado LOGICO — nada se borra fisico (regla de oro)
+--    · eliminado_en  borrado LOGICO: lo «eliminado» va a la papelera y se puede
+--                    recuperar. El unico borrado fisico lo hace la purga diaria
+--                    del cron (purgar_papelera() en campanas.php), y solo sobre
+--                    lo que lleva mas de `papelera_dias` (60) en la papelera.
 --    · zoho_id       id original de Zoho, para reimportar sin duplicar
+--
+--  Que tiene y que NO tiene este archivo:
+--    · Es idempotente en la estructura (CREATE TABLE IF NOT EXISTS): sobre una
+--      base existente no modifica tablas que ya estan, no agrega columnas ni
+--      indices nuevos. Para cambiar una tabla existente se escribe una
+--      migracion (app/db/migracion-NNN-….sql) y se aplica con
+--      `python bin/deploy.py migrar …`, que usa app/migrar.php.
+--    · Incluye lo de las migraciones 008 (entradas_web, api_limites) y 009
+--      (feriados), pero NO lo de las migraciones 002 a 007: las tablas
+--      cuentas_correo, categorias, imagenes, notificaciones y mensajes, y las
+--      columnas listas.categoria_id, plantillas.bloques/tipo/preajuste,
+--      campanas.cuenta_correo_id/categoria_id, envios.cuenta_correo_id,
+--      cuentas_correo.firma_html y contactos/cuentas.pendiente_norm,
+--      aprobado_en, aprobado_por. Una instalacion nueva tiene que importar
+--      este archivo Y DESPUES aplicar las migraciones 002 a 007 en orden; sin
+--      ellas la aplicacion falla al abrir campanas, contactos y alertas.
+--    · Los datos iniciales del final usan ON DUPLICATE KEY: los ajustes no se
+--      pisan, pero el embudo 1 y las probabilidades de sus etapas SI se
+--      vuelven a los valores de aca si se reimporta sobre una base en uso.
+--    · La sintaxis de este archivo sirve en MariaDB y en MySQL 8; las
+--      migraciones 005 a 007 usan ADD COLUMN/ADD INDEX IF NOT EXISTS, que es
+--      solo de MariaDB (el hosting usa MariaDB).
 -- ============================================================
 
 SET NAMES utf8mb4;
+-- Las claves foraneas se apagan durante la importacion para poder crear las
+-- tablas en cualquier orden (hay referencias cruzadas y autorreferencias). Se
+-- vuelven a prender en la ultima linea del archivo.
 SET FOREIGN_KEY_CHECKS = 0;
 
 
@@ -22,6 +52,11 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 -- Usuarios de la aplicacion. No hay contrasenas: el acceso es 100% Google
 -- Workspace, asi que solo guardamos la identidad que devuelve Google.
+-- La fila la crea el login la primera vez que entra una cuenta del dominio
+-- (rol 'comercial'); el admin cambia rol y `activo` desde Usuarios.
+-- `activo` = 0 bloquea el ingreso sin borrar al usuario (sus registros siguen
+-- apuntandole). `email` es la identidad: unico y es lo que se compara con
+-- Google. `ultimo_acceso` lo actualiza cada ingreso.
 CREATE TABLE IF NOT EXISTS `usuarios` (
   `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`         VARCHAR(120)    NOT NULL,
@@ -43,6 +78,12 @@ CREATE TABLE IF NOT EXISTS `usuarios` (
 
 -- Ajustes de la aplicacion (clave/valor). Todo lo configurable por el admin
 -- vive aca: credenciales SMTP/IMAP, entorno, limites de envio, etc.
+-- Se lee y escribe con setting_get()/setting_set() (db.php). Ademas de lo que
+-- carga el admin, el sistema guarda aca su propio estado: marcas del cron
+-- (`cron_turno`, `cron_ultima_corrida`, `papelera_ultima_purga`…), las marcas
+-- `migracion_NNN` que deja migrar.php y el estado de los feriados.
+-- `app_entorno` ('testing' | 'produccion') es lo UNICO que impide que
+-- app/reinicio.php vacie la base: ver la nota en los datos iniciales.
 CREATE TABLE IF NOT EXISTS `app_settings` (
   `clave`          VARCHAR(60) NOT NULL,
   `valor`          TEXT        DEFAULT NULL,
@@ -52,6 +93,11 @@ CREATE TABLE IF NOT EXISTS `app_settings` (
 
 -- Auditoria. Alimenta la seccion CRON. Dos canales: 'app' (lo que hace la
 -- gente + errores) y 'api' (cada pedido a la API de lectura).
+-- La escribe log_app() desde toda la aplicacion, el cron y migrar.php. No es
+-- la tabla de tareas/llamadas/reuniones: esa es `actividades` (en plural).
+-- `actor` y `detalle` son una foto del momento: si el usuario cambia de nombre
+-- o se borra la entidad, la linea de auditoria sigue diciendo lo que paso.
+-- Los indices por (canal|tipo, creado_en) son los filtros de la pantalla CRON.
 CREATE TABLE IF NOT EXISTS `actividad` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `creado_en`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -72,8 +118,12 @@ CREATE TABLE IF NOT EXISTS `actividad` (
   KEY `ix_act_entidad`(`entidad`, `entidad_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tokens de la API de lectura (para ITHOS/Jarvis), mismo modelo que APP Tickets:
--- se guarda solo el SHA-256; la clave completa se muestra una unica vez.
+-- Tokens de la API (lectura para ITHOS/Jarvis, y escritura para la web
+-- intellihelp.tech), mismo modelo que APP Tickets: se guarda solo el SHA-256;
+-- la clave completa se muestra una unica vez. `prefijo` es el comienzo visible
+-- de la clave, para reconocerla en la pantalla sin guardarla entera.
+-- `usos`/`ultimo_uso` los actualiza cada pedido autenticado.
+-- app/reinicio.php vacia esta tabla en pruebas: despues hay que generar otra.
 CREATE TABLE IF NOT EXISTS `api_tokens` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`     VARCHAR(120) NOT NULL,
@@ -100,6 +150,12 @@ CREATE TABLE IF NOT EXISTS `api_tokens` (
 
 -- Cuentas = empresas. En la base de Zoho hay 12.249 nombres de cuenta para
 -- 13.573 contactos: al importar se crean unicas y se enlazan.
+-- La escriben la pantalla de Empresas, el importador, la conversion de posibles
+-- clientes y las entradas desde la web (cuenta_asegurar() en crm.php).
+-- `nombre` no es unico a proposito: dos empresas pueden llamarse igual; la
+-- deduplicacion se hace en la aplicacion. `cuit` se guarda solo con digitos.
+-- La migracion 006/007 agrega `pendiente_norm`, `aprobado_en` y `aprobado_por`
+-- (no estan aca: ver el encabezado).
 CREATE TABLE IF NOT EXISTS `cuentas` (
   `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`          VARCHAR(200) NOT NULL,
@@ -128,18 +184,31 @@ CREATE TABLE IF NOT EXISTS `cuentas` (
   `actualizado_en`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `eliminado_en`    DATETIME     DEFAULT NULL,
   PRIMARY KEY (`id`),
+  -- UNIQUE con NULL: las cuentas creadas en el CRM (sin zoho_id) no chocan
+  -- entre si; solo impide importar dos veces la misma cuenta de Zoho.
   UNIQUE KEY `uq_cuentas_zoho` (`zoho_id`),
   KEY `ix_cuentas_nombre` (`nombre`),
   KEY `ix_cuentas_prop`   (`propietario_id`),
   KEY `ix_cuentas_elim`   (`eliminado_en`),
   KEY `ix_cuentas_cuit`   (`cuit`),
   KEY `fk_cuentas_padre`  (`cuenta_padre_id`),
+  -- ON DELETE SET NULL: si la purga borra una cuenta, sus hijas y lo que
+  -- apuntaba a ella quedan sueltas, no se borran en cascada. Por eso
+  -- purgar_papelera() no borra una cuenta que todavia tiene contactos vivos.
   CONSTRAINT `fk_cuentas_prop`  FOREIGN KEY (`propietario_id`)  REFERENCES `usuarios` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_cuentas_padre` FOREIGN KEY (`cuenta_padre_id`) REFERENCES `cuentas` (`id`)  ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Contactos = personas. Los campos "extra" (conmutador, telefono directo,
 -- linkedin, correo terciario) existen porque el equipo ya los usa en Zoho.
+-- La escriben la ficha de Contactos, el importador, la conversion de posibles
+-- clientes, las entradas desde la web y el lector IMAP (marca rebotes y
+-- archiva por rebote definitivo). `apellido` es obligatorio (NOT NULL);
+-- `nombre_completo` es una columna generada (se calcula sola, no se escribe).
+-- `email` NO es unico: la misma direccion puede estar en dos fichas, y el
+-- control de no mandar dos veces lo hace `envios` por campana.
+-- Las migraciones 006/007 agregan `pendiente_norm`, `aprobado_en` y
+-- `aprobado_por` (no estan aca: ver el encabezado).
 CREATE TABLE IF NOT EXISTS `contactos` (
   `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`         VARCHAR(120) DEFAULT NULL,
@@ -168,6 +237,8 @@ CREATE TABLE IF NOT EXISTS `contactos` (
   `descripcion`    TEXT         DEFAULT NULL,
   -- Estado comercial derivado del trabajo de campanas
   `no_email`       TINYINT(1)   NOT NULL DEFAULT 0,  -- desuscripto / opt-out
+  -- 1 = el correo rebota (lo marca el lector IMAP). Un rebote definitivo
+  -- ademas da de baja la direccion en `desuscripciones` y archiva la ficha.
   `email_rebotado` TINYINT(1)   NOT NULL DEFAULT 0,
   `ultima_actividad_en` DATETIME DEFAULT NULL,
   `zoho_id`        VARCHAR(40)  DEFAULT NULL,
@@ -177,6 +248,8 @@ CREATE TABLE IF NOT EXISTS `contactos` (
   `eliminado_en`   DATETIME     DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_contactos_zoho` (`zoho_id`),
+  -- Solo el correo principal tiene indice: buscar por email2/email3 recorre
+  -- la tabla entera.
   KEY `ix_contactos_email`  (`email`),
   KEY `ix_contactos_cuenta` (`cuenta_id`),
   KEY `ix_contactos_prop`   (`propietario_id`),
@@ -190,6 +263,11 @@ CREATE TABLE IF NOT EXISTS `contactos` (
 
 -- Posibles clientes (leads): contacto crudo, todavia sin calificar. Al
 -- convertirlo se crean Cuenta + Contacto (+ Negocio opcional) y queda marcado.
+-- La escriben la pantalla de Posibles clientes y el importador. «Marcado» es
+-- `convertido_en` con fecha y los ids de lo que se creo en `cuenta_id`,
+-- `contacto_id` y `negocio_id` (sin clave foranea: si se purga lo creado, el
+-- id queda apuntando a una fila que ya no existe). `empresa` es texto libre:
+-- recien al convertir se vuelve una fila de `cuentas`.
 CREATE TABLE IF NOT EXISTS `posibles_clientes` (
   `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`         VARCHAR(120) DEFAULT NULL,
@@ -241,6 +319,8 @@ CREATE TABLE IF NOT EXISTS `posibles_clientes` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Etiquetas libres, aplicables a cualquier modulo (patron polimorfico).
+-- `etiquetas` es el catalogo (nombre unico y color); `etiqueta_registro` dice
+-- que etiqueta tiene cada registro.
 CREATE TABLE IF NOT EXISTS `etiquetas` (
   `id`     INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre` VARCHAR(60) NOT NULL,
@@ -250,6 +330,11 @@ CREATE TABLE IF NOT EXISTS `etiquetas` (
   UNIQUE KEY `uq_etiquetas_nombre` (`nombre`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Polimorfica: (`entidad`, `entidad_id`) apunta a una fila de cualquier
+-- tabla, asi que no puede tener clave foranea hacia ella. Cuando la purga
+-- borra un contacto, sus etiquetas quedan huerfanas aca (no molestan, pero no
+-- se limpian). La clave primaria impide poner dos veces la misma etiqueta al
+-- mismo registro; borrar la etiqueta del catalogo la saca de todos (CASCADE).
 CREATE TABLE IF NOT EXISTS `etiqueta_registro` (
   `etiqueta_id` INT UNSIGNED    NOT NULL,
   `entidad`     VARCHAR(30)     NOT NULL,   -- contacto | cuenta | posible_cliente | negocio
@@ -261,6 +346,10 @@ CREATE TABLE IF NOT EXISTS `etiqueta_registro` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Notas y adjuntos: tambien polimorficos, para no repetir tabla por modulo.
+-- (`entidad`, `entidad_id`) dice de que ficha son; sin clave foranea, por lo
+-- mismo que `etiqueta_registro`. Las notas las escriben las fichas y las
+-- entradas desde la web (el mensaje del formulario queda como nota). El indice
+-- incluye `creado_en` porque la linea de tiempo las lista en orden.
 CREATE TABLE IF NOT EXISTS `notas` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `entidad`    VARCHAR(30)     NOT NULL,
@@ -275,6 +364,13 @@ CREATE TABLE IF NOT EXISTS `notas` (
   KEY `ix_notas_entidad` (`entidad`, `entidad_id`, `creado_en`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Archivos subidos a una ficha. El archivo vive en disco, en la carpeta de
+-- almacenamiento de la instalacion (fuera del webroot); aca solo queda el
+-- nombre original, la ruta relativa, el tipo y el tamano. adjunto_borrar()
+-- (registros.php) borra el archivo del disco en el acto y solo marca la fila
+-- con `eliminado_en`: a diferencia del resto, un adjunto borrado no se puede
+-- recuperar. Al reves, vaciar la tabla (app/reinicio.php) deja los archivos
+-- en disco.
 CREATE TABLE IF NOT EXISTS `adjuntos` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `entidad`    VARCHAR(30)     NOT NULL,
@@ -295,6 +391,9 @@ CREATE TABLE IF NOT EXISTS `adjuntos` (
 --  EMBUDO DE VENTAS
 -- ============================================================
 
+-- Embudos de venta (pipelines). Hoy se usa uno solo, «Ventas», que se siembra
+-- al final de este archivo con id 1. `predeterminado` = 1 marca en cual entra
+-- un negocio nuevo si no se elige otro.
 CREATE TABLE IF NOT EXISTS `embudos` (
   `id`     INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre` VARCHAR(80)  NOT NULL,
@@ -305,6 +404,11 @@ CREATE TABLE IF NOT EXISTS `embudos` (
   UNIQUE KEY `uq_embudos_nombre` (`nombre`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Etapas de cada embudo, en `orden`. `tipo` dice si la etapa cierra el
+-- negocio ('ganada' / 'perdida') o lo deja abierto; `probabilidad` (0 a 100)
+-- se copia al negocio al moverlo y alimenta el ingreso esperado. Borrar un
+-- embudo borra sus etapas (CASCADE), pero `negocios` no deja borrar una etapa
+-- que todavia tiene negocios (clave foranea sin ON DELETE).
 CREATE TABLE IF NOT EXISTS `etapas` (
   `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `embudo_id`   INT UNSIGNED NOT NULL,
@@ -320,6 +424,11 @@ CREATE TABLE IF NOT EXISTS `etapas` (
   CONSTRAINT `fk_etapas_embudo` FOREIGN KEY (`embudo_id`) REFERENCES `embudos` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Negocios (oportunidades). Los escribe la pantalla del Embudo y la
+-- conversion de posibles clientes. `ingreso_esperado` es una columna generada
+-- (importe x probabilidad): no se escribe. `cerrado_en` se completa al pasar a
+-- una etapa ganada o perdida. `campana_id` atribuye el negocio a la campana
+-- de la que salio (sin clave foranea).
 CREATE TABLE IF NOT EXISTS `negocios` (
   `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`          VARCHAR(200) NOT NULL,
@@ -363,6 +472,8 @@ CREATE TABLE IF NOT EXISTS `negocios` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Historial de etapas: permite medir cuanto tarda un negocio en cada paso.
+-- Una fila por paso: `desde` cuando entro a la etapa y `hasta` cuando salio
+-- (NULL = la etapa actual).
 CREATE TABLE IF NOT EXISTS `negocio_etapas` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `negocio_id` BIGINT UNSIGNED NOT NULL,
@@ -405,6 +516,12 @@ CREATE TABLE IF NOT EXISTS `cuotas` (
 
 -- Una sola tabla para tarea / llamada / reunion: comparten el 90% de los
 -- campos y asi la "linea de tiempo" de un registro sale de una consulta.
+-- La escriben las pantallas de Actividades, la agenda (cada reserva crea su
+-- reunion) y las entradas desde la web. `recordar_min` se carga desde el
+-- formulario, pero hoy ningun proceso manda ese aviso ni completa
+-- `recordado_en` (los recordatorios del cron son los de `agenda_reservas`).
+-- `gcal_event_id`/`meet_url` son del evento de Google Calendar que se crea
+-- para las reuniones. No confundir con `actividad` (auditoria).
 CREATE TABLE IF NOT EXISTS `actividades` (
   `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tipo`           ENUM('tarea','llamada','reunion') NOT NULL,
@@ -450,6 +567,8 @@ CREATE TABLE IF NOT EXISTS `actividades` (
   CONSTRAINT `fk_acti_prop`     FOREIGN KEY (`propietario_id`)     REFERENCES `usuarios` (`id`)          ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Invitados de una reunion (por correo, sean o no contactos del CRM), con su
+-- respuesta a la invitacion. Un mismo correo una sola vez por reunion.
 CREATE TABLE IF NOT EXISTS `actividad_invitados` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `actividad_id`  BIGINT UNSIGNED NOT NULL,
@@ -467,6 +586,9 @@ CREATE TABLE IF NOT EXISTS `actividad_invitados` (
 -- ============================================================
 
 -- Tipo de reunion publicable: "Presentacion 30 min", "Demo 45 min".
+-- Cada vendedor tiene los suyos; la URL publica es <vendedor>/<slug>, por eso
+-- el slug es unico por usuario y no global. La web usa el slug 'diagnostico'.
+-- `zona_horaria` es la del vendedor: los horarios se ofrecen en esa zona.
 CREATE TABLE IF NOT EXISTS `agenda_tipos` (
   `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `usuario_id`     BIGINT UNSIGNED NOT NULL,
@@ -488,6 +610,8 @@ CREATE TABLE IF NOT EXISTS `agenda_tipos` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Horario laboral por dia de la semana (0=domingo .. 6=sabado).
+-- Puede haber varias franjas el mismo dia (manana y tarde). Un dia sin filas
+-- es un dia sin turnos. Los feriados se descuentan aparte (tabla `feriados`).
 CREATE TABLE IF NOT EXISTS `agenda_horarios` (
   `id`       INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tipo_id`  INT UNSIGNED NOT NULL,
@@ -499,6 +623,16 @@ CREATE TABLE IF NOT EXISTS `agenda_horarios` (
   CONSTRAINT `fk_ah_tipo` FOREIGN KEY (`tipo_id`) REFERENCES `agenda_tipos` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Reuniones reservadas: desde la agenda publica (/r/), desde la web por la
+-- API o cargadas desde el CRM (`origen`). La reserva se guarda primero y el
+-- evento de Google + el correo se hacen despues; `avisada_en` NULL con
+-- estado 'confirmada' es una reserva a medio completar, que el cron termina
+-- (agenda_completar_pendientes()). `recordatorio_enviado_en` evita mandar dos
+-- veces el recordatorio de 24 h. Reprogramar crea una fila nueva que apunta a
+-- la vieja con `reprogramada_de`.
+-- No hay restriccion unica sobre (usuario_id, inicia_el): que dos personas no
+-- tomen el mismo horario lo garantiza la aplicacion con un GET_LOCK por
+-- vendedor (agenda.php), no la base.
 CREATE TABLE IF NOT EXISTS `agenda_reservas` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tipo_id`       INT UNSIGNED    NOT NULL,
@@ -590,6 +724,9 @@ CREATE TABLE IF NOT EXISTS `entradas_web` (
   `creado_en`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `actualizado_en`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  -- La idempotencia es por clave de API. Ojo: en un UNIQUE los NULL no chocan
+  -- entre si, asi que para la agenda publica (`token_id` NULL) esta clave no
+  -- impide duplicados; ahi la aplicacion genera una clave al azar por pedido.
   UNIQUE KEY `uq_ew_idem`   (`token_id`, `idempotencia`),
   KEY `ix_ew_creado`        (`creado_en`),
   KEY `ix_ew_canal`         (`canal`, `creado_en`),
@@ -605,6 +742,9 @@ CREATE TABLE IF NOT EXISTS `entradas_web` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Límite de pedidos: un contador por clave y por ventana de tiempo.
+-- Lo escribe la API y la agenda publica en cada pedido; el cron borra una vez
+-- por dia los contadores con `vence_en` pasado (por eso el indice). Es
+-- descartable: vaciarla solo reinicia los limites.
 CREATE TABLE IF NOT EXISTS `api_limites` (
   `clave`    VARCHAR(120) NOT NULL,     -- 'k:<token>:escritura:60', 'ip:<hash>:reserva:3600', …
   `ventana`  INT UNSIGNED NOT NULL,     -- floor(time() / segundos)
@@ -635,6 +775,9 @@ CREATE TABLE IF NOT EXISTS `feriados` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Credenciales OAuth de Google por usuario (refresh token cifrado en la app).
+-- Las escribe el login con Google; las usa gcal.php para crear y borrar los
+-- eventos con Meet. Sin fila, el proximo ingreso pide el consentimiento de
+-- nuevo y Google manda otro refresh token.
 CREATE TABLE IF NOT EXISTS `google_tokens` (
   `usuario_id`     BIGINT UNSIGNED NOT NULL,
   `refresh_token`  TEXT            DEFAULT NULL,
@@ -652,6 +795,11 @@ CREATE TABLE IF NOT EXISTS `google_tokens` (
 --  CAMPANAS DE CORREO  (motor Pulsemail llevado a web)
 -- ============================================================
 
+-- Plantillas de correo de las campanas. La migracion 002 agrega `bloques`
+-- (el JSON del editor visual), `tipo` ('visual' | 'html') y `preajuste` (la
+-- clave del molde prearmado del que salio, que usa app/reinicio.php para
+-- reescribirlas). `cuerpo_html` es lo que se manda; en las visuales se
+-- regenera a partir de `bloques` al guardar.
 CREATE TABLE IF NOT EXISTS `plantillas` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`     VARCHAR(160) NOT NULL,
@@ -668,6 +816,8 @@ CREATE TABLE IF NOT EXISTS `plantillas` (
   KEY `ix_plantillas_elim` (`eliminado_en`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Listas de destinatarios para las campanas. La migracion 002 agrega
+-- `categoria_id` (segmento: RRHH, bancos, …), sin indice ni clave foranea.
 CREATE TABLE IF NOT EXISTS `listas` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`     VARCHAR(160) NOT NULL,
@@ -682,6 +832,10 @@ CREATE TABLE IF NOT EXISTS `listas` (
 
 -- Un miembro puede ser un contacto, un posible cliente o un correo suelto
 -- (asi se puede cargar una lista importada sin ensuciar el CRM).
+-- `email` se guarda siempre, aunque haya contacto: es la direccion a la que
+-- se manda, y `nombre`/`empresa` son la foto del momento para las variables
+-- de la plantilla. El UNIQUE impide repetir una direccion en la misma lista.
+-- `contacto_id` y `posible_cliente_id` no tienen clave foranea.
 CREATE TABLE IF NOT EXISTS `lista_miembros` (
   `id`                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `lista_id`           BIGINT UNSIGNED NOT NULL,
@@ -697,6 +851,10 @@ CREATE TABLE IF NOT EXISTS `lista_miembros` (
   CONSTRAINT `fk_lm_lista` FOREIGN KEY (`lista_id`) REFERENCES `listas` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Campanas de correo masivo. Las crea la pantalla de Campanas; el estado lo
+-- mueven la pantalla (programar, pausar, cancelar) y el despachador del cron
+-- ('enviando' → 'completada'). La migracion 002 agrega `cuenta_correo_id` (la
+-- casilla desde la que sale) y `categoria_id`, sin clave foranea.
 CREATE TABLE IF NOT EXISTS `campanas` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nombre`        VARCHAR(200) NOT NULL,
@@ -742,6 +900,11 @@ CREATE TABLE IF NOT EXISTS `campanas` (
 
 -- La COLA. Una fila por destinatario. El cron toma las 'pendiente' cuyo
 -- proximo_intento ya paso y las despacha de a una.
+-- Cada envio se toma pasandolo de 'pendiente' a 'enviando' con un UPDATE
+-- condicionado al estado: es lo que impide que dos corridas del cron manden
+-- el mismo correo. `token` va en el enlace de baja y en el pixel de apertura.
+-- La migracion 002 agrega `cuenta_correo_id` (la casilla que lo mando), sin
+-- indice: las consultas de «enviados hoy por casilla» recorren la tabla.
 CREATE TABLE IF NOT EXISTS `envios` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `campana_id`    BIGINT UNSIGNED NOT NULL,
@@ -763,6 +926,8 @@ CREATE TABLE IF NOT EXISTS `envios` (
   `rebotado_en`   DATETIME     DEFAULT NULL,
   `creado_en`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  -- La cola del despachador busca por (estado, proximo_intento_en): ese es el
+  -- indice `ix_envios_cola`. `ix_envios_msgid` cruza rebotes y respuestas.
   UNIQUE KEY `uq_envios_campana_email` (`campana_id`, `email`),   -- nunca dos veces al mismo
   UNIQUE KEY `uq_envios_token` (`token`),
   KEY `ix_envios_cola`   (`estado`, `proximo_intento_en`),
@@ -773,6 +938,8 @@ CREATE TABLE IF NOT EXISTS `envios` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Bitacora fina de cada envio (apertura, clic, rebote, respuesta, baja).
+-- La escriben el despachador, el lector IMAP y las paginas publicas de baja y
+-- seguimiento. Solo se agrega, nunca se edita; se borra con el envio.
 CREATE TABLE IF NOT EXISTS `envio_eventos` (
   `id`        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `envio_id`  BIGINT UNSIGNED NOT NULL,
@@ -786,6 +953,9 @@ CREATE TABLE IF NOT EXISTS `envio_eventos` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Lista negra global. Se consulta ANTES de encolar cualquier envio.
+-- Una fila por direccion (clave primaria = email, ya normalizado en
+-- minusculas): la escriben el enlace de baja, el lector IMAP (rebote duro) y
+-- el admin a mano. Vale para todas las campanas y todas las casillas.
 CREATE TABLE IF NOT EXISTS `desuscripciones` (
   `email`      VARCHAR(190) NOT NULL,
   `motivo`     ENUM('baja','rebote_duro','queja','manual') NOT NULL DEFAULT 'baja',
@@ -799,6 +969,9 @@ CREATE TABLE IF NOT EXISTS `desuscripciones` (
 
 -- Estado del lector IMAP: hasta que UID se leyo cada buzon, para no reescanear
 -- todo en cada pasada del cron (mismo truco que Pulsemail).
+-- Con varias casillas (migracion 002) hay una fila por casilla, con `buzon` =
+-- 'INBOX:<usuario>' (imap.php). La columna `cuentas_correo.imap_ultimo_uid`
+-- que crea la migracion 002 no se usa: la marca vale la de esta tabla.
 CREATE TABLE IF NOT EXISTS `imap_estado` (
   `buzon`      VARCHAR(120) NOT NULL,
   `ultimo_uid` BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -811,6 +984,9 @@ CREATE TABLE IF NOT EXISTS `imap_estado` (
 --  MIGRACION / IMPORTACION
 -- ============================================================
 
+-- Un registro por cada importacion (CSV de Zoho o lista suelta) con sus
+-- totales: que entro, que se actualizo, que se salteo y por que (`resumen`).
+-- Es solo historial: borrarla no deshace ninguna importacion.
 CREATE TABLE IF NOT EXISTS `import_lotes` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `origen`     VARCHAR(60)  NOT NULL,     -- 'zoho' | 'csv'
@@ -832,6 +1008,14 @@ CREATE TABLE IF NOT EXISTS `import_lotes` (
 --  DATOS INICIALES (configuracion, no datos de negocio)
 -- ============================================================
 
+-- ON DUPLICATE KEY UPDATE `valor` = `valor`: si el ajuste ya existe no se
+-- toca, asi que reimportar el esquema no pisa lo que cargo el admin.
+--
+-- `app_entorno` arranca en 'testing'. Mientras diga 'testing',
+-- `php reinicio.php --hacerlo` vacia contactos, empresas, negocios y
+-- campanas sin pedir nada mas. Una instalacion que va a tener datos reales
+-- tiene que pasarse a 'produccion' (Ajustes → Modo de trabajo) antes de
+-- cargar el primer dato.
 INSERT INTO `app_settings` (`clave`, `valor`) VALUES
   ('app_nombre',      'CRM INTELLIHELP'),
   ('app_entorno',     'testing'),
@@ -863,6 +1047,11 @@ ON DUPLICATE KEY UPDATE `valor` = `valor`;
 
 -- Embudo por defecto. Las probabilidades salen de la propuesta de
 -- md/ZOHO-CRM-REFERENCIA.md y se pueden cambiar desde la app.
+-- Cuidado al reimportar sobre una base en uso: aca el ON DUPLICATE KEY SI
+-- pisa. El embudo 1 vuelve a llamarse «Ventas» y las etapas que coinciden por
+-- (embudo, nombre) vuelven a estas probabilidades, perdiendo lo cambiado en
+-- la app. Las etapas que se renombraron no coinciden y se agregan de nuevo.
+-- (app/reinicio.php siembra otro embudo, de 5 etapas, cuando no hay ninguno.)
 INSERT INTO `embudos` (`id`, `nombre`, `activo`, `predeterminado`, `orden`) VALUES
   (1, 'Ventas', 1, 1, 0)
 ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`);
@@ -877,4 +1066,6 @@ INSERT INTO `etapas` (`embudo_id`, `nombre`, `probabilidad`, `tipo`, `color`, `o
   (1, 'Perdido',            0, 'perdida', '#A12A1E', 7)
 ON DUPLICATE KEY UPDATE `probabilidad` = VALUES(`probabilidad`);
 
+-- Se vuelven a prender las claves foraneas apagadas al principio. Despues
+-- de este archivo, en una instalacion nueva, siguen las migraciones 002 a 007.
 SET FOREIGN_KEY_CHECKS = 1;

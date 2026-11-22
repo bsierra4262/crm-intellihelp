@@ -5,9 +5,20 @@
 //
 //  En producción se despliega FUERA del web root:
 //      /home/USUARIO/crm_config/config.php     (chmod 600)
-//  y se apunta con la variable CRM_CONFIG del .htaccess.
+//  y lo encuentra solo bootstrap.php, por el nombre de la carpeta de la
+//  instalación: crm/ usa crm_config/config.php y crm-pruebas/ usa
+//  crm_config/crm-pruebas.php. El .htaccess ya NO fija CRM_CONFIG (hacerlo
+//  apuntaba las dos instalaciones a la misma base); la variable de entorno
+//  sólo se respeta si alguien la define a propósito.
+//  En el repo, bootstrap.php también prueba app/server-config/config.php y
+//  app/web/config.local.php (desarrollo local).
+//
+//  Cada instalación tiene su propio archivo y, por lo tanto, su propia base,
+//  su propio `storage` y su propio `secret`: no se copian de una a otra.
 // ============================================================
 return [
+    // Conexión a MySQL/MariaDB (db.php). En Hostinger la base está en el mismo
+    // servidor: 'localhost'.
     'db' => [
         'host'    => 'localhost',
         'name'    => 'TU_BASE_DE_DATOS',
@@ -16,6 +27,8 @@ return [
         'charset' => 'utf8mb4',
     ],
     'app' => [
+        // 'name' es el nombre de respaldo: el ajuste `app_nombre` de la base
+        // (pantalla Ajustes) tiene prioridad en el layout.
         'name'      => 'CRM INTELLIHELP',
         'org'       => 'INTELLIHELP',
         // Vacío = se deduce de la URL en cada request (funciona igual en el
@@ -25,6 +38,13 @@ return [
         // dirección se arman los enlaces públicos (agenda, desuscripción).
         // El subdominio redirige acá, así que la app tiene una sola dirección.
         'canonical'   => 'https://intellihelp.tech/crm',
+        // 'env' sólo decide si los errores se muestran en pantalla ('dev') o
+        // van únicamente al log ('prod'). NO es lo mismo que el modo
+        // testing/producción del sistema, que es el ajuste `app_entorno` de
+        // la base y decide si las campañas mandan correos reales.
+        // 'storage' tiene que estar fuera del web root: si falta, se usa una
+        // carpeta `storage` al lado de la instalación, que en Hostinger
+        // queda DENTRO de public_html.
         'env'         => 'prod',                                  // 'prod' | 'dev'
         'timezone'    => 'America/Argentina/Buenos_Aires',
         'storage'     => '/home/USUARIO/crm_storage',             // adjuntos, fuera del web root
@@ -35,6 +55,10 @@ return [
         // Hostinger: el CDN ya deja la IP del visitante en REMOTE_ADDR. Sólo
         // desde estos se lee X-Forwarded-For (ver ip_confiable()).
         'proxies_confiables' => [],
+        // 'secret' cifra los tokens de Google y firma el hash de las IP
+        // (ip_hash): cambiarlo con el sistema en uso obliga a reconectar
+        // Google Calendar y rompe la comparación con los hashes viejos.
+        // Marca blanca: vacío = colores y logo de INTELLIHELP (layout.php).
         'brand'       => [
             'primary' => '',                                      // ej. '#663399'
             'accent'  => '',                                      // ej. '#9CC930'

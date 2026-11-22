@@ -2,7 +2,15 @@
 declare(strict_types=1);
 require_login();
 
-// Borra una nota desde la ficha del registro (usa la función de registros.php).
+// ============================================================
+//  Ruta: POST /nota-eliminar (requiere sesión + CSRF).
+//
+//  Borra una nota desde la ficha del registro (usa la función de
+//  registros.php). Es un borrado lógico (eliminado_en), aunque la interfaz
+//  avisa que es definitivo: las notas no figuran en la papelera.
+//  Sólo el autor o un administrador pueden borrarla.
+//  Vuelve a la página anterior según la cabecera Referer.
+// ============================================================
 
 if (!is_post()) { redirect('dashboard'); }
 verify_csrf();

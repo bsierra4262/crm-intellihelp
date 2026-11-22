@@ -2,6 +2,14 @@
 declare(strict_types=1);
 require_login();
 
+// ============================================================
+//  Ruta: /campanas  (con sesión; módulo «campanas»).
+//  Listado de campañas con filtros por segmento, estado y nombre. Los datos
+//  salen de campanas_listar() y la vista (views/campanas.php) se refresca
+//  sola consultando api-campana. Avisa si falta la cuenta de salida y si la
+//  instalación está en modo prueba.
+// ============================================================
+
 $f = [
     'q'      => trim((string)($_GET['q'] ?? '')),
     'estado' => $_GET['estado'] ?? '',

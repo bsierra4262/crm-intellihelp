@@ -1,4 +1,29 @@
 <?php
+// ============================================================
+//  Vista: confirmación de la conversión de un posible cliente.
+//
+//  La dibuja pages/posible-convertir.php. Explica qué se crea y qué se
+//  reutiliza, y ofrece crear un negocio en la primera etapa del embudo
+//  predeterminado. El formulario se manda a la misma página.
+//
+//  Variables que recibe:
+//    $p                  array        el posible cliente (posible_get)
+//    $error              string|null  mensaje si la conversión falló
+//    $cuentaExistente    array|null   empresa con el mismo nombre, si hay
+//    $contactoExistente  array|null   contacto con el mismo correo principal, si hay
+//
+//  Lo que promete esta pantalla y lo que hace posible_convertir() no
+//  coinciden del todo:
+//    · «se enlaza a la empresa»: sólo si el contacto existente no tenía
+//      empresa (COALESCE); si tenía otra, queda con la suya.
+//    · «no se pierde nada»: se trasladan notas, actividades y adjuntos, pero
+//      no las etiquetas, ni sector, calificación ni empleados. Si se
+//      reutiliza un contacto, ningún dato del posible cliente lo completa.
+//  Si la conversión falla, los campos del negocio vuelven a sus valores
+//  iniciales: lo que se había escrito no se conserva.
+//  La casilla del negocio viene marcada aunque el módulo de negocios esté
+//  apagado.
+// ============================================================
 /** @var array $p @var ?string $error @var ?array $cuentaExistente @var ?array $contactoExistente */
 $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
 ?>

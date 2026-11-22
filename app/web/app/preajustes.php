@@ -18,6 +18,25 @@ declare(strict_types=1);
 //  La primera es la campaña de Pulsemail reproducida bloque por bloque, para
 //  no perder el diseño que ya venía funcionando. Las demás salen de los
 //  servicios publicados en intellihelp.tech.
+//
+//  Módulo: Campañas. Sin base de datos: todo es una constante armada en PHP.
+//  Quién lo usa:
+//    · pages/plantillas.php muestra la galería (views/plantillas.php arma un
+//      enlace `plantilla-form?desde=<clave>` por cada una);
+//    · pages/plantilla-form.php, al crear, copia `asunto`, `bloques` y
+//      `ajustes` del preajuste elegido y anota la clave en la columna
+//      `plantillas.preajuste`.
+//
+//  Formato de cada preajuste: nombre, descripcion (se ve en la galería),
+//  asunto, ajustes (colores y preencabezado) y bloques. Los tipos de bloque y
+//  sus propiedades son los de bloques.php (bloques_tipos() y el renderizador)
+//  y los del ESQUEMA de assets/js/editor.js: un tipo o propiedad que no
+//  exista allá no se ve en el correo. Las variables `{{nombre}}`,
+//  `{{empresa}}`, `{{remitente}}`… las reemplaza el renderizador al enviar.
+//
+//  Trampa: la clave de cada preajuste ('pulsemail', 'seguridad'…) queda
+//  guardada en las plantillas creadas y da nombre a la clase CSS de la
+//  miniatura (`preajuste-<clave>`): cambiarla rompe ambas cosas.
 // ============================================================
 
 /**
@@ -25,6 +44,13 @@ declare(strict_types=1);
  *
  * Existe para que las ocho plantillas salgan idénticas: escritas a mano, alguna
  * termina con el botón de otro color o sin el bloque de contacto.
+ * (La de Pulsemail está escrita a mano, con la misma estructura, porque sus
+ * textos de botón son los de la campaña original.)
+ *
+ * @param array $d nombre, descripcion, asunto, preencabezado, volanta, titulo,
+ *                 bajada, intro, puntos (lista de strings), cta_titulo,
+ *                 cta_texto y whatsapp (mensaje precargado); todas obligatorias
+ * @return array el preajuste con nombre, descripcion, asunto, ajustes y bloques
  */
 function preajuste_servicio(array $d): array
 {
@@ -59,6 +85,13 @@ function preajuste_servicio(array $d): array
     ];
 }
 
+/**
+ * Todos los preajustes, por clave, en el orden en que se muestran en la
+ * galería: ocho de servicio (Pulsemail + siete armados con
+ * preajuste_servicio()) y tres genéricos (sobria, novedad, reunión).
+ *
+ * @return array<string,array>
+ */
 function plantillas_preajustes(): array
 {
     return [
@@ -307,6 +340,8 @@ function plantillas_preajustes(): array
                 ['tipo' => 'texto',
                  'texto' => 'Queríamos contarte algo que venimos trabajando y que puede tener sentido para {{empresa}}. '
                           . 'Te lo resumimos en pocas líneas.'],
+                // La imagen viene vacía a propósito: hay que elegirla en el
+                // editor. Mientras falte, el chequeo de la plantilla la marca.
                 ['tipo' => 'imagen', 'src' => '', 'alt' => 'Imagen de la novedad', 'ancho' => 512,
                  'alineacion' => 'center'],
                 ['tipo' => 'lista', 'texto' =>
@@ -346,7 +381,11 @@ function plantillas_preajustes(): array
     ];
 }
 
-/** Devuelve un preajuste listo para cargar en el editor. */
+/**
+ * Devuelve un preajuste listo para cargar en el editor, o null si la clave no
+ * existe. Nota: hoy no la llama nadie; plantilla-form.php indexa
+ * plantillas_preajustes() directamente.
+ */
 function preajuste_get(string $clave): ?array
 {
     return plantillas_preajustes()[$clave] ?? null;

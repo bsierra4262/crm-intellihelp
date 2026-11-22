@@ -1,5 +1,23 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Página `posible-form`: alta (sin `id`) y edición (`?id=N`) de un posible
+//  cliente (lead).
+//
+//  GET dibuja views/posible-form.php. POST valida (apellido y empresa
+//  obligatorios, correo y teléfonos con formato), guarda con
+//  posible_guardar() y redirige a la ficha.
+//
+//  Tablas: escribe `posibles_clientes`; lee `usuarios`.
+//  Módulo: `posibles` (se apaga aparte en producción, ver modulos.php).
+//  Permisos: cualquier usuario con sesión edita cualquier posible cliente,
+//  incluso uno ya convertido (la edición no se bloquea después de convertir).
+//
+//  No se validan contra sus listas el estado, la fuente ni la calificación:
+//  llegan tal cual del POST.
+// ============================================================
+
 require_login();
 
 $id = (int)($_GET['id'] ?? 0);
@@ -16,6 +34,8 @@ $errores = [];
 if (is_post()) {
     verify_csrf();
     $d = $_POST;
+    // La empresa es obligatoria porque la conversión crea (o reutiliza) una
+    // cuenta con ese nombre. El correo secundario (`email2`) no se valida.
     if (trim((string)($d['apellido'] ?? '')) === '') { $errores['apellido'] = 'El apellido es obligatorio.'; }
     if (trim((string)($d['empresa']  ?? '')) === '') { $errores['empresa']  = 'La empresa es obligatoria.'; }
     if (trim((string)($d['email'] ?? '')) !== '' && !email_valido($d['email'])) {
@@ -35,6 +55,7 @@ if (is_post()) {
         flash($id ? 'Posible cliente actualizado.' : 'Posible cliente creado.', 'success');
         redirect('posible-ver?id=' . $nuevoId);
     }
+    // Con errores se vuelve a dibujar con lo escrito encima de la ficha.
     $p = array_merge($p ?? [], $d);
 }
 
