@@ -80,10 +80,10 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
                         La reunión se crea en <strong>este</strong> calendario de Google, con el Meet, y
                         esta cuenta queda como organizadora: le llega la invitación igual que al cliente.
                     <?php else: ?>
-                        <strong>Esta cuenta no tiene Google conectado.</strong> Las reservas se van a
-                        seguir tomando, pero la reunión <strong>no va a aparecer en ningún calendario</strong>
-                        ni va a generar el enlace de Meet: el cliente se queda con su confirmación y del
-                        lado nuestro no se entera nadie.
+                        <strong>Esta cuenta no tiene Google conectado.</strong> Sin ver su calendario
+                        la agenda no sabe qué está ocupado, así que <strong>no ofrece ningún horario</strong>:
+                        ni la página pública ni la web toman reservas. Lo que agende el equipo desde el CRM
+                        se guarda, pero sin evento en el calendario ni enlace de Meet.
                         <a href="<?= e(url('google-login?conectar=1')) ?>">Conectar Google</a>.
                     <?php endif; ?>
                 </i>

@@ -1,4 +1,4 @@
-<?php /** @var ?array $r @var ?array $tipo @var bool $ok @var ?string $error @var string $formToken */
+<?php /** @var ?array $r @var ?array $tipo @var bool $ok @var bool $avisado @var ?string $error @var string $formToken */
 // ============================================================
 //  Página pública /r/cancelar?t=<token> (sin login; la dibuja pages/r.php).
 //
@@ -6,6 +6,7 @@
 //    · $r ......... la reserva vigente de la cadena del token, o null si el token no existe
 //    · $tipo ...... su tipo con quien la atiende (null si el tipo se borró)
 //    · $ok ........ true si se acaba de cancelar en este pedido
+//    · $avisado ... true si en este pedido salió el correo de la cancelación
 //    · $error ..... aviso del token de formulario o del límite de intentos
 //    · $formToken . token firmado de un solo uso para el POST ('cancelar')
 //
@@ -25,9 +26,11 @@ $tipoZona = $tipo ?? [];
         <div class="pub-pad">
             <?php if (!$r): ?>
                 <div class="flash flash-error">El enlace no es válido.</div>
-            <?php // También cuando ya estaba cancelada de antes: el texto promete un correo que en ese caso no sale ahora. ?>
-            <?php elseif ($ok || $r['estado'] === 'cancelada'): ?>
-                <div class="flash flash-success">La reunión quedó cancelada. Te mandamos la confirmación por correo.</div>
+            <?php // El correo sólo se promete si salió en este pedido. ?>
+            <?php elseif ($ok): ?>
+                <div class="flash flash-success">La reunión quedó cancelada.<?= !empty($avisado) ? ' Te mandamos la confirmación por correo.' : '' ?></div>
+            <?php elseif ($r['estado'] === 'cancelada'): ?>
+                <div class="flash flash-info">Esta reunión ya estaba cancelada. No tenés que hacer nada más.</div>
             <?php elseif ($r['estado'] !== 'confirmada'): ?>
                 <div class="flash flash-info">Esta reunión ya no está activa.</div>
             <?php else: $local = agenda_local(strtotime((string)$r['inicia_el']), $tipoZona); ?>

@@ -70,8 +70,9 @@ $avisoToken = static fn(?string $m): string => match ($m) {
 // ---- Cancelación desde el enlace del correo ----
 if ($resto === 'cancelar') {
     $r     = agenda_reserva_vigente((string)($_GET['t'] ?? ''));
-    $ok    = false;
-    $error = null;
+    $ok      = false;
+    $avisado = false;
+    $error   = null;
     if ($r && $r['estado'] === 'confirmada' && is_post()) {
         $m = null;
         if (!agenda_form_token_valido((string)($_POST['form_token'] ?? ''), (int)$r['tipo_id'], $m, 'cancelar', true)) {
@@ -80,7 +81,17 @@ if ($resto === 'cancelar') {
             http_response_code(429);
             $error = 'Hiciste varios cambios seguidos. Esperá un rato o escribinos y lo resolvemos.';
         } else {
-            $ok = agenda_cancelar((string)$r['token'], recortar(trim((string)($_POST['motivo'] ?? '')), 1000));
+            // agenda_cancelar() puede lanzar si el calendario quedó bloqueado
+            // por otro cambio: el visitante ve el aviso y puede reintentar.
+            try {
+                $ok = agenda_cancelar((string)$r['token'], recortar(trim((string)($_POST['motivo'] ?? '')), 1000), $avisado);
+            } catch (AgendaExcepcion $e) {
+                $error = $e->getMessage();
+            } catch (\Throwable $e) {
+                log_error('reservar.cancelar', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine());
+                $error = 'Tuvimos un problema al cancelar. Probá de nuevo en un momento; '
+                       . 'si sigue pasando, escribinos y lo resolvemos.';
+            }
             $r  = q1('SELECT * FROM agenda_reservas WHERE id = ?', [(int)$r['id']]) ?? $r;
         }
     }
@@ -89,6 +100,7 @@ if ($resto === 'cancelar') {
         'r'         => $r,
         'tipo'      => $tipo,
         'ok'        => $ok,
+        'avisado'   => $avisado,
         'error'     => $error,
         'formToken' => $r ? agenda_form_token((int)$r['tipo_id'], 'cancelar') : '',
         'bodyClass' => $bodyClass,

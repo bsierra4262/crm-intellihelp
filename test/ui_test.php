@@ -1311,7 +1311,7 @@ ok('el cálculo de horarios saca los feriados antes de consultar a Google',
 ok('la verificación final de un horario rechaza los feriados', str_contains($cuerpoFn($agendaSrc, 'agenda_hueco_libre'), "'feriado'"));
 ok('reservar en un feriado se rechaza por cualquier camino (antes de bloquear el calendario)',
    strpos($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_feriado_de_inicio(') < strpos($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_bloquear('));
-ok('mover una reunión a un feriado también', str_contains($cuerpoFn($agendaSrc, 'agenda_reprogramar'), 'agenda_feriado_de_inicio('));
+ok('mover una reunión a un feriado también', str_contains($cuerpoFn($agendaSrc, 'agenda_reprogramar_reserva'), 'agenda_feriado_de_inicio('));
 ok('la API de reserva responde 409 «feriado» con la fecha y el nombre',
    str_contains($leer('app/pages/api/v1/reserva.php'), "'feriado'                            => [409, 'feriado']")
    && str_contains($leer('app/pages/api/v1/reserva.php'), '+ $e->datos'));
