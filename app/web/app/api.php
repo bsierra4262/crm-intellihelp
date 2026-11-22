@@ -206,6 +206,11 @@ function api_auditar(int $codigo, string $error = ''): void
     $ctx = api_contexto();
     if ($ctx['escrito']) { return; }
     api_contexto(['escrito' => true]);
+    // Los rechazos de autenticación llegan antes de cualquier límite de tasa
+    // (que va por clave, y sin clave válida no hay clave): alguien que martilla
+    // la API con firmas falsas llenaría la auditoría. Se registran los primeros
+    // de cada origen y el resto se contesta igual, sin línea.
+    if (($codigo === 401 || $codigo === 403) && api_rechazo_silenciar()) { return; }
     $detalle = 'HTTP ' . $codigo . ($error !== '' ? ' · ' . $error : '')
              . ($ctx['entrada_id'] ? ' · entrada ' . (int)$ctx['entrada_id'] : '');
     log_api((string)$ctx['accion'], [
@@ -215,6 +220,25 @@ function api_auditar(int $codigo, string $error = ''): void
         'entidad_id' => $ctx['entrada_id'] ? (int)$ctx['entrada_id'] : null,
         'detalle'    => $detalle,
     ]);
+}
+
+/** Rechazos de autenticación que se registran por origen y ventana (API_RECHAZOS_SEG). */
+const API_RECHAZOS_MAX = 20;
+/** Ventana de API_RECHAZOS_MAX, en segundos. */
+const API_RECHAZOS_SEG = 600;
+
+/**
+ * ¿Este rechazo ya no merece una línea en la auditoría? Cuenta los rechazos
+ * por IP de origen (hasheada: la IP no se guarda) y, pasados API_RECHAZOS_MAX
+ * en la ventana, devuelve true. Sólo silencia la auditoría: la respuesta al
+ * pedido es la misma.
+ */
+function api_rechazo_silenciar(): bool
+{
+    $ip = function_exists('ip_confiable') ? (string) ip_confiable() : (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    $h  = function_exists('ip_hash') ? (string) ip_hash($ip) : hash('sha256', $ip);
+    return limite_superado('aud:' . ($h !== '' ? $h : 'sin-ip') . ':' . API_RECHAZOS_SEG,
+                           API_RECHAZOS_MAX, API_RECHAZOS_SEG);
 }
 
 /**
@@ -304,20 +328,22 @@ function api_metodo(array $permitidos): void
  */
 function api_fallo(\Throwable $e): never
 {
-    // Si falta una tabla es que el código llegó antes que la migración.
-    // Ojo: este atajo responde sin pasar por log_error(), así que una columna
-    // mal escrita en una consulta (también 42S22) se vería como «migración
-    // pendiente» y no dejaría rastro en la sección CRON.
-    if ($e instanceof \PDOException && ($e->getCode() === '42S02' || $e->getCode() === '42S22')) {
-        api_error(503, 'migracion_pendiente', 'El CRM se está actualizando. Probá de nuevo en unos minutos.');
-    }
     // El código sale del archivo y la línea: el mismo error da siempre el
     // mismo código, y así se agrupan los renglones repetidos.
+    // Se registra SIEMPRE, también lo que se contesta como «migración
+    // pendiente»: una columna mal escrita (42S22) o una tabla con otro nombre
+    // se verían para siempre como «actualizándose» sin dejar rastro.
     $codigo = 'ERR-' . strtoupper(substr(md5($e->getFile() . ':' . $e->getLine()), 0, 6));
     if (function_exists('log_error')) {
         log_error('error.api', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine());
     }
     error_log('[crm] api: ' . $e);
+    // Si falta una tabla o una columna, lo más probable es que el código haya
+    // llegado antes que la migración.
+    if ($e instanceof \PDOException && ($e->getCode() === '42S02' || $e->getCode() === '42S22')) {
+        api_error(503, 'migracion_pendiente', 'El CRM se está actualizando. Probá de nuevo en unos minutos.',
+                  ['codigo' => $codigo]);
+    }
     api_error(500, 'error_interno', 'No pudimos procesar el pedido. Ya quedó registrado.', ['codigo' => $codigo]);
 }
 
@@ -362,7 +388,8 @@ function api_cuerpo_crudo(int $max = API_MAX_CUERPO): string
  *
  * Los límites de tasa (api_limitar()) los aplica cada controlador DESPUÉS de
  * autenticar: un pedido que no pasa la firma no consume el cupo de la web.
- * Como contrapartida, cada rechazo deja su línea en la auditoría.
+ * Los rechazos dejan su línea en la auditoría, pero no más de
+ * API_RECHAZOS_MAX por origen y ventana (api_rechazo_silenciar()).
  *
  * Efectos: en una escritura registra la firma como usada (api_firma_usada())
  * y en todos los casos suma un uso a la clave. Responde 401/403/503 y termina
@@ -486,8 +513,9 @@ function api_cuerpo_hash(array $j): string
  * 429 con Retry-After si se pasa; si no, no hace nada.
  *
  * Cuenta el pedido aunque después falle por otro motivo (horario tomado,
- * feriado): el contador suma al consultar, no al terminar bien. Ventanas fijas
- * (limite_superado() en crm.php), y si la tabla no está deja pasar.
+ * feriado): el contador suma al consultar, no al terminar bien. Para contar
+ * sólo lo que sale bien están api_exigir_cupo() y api_limite_sumar(). Ventanas
+ * fijas (limite_superado() en crm.php), y si la tabla no está deja pasar.
  *
  * @param string $clave    'k:<token>:…' por clave o 'ip:<hash>:…' por visitante
  * @param int    $max      pedidos permitidos en la ventana
@@ -500,6 +528,67 @@ function api_limitar(string $clave, int $max, int $segundos): void
     if (!headers_sent()) { header('Retry-After: ' . $espera); }
     api_error(429, 'demasiados_pedidos', 'Llegaron demasiados pedidos seguidos. Probá de nuevo más tarde.',
               ['reintentar_en' => $espera]);
+}
+
+/**
+ * ¿Ya se usó todo el cupo de esta ventana? Sólo mira el contador, no suma.
+ *
+ * Es para los límites que cuentan lo que SALIÓ BIEN (una reserva que entró):
+ * se consulta antes y se suma después con api_limite_sumar(). Un intento que
+ * termina en horario tomado, feriado o error no gasta cupo. Si la tabla no
+ * está, no frena a nadie.
+ */
+function api_limite_lleno(string $clave, int $max, int $segundos): bool
+{
+    $segundos = max(1, $segundos);
+    try {
+        $n = (int) qv('SELECT conteo FROM api_limites WHERE clave = ? AND ventana = ?',
+                      [mb_substr($clave, 0, 120), intdiv(time(), $segundos)]);
+    } catch (\Throwable $e) {
+        return false;
+    }
+    return $n >= $max;
+}
+
+/** Suma uno al contador de la ventana actual (ver api_limite_lleno()). Nunca frena ni lanza. */
+function api_limite_sumar(string $clave, int $segundos): void
+{
+    limite_superado($clave, PHP_INT_MAX, $segundos);
+}
+
+/** Como api_limitar(), pero sin sumar: 429 si el cupo de lo que salió bien ya está lleno. */
+function api_exigir_cupo(string $clave, int $max, int $segundos): void
+{
+    if (!api_limite_lleno($clave, $max, $segundos)) { return; }
+    $espera = limite_espera($segundos);
+    if (!headers_sent()) { header('Retry-After: ' . $espera); }
+    api_error(429, 'demasiados_pedidos', 'Llegaron demasiados pedidos seguidos. Probá de nuevo más tarde.',
+              ['reintentar_en' => $espera]);
+}
+
+/**
+ * Bloqueo con nombre de MariaDB (GET_LOCK), con el nombre de la base adelante
+ * para que producción y pruebas no se frenen entre sí. Espera hasta $espera
+ * segundos. Devuelve true si lo tomó o si la base no tiene bloqueos con
+ * nombre (la de las pruebas): en ese caso se sigue sin bloqueo.
+ *
+ * El nombre se corta en 24 caracteres: MariaDB no acepta nombres de más de
+ * 64, y adelante va el de la base.
+ */
+function api_bloquear(string $nombre, int $espera = 5): bool
+{
+    try {
+        $r = qv('SELECT GET_LOCK(CONCAT(DATABASE(), ?), ?)', [':' . mb_substr($nombre, 0, 24), $espera]);
+        return (int)$r === 1;
+    } catch (\Throwable $e) {
+        return true;
+    }
+}
+
+/** Suelta lo que tomó api_bloquear(). Nunca lanza. */
+function api_soltar(string $nombre): void
+{
+    try { q('DO RELEASE_LOCK(CONCAT(DATABASE(), ?))', [':' . mb_substr($nombre, 0, 24)]); } catch (\Throwable $e) {}
 }
 
 // ------------------------------------------------------------
@@ -774,6 +863,7 @@ function api_respuesta_guardable(int $codigo, array $datos): string
  *  · otro pedido con la misma clave → 409 idempotencia_reusada.
  *
  * Las que terminaron con error no llegan acá: se retoman (api_entrada_abrir()).
+ * Las que quedaron trabadas se reparan antes (api_reparar_previa()).
  */
 function api_responder_previa(array $previa, string $cuerpoHash): never
 {
@@ -822,7 +912,101 @@ function api_previa_respuesta(array $previa, string $cuerpoHash): array
 function api_atender_repetido(int $tokenId, string $idem, string $cuerpoHash): ?array
 {
     $previa = q1('SELECT * FROM entradas_web WHERE token_id = ? AND idempotencia = ?', [$tokenId, $idem]);
+    if ($previa) { $previa = api_reparar_previa($previa); }
     if ($previa && $previa['estado'] !== 'error') { api_responder_previa($previa, $cuerpoHash); }
+    return $previa;
+}
+
+/** Segundos tras los que una entrada 'procesando' sin nada creado se da por muerta. */
+const API_PROCESANDO_VENCE_SEG = 120;
+
+/**
+ * La respuesta de una reserva que entró, igual para la primera vez y para la
+ * reparación de una entrada trabada (api_reparar_previa()): la web lee
+ * `reserva.inicio`.
+ *
+ * @param array $reserva fila de agenda_reservas (id, inicia_el, termina_el, estado)
+ * @param array $tipo    el tipo de reunión (duracion_min y la zona, agenda_zona())
+ */
+function api_respuesta_reserva(array $reserva, array $tipo, int $entradaId): array
+{
+    $zona = function_exists('agenda_zona') ? agenda_zona($tipo)
+          : new DateTimeZone(date_default_timezone_get());
+    // inicia_el/termina_el son DATETIME en la hora del servidor (la base
+    // habla la misma hora que PHP, db.php): se leen así y se pasan a la zona
+    // del tipo con su desplazamiento.
+    $iso = static fn(string $f): string => (new DateTimeImmutable($f))->setTimezone($zona)->format('c');
+    return [
+        'ok'         => true,
+        'repetida'   => false,
+        'entrada_id' => $entradaId,
+        'reserva'    => [
+            'id'           => (int)$reserva['id'],
+            'inicio'       => $iso((string)$reserva['inicia_el']),
+            'fin'          => $iso((string)$reserva['termina_el']),
+            'duracion_min' => (int)$tipo['duracion_min'],
+            'estado'       => (string)$reserva['estado'],
+        ],
+        'mensaje'    => 'Reunión confirmada. Te mandamos un mail con el enlace de la videollamada.',
+    ];
+}
+
+/**
+ * Repara una entrada que quedó a medias y devuelve la fila como quedó.
+ *
+ *  · Tiene reserva enlazada (agenda_reservar() la enlaza en su transacción)
+ *    pero no quedó 'ok' con su respuesta: el proceso murió entre el commit y
+ *    el «ok», o falló esa escritura. La reunión existe: se arma la respuesta
+ *    con ella y la entrada pasa a 'ok'. El reintento con la misma clave
+ *    recibe esa reserva («repetida»), no un 409 en_proceso eterno ni un
+ *    horario_tomado contra su propia reunión.
+ *  · Sigue 'procesando' sin nada creado hace más de API_PROCESANDO_VENCE_SEG:
+ *    el proceso murió antes del commit, y lo que estaba en la transacción se
+ *    deshizo. Pasa a 'error' («vencida») para que el reintento la retome.
+ *
+ * Las dos actualizaciones son condicionales al estado que se leyó: si otro
+ * proceso la tocó en el medio, no se pisa.
+ */
+function api_reparar_previa(array $previa): array
+{
+    $id     = (int)($previa['id'] ?? 0);
+    $estado = (string)($previa['estado'] ?? '');
+    $guardada = json_decode((string)($previa['respuesta'] ?? ''), true);
+    $conDatos = is_array($guardada) && is_array($guardada['datos'] ?? null);
+
+    if (!empty($previa['reserva_id']) && ($estado !== 'ok' || !$conDatos) && $estado !== 'descartada'
+        && function_exists('agenda_tipo_get')) {
+        try {
+            $reserva = q1('SELECT * FROM agenda_reservas WHERE id = ?', [(int)$previa['reserva_id']]);
+            $tipo    = $reserva ? agenda_tipo_get((int)$reserva['tipo_id']) : null;
+            if ($reserva && $tipo) {
+                $respuesta = api_respuesta_reserva($reserva, $tipo, $id);
+                $guardar   = api_respuesta_guardable(201, $respuesta);
+                $n = q('UPDATE entradas_web SET estado = ?, error = NULL, respuesta = ?, propietario_id = ?
+                         WHERE id = ? AND estado = ?',
+                       ['ok', $guardar, (int)$reserva['usuario_id'], $id, $estado])->rowCount();
+                if ($n === 1) {
+                    return ['estado' => 'ok', 'error' => null, 'respuesta' => $guardar] + $previa;
+                }
+                return q1('SELECT * FROM entradas_web WHERE id = ?', [$id]) ?? $previa;
+            }
+        } catch (\Throwable $e) {
+            if (function_exists('log_error')) {
+                log_error('error.api', 'No se pudo reparar la entrada ' . $id . ': ' . $e->getMessage(),
+                          $e->getFile(), $e->getLine());
+            }
+            return $previa;
+        }
+    }
+
+    if ($estado === 'procesando' && empty($previa['reserva_id'])) {
+        $desde = strtotime((string)($previa['actualizado_en'] ?? '') ?: (string)($previa['creado_en'] ?? ''));
+        if ($desde !== false && $desde > 0 && time() - $desde > API_PROCESANDO_VENCE_SEG) {
+            $n = q("UPDATE entradas_web SET estado = 'error', error = 'vencida'
+                     WHERE id = ? AND estado = 'procesando' AND reserva_id IS NULL", [$id])->rowCount();
+            if ($n === 1) { return ['estado' => 'error', 'error' => 'vencida'] + $previa; }
+        }
+    }
     return $previa;
 }
 
@@ -844,6 +1028,7 @@ function api_entrada_abrir(array $fila, ?array $previa, string $cuerpoHash): int
         $id = entrada_web_guardar($fila, $previa);
         if ($id > 0) { return $id; }
     }
+    $previa = api_reparar_previa($previa);
     // Retomar es condicional al estado 'error': de dos reintentos simultáneos
     // sólo uno gana; el otro recibe la respuesta de la fila (en_proceso).
     if ($previa['estado'] === 'error' && entrada_web_retomar((int)$previa['id'], $fila)) {
@@ -851,4 +1036,35 @@ function api_entrada_abrir(array $fila, ?array $previa, string $cuerpoHash): int
     }
     $actual = q1('SELECT * FROM entradas_web WHERE id = ?', [(int)$previa['id']]) ?? $previa;
     api_responder_previa($actual, $cuerpoHash);
+}
+
+// ------------------------------------------------------------
+//  Registro desde el navegador (pages/api-log.php)
+// ------------------------------------------------------------
+//  Pese al nombre de la ruta, no es parte de la API v1: la usa el layout para
+//  mandar a la auditoría los errores de JavaScript (window.appLog). Vive acá
+//  porque api.php se carga siempre y así se puede probar sin servidor.
+
+/**
+ * Acción, detalle y tipo de una línea que manda el navegador, ya acotados, o
+ * null si no se registra.
+ *
+ *  · la acción tiene que ser del espacio del cliente, `js.<algo>` (letras,
+ *    números, punto, guión): nadie puede escribir una línea que parezca de
+ *    otra parte del sistema (`sesion.ingreso`, `campana.envio`…);
+ *  · el detalle queda en una línea, sin caracteres de control y hasta 300
+ *    caracteres;
+ *  · el tipo sólo puede ser accion, nav o error (nunca 'auth' ni 'sistema').
+ *
+ * @return array{accion:string,detalle:string,tipo:string}|null
+ */
+function cliente_log_limpio(array $post): ?array
+{
+    $accion = trim((string)($post['accion'] ?? ''));
+    if (!preg_match('/^js\.[a-z0-9_.-]{1,40}$/', $accion)) { return null; }
+    $detalle = (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', (string)($post['detalle'] ?? ''));
+    $detalle = mb_substr(trim($detalle), 0, 300);
+    $tipo = (string)($post['tipo'] ?? 'accion');
+    if (!in_array($tipo, ['accion', 'nav', 'error'], true)) { $tipo = 'accion'; }
+    return ['accion' => $accion, 'detalle' => $detalle, 'tipo' => $tipo];
 }

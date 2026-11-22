@@ -70,13 +70,15 @@
         dato('Cuerpo', 'JSON (Content-Type: application/json), hasta 16 KB');
         ?>
     </div>
-    <?php // Atención: esta fórmula está desactualizada; la real (api_firma_canonica) también firma la idempotencia y el hash de la IP, entre la ruta y el cuerpo. ?>
+    <?php // La fórmula tiene que ser la misma de api_firma_canonica() (app/api.php): ui_test lo controla. ?>
     <p class="muted small mt-3">
-        La firma es <code class="mono">hex(HMAC-SHA256(secreto, hora + "\n" + MÉTODO + "\n" + ruta + "\n" + cuerpo))</code>.
+        La firma es <code class="mono">hex(HMAC-SHA256(secreto, hora + "\n" + MÉTODO + "\n" + ruta + "\n" + idempotencia + "\n" + hashIP + "\n" + cuerpo))</code>.
         La hora va en segundos Unix y se acepta con hasta 5 minutos de diferencia. La ruta es la que
         viaja en el pedido, con la carpeta de esta instalación y la consulta incluidas
         (<code class="mono"><?= e((BASE_PATH ?: '') . '/api/v1/reserva') ?></code>): una firma hecha
-        para otra instalación no sirve acá. En un GET el cuerpo va vacío.
+        para otra instalación no sirve acá. <em>idempotencia</em> y <em>hashIP</em> son los valores
+        exactos de las cabeceras X-ITH-Idempotency y X-ITH-Client-IP-Hash. En un GET esas dos y el
+        cuerpo van vacíos (quedan los saltos de línea).
     </p>
     <p class="muted small">
         La clave de idempotencia es única por formulario: si la web reintenta con la misma, el CRM

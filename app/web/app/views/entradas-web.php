@@ -12,7 +12,7 @@
 //    · $usuarios  usuarios activos (para el responsable y para nombrar al automático);
 //    · $dueno     id elegido en `web_dueno_id` (0 = automático);
 //    · $duenoAuto id que tocaría en automático;
-//    · $esAdmin   muestra el formulario de responsable.
+//    · $esAdmin   muestra el formulario de responsable y el botón Exportar.
 //
 //  Todo lo que vino de la web (nombre, correo, canal, UTM, páginas) se
 //  escapa con e(): son datos que escribió un visitante cualquiera.
@@ -41,9 +41,12 @@ foreach ($usuarios as $u) { $nombreDe[(int)$u['id']] = $u['nombre']; }
         <h1>Entradas desde la web</h1>
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> consultas y reuniones que llegaron de intellihelp.tech</p>
     </div>
+    <?php // Exportar baja datos personales: sólo administración (el servidor también lo controla). ?>
+    <?php if ($esAdmin): ?>
     <div class="head-actions">
         <a class="btn btn-ghost" href="<?= e(url('entradas-web' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
     </div>
+    <?php endif; ?>
 </div>
 
 <?php /* Lo que la consultora mira cada mes, canal por canal. Se calcula con los

@@ -763,11 +763,11 @@ ok('el aviso se borra solo si la cuenta se reconectó después de la falla',
    && str_contains($gcalSrc, "str_contains(mb_strtolower((string)(\$d['mensaje'] ?? '')), 'no tiene su cuenta')"));
 ok('y al reconectar se borra en el acto, sin esperar a nada',
    str_contains((string) @file_get_contents($WEB . '/app/pages/google-callback.php'),
-                'gcal_recordar_falla((int)$usuario[\'id\'], 0, \'\')'));
+                'gcal_limpiar_falla((int)$usuario[\'id\'])'));
 // Que se limpie sola no puede convertirse en tapar un problema real: sólo
 // aplica a la falla por cuenta desconectada, no a la API apagada.
 ok('sólo se limpia ese caso, no cualquier falla',
-   preg_match("/no tiene su cuenta.*?setting_set\('gcal_falla', ''\)/s", $gcalSrc) === 1);
+   preg_match("/no tiene su cuenta.*?setting_set\(\(string\)\\\$d\['clave'\], ''\)/s", $gcalSrc) === 1);
 
 echo "== Los campos se ven como campos en TODAS las pantallas ==\n";
 // Las reglas arrancaban en `.fld`, `.filters` o `.urow`, así que un campo puesto

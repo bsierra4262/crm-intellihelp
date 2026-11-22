@@ -16,7 +16,8 @@ declare(strict_types=1);
 //  Contrato: md/INTEGRACION-WEB.md §5.7. Orden: firma → límite por clave
 //  (30/min) → idempotencia y hash del visitante → validación → reintento con
 //  la misma clave (se contesta lo de antes, sin consumir límites del
-//  visitante) → límites por visitante (5/hora, 10/día) → duplicada o nueva.
+//  visitante) → límites por visitante (5/hora, 10/día) → duplicada o nueva
+//  (con un bloqueo por correo para que dos envíos simultáneos no entren los dos).
 //  Tablas: entradas_web (la fila del pedido); lo demás (contacto, empresa,
 //  nota, tarea, alerta) lo crea entrada_web_consulta() en crm.php.
 // ============================================================
@@ -53,23 +54,30 @@ try {
     // descartada. Se guarda igual, para que se vea en la pantalla de entradas
     // que llegó dos veces, pero no genera otra tarea ni otra nota.
     // La respuesta lleva el id de la consulta ORIGINAL, no el de esta fila.
-    // Es una consulta y después una inserción, sin bloqueo: dos envíos en el
-    // mismo instante pueden entrar los dos.
-    $duplicada = entrada_web_duplicada($d, (int)$token['id'], $idem);
-    if ($duplicada > 0) {
-        $respuesta = ['ok' => true, 'repetida' => true, 'entrada_id' => $duplicada];
+    // Buscar la duplicada y abrir la entrada van con un bloqueo por correo:
+    // sin él, dos envíos en el mismo instante no se veían entre sí y entraban
+    // los dos (dos tareas). La duplicada cuenta también las 'procesando', así
+    // que alcanza con que el bloqueo cubra hasta la inserción.
+    $bloqueo = 'ew:' . substr(sha1((string)$d['email']), 0, 20);
+    $bloqueado = api_bloquear($bloqueo);
+    try {
+        $duplicada = entrada_web_duplicada($d, (int)$token['id'], $idem);
         $entradaId = api_entrada_abrir($fila, $previa, $cuerpoHash);
         api_contexto(['entrada_id' => $entradaId]);
-        entrada_web_actualizar($entradaId, [
-            'estado'    => 'descartada',
-            'error'     => 'duplicada de la entrada ' . $duplicada,
-            'respuesta' => api_respuesta_guardable(200, $respuesta),
-        ]);
+        if ($duplicada > 0) {
+            $respuesta = ['ok' => true, 'repetida' => true, 'entrada_id' => $duplicada];
+            entrada_web_actualizar($entradaId, [
+                'estado'    => 'descartada',
+                'error'     => 'duplicada de la entrada ' . $duplicada,
+                'respuesta' => api_respuesta_guardable(200, $respuesta),
+            ]);
+        }
+    } finally {
+        if ($bloqueado) { api_soltar($bloqueo); }
+    }
+    if ($duplicada > 0) {
         api_responder(200, $respuesta);
     }
-
-    $entradaId = api_entrada_abrir($fila, $previa, $cuerpoHash);
-    api_contexto(['entrada_id' => $entradaId]);
 
     entrada_web_consulta($entradaId, $d);
 

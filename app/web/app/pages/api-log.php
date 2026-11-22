@@ -8,21 +8,17 @@ require_login();
 // Ruta: POST api-log, con sesión y token CSRF. Pese al nombre, no tiene que
 // ver con la API para otros sistemas: escribe en la auditoría general
 // (log_app), a nombre del usuario de la sesión. Núcleo.
-// La acción y el detalle llegan tal cual del navegador: cualquier usuario con
-// sesión puede dejar una línea con el texto que quiera. El tipo sí se limita
-// a una lista para que no se pueda hacer pasar por 'auth'.
+// Lo que llega del navegador se acota con cliente_log_limpio() (api.php):
+// sólo acciones `js.*`, detalle de una línea y corto, y un tipo de una lista
+// cerrada (nunca 'auth' ni 'sistema'). Además, no más de 30 líneas por minuto
+// por usuario: un error de JavaScript en un bucle no llena la auditoría.
 if (!is_post()) {
     json_out(['ok' => false], 405);
 }
 verify_csrf();
 
-$accion  = trim((string)($_POST['accion'] ?? ''));
-$detalle = trim((string)($_POST['detalle'] ?? ''));
-$tipo    = (string)($_POST['tipo'] ?? 'accion');
-if (!in_array($tipo, ['accion', 'nav', 'error', 'sistema'], true)) {
-    $tipo = 'accion';
-}
-if ($accion !== '') {
-    log_app($accion, ['tipo' => $tipo, 'detalle' => $detalle]);
+$linea = cliente_log_limpio($_POST);
+if ($linea !== null && !limite_superado('jslog:u' . (int) current_user_id() . ':60', 30, 60)) {
+    log_app($linea['accion'], ['tipo' => $linea['tipo'], 'detalle' => $linea['detalle']]);
 }
 json_out(['ok' => true]);

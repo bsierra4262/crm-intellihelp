@@ -255,10 +255,13 @@ if ($hacerlo) {
     // La marca del cron también se limpia, para que la próxima corrida arranque
     // como si fuera la primera. `imap_ultima_corrida` en vacío hace que la
     // próxima corrida lea las casillas sin esperar; `gcal_falla` borra el
-    // último aviso de error de Google.
+    // último aviso de error de Google (el viejo, único, y los de cada vendedor,
+    // `gcal_falla_u<id>`, con las marcas de permiso rechazado `google_invalido_u<id>`).
     foreach (['cron_ultima_corrida', 'imap_ultima_corrida', 'gcal_falla'] as $k) {
         setting_set($k, '');
     }
+    q("UPDATE app_settings SET valor = '' WHERE clave LIKE 'gcal_falla_u%' OR clave LIKE 'google_invalido_u%'");
+    setting_refrescar();
     echo "\nBorrados $total registros.\n";
 } else {
     echo "\nSerían $total registros. Volvé a correrlo con --hacerlo para borrarlos de verdad.\n";
