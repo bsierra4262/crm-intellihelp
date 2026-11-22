@@ -230,8 +230,8 @@ $bootAssets = (string) @file_get_contents($WEB . '/app/bootstrap.php');
 ok('la versión sale sola de los archivos, no de un número a mano',
    str_contains($bootAssets, 'filemtime') && preg_match("/define\('ASSETS_V',\s*'\d+'\)/", $bootAssets) !== 1,
    '→ un paso manual que hay que recordar se olvida');
-ok('la hoja de estilos entra en el cálculo', str_contains($bootAssets, 'css/app.css'));
-ok('el aviso de sesión entra en el cálculo', str_contains($bootAssets, 'js/idle.js'));
+ok('la hoja de estilos entra en el cálculo', str_contains($bootAssets, "css/*.css"));
+ok('todos los scripts entran en el cálculo (no una lista fija)', str_contains($bootAssets, "js/*.js"));
 
 // ============================================================
 //  Estilos en línea y clases del sistema de diseño

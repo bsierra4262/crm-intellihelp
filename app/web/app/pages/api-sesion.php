@@ -29,5 +29,12 @@ $idleTtl = (int)($GLOBALS['CONFIG']['app']['idle_ttl'] ?? 600);
 $absTtl  = (int)($GLOBALS['CONFIG']['app']['abs_ttl']  ?? 28800);
 // `abs_resto`: segundos que le quedan a la sesión antes del tope absoluto.
 $resto   = max(0, $absTtl - ($ahora - (int)($_SESSION['login_en'] ?? $ahora)));
+// `idle_resto`: segundos hasta el corte por inactividad. idle.js consulta con
+// `__vivo=1` antes de cerrar (bootstrap no lo cuenta como actividad), así que
+// refleja la última actividad real de cualquier pestaña. null si el corte por
+// inactividad está desactivado (idle_ttl = 0).
+$idleResto = $idleTtl > 0
+    ? max(0, $idleTtl - ($ahora - (int)($_SESSION['ultima_actividad'] ?? $ahora)))
+    : null;
 
-echo json_encode(['ok' => true, 'idle' => $idleTtl, 'abs_resto' => $resto]);
+echo json_encode(['ok' => true, 'idle' => $idleTtl, 'abs_resto' => $resto, 'idle_resto' => $idleResto]);

@@ -26,8 +26,8 @@
 //      input[name="ids[]"]: selección múltiple de contactos y empresas.
 //    · .filefield input[type=file]: muestra el nombre del archivo elegido.
 //
-//  Lee window.__sesion (lo arma layout.php) y escucha el evento
-//  `vivo:actualizado` que dispara secciones.js al reemplazar una zona.
+//  Escucha el evento `vivo:actualizado` que dispara secciones.js al
+//  reemplazar una zona.
 //  Expone window.crmConfirmar(opciones), que usa editor.js.
 // ------------------------------------------------------------
 (function () {
@@ -54,12 +54,12 @@
         overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         overlay.innerHTML =
-            '<div class="modal" role="dialog" aria-modal="true">' +
+            '<div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="confTit" aria-describedby="confTxt">' +
               '<div class="modal-head">' +
-                '<span class="modal-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4M12 17h.01"/></svg></span>' +
-                '<h2></h2>' +
+                '<span class="modal-ic" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4M12 17h.01"/></svg></span>' +
+                '<h2 id="confTit"></h2>' +
               '</div>' +
-              '<div class="modal-body"></div>' +
+              '<div class="modal-body" id="confTxt"></div>' +
               '<div class="modal-foot">' +
                 '<button type="button" class="btn btn-ghost" data-accion="no">Cancelar</button>' +
                 '<button type="button" class="btn btn-primary" data-accion="si">Confirmar</button>' +
@@ -72,9 +72,12 @@
     /**
      * Muestra la ventana de confirmación y espera la respuesta.
      *
-     * Escape, Cancelar o un clic en el velo responden «no»; Confirmar o la
-     * tecla Enter responden «sí». Ojo: Enter confirma esté donde esté el foco,
-     * incluso si el foco quedó sobre «Cancelar».
+     * Escape, Cancelar o un clic en el velo responden «no»; Confirmar responde
+     * «sí». El foco arranca en «Confirmar» y Enter o Espacio activan el botón
+     * que tiene el foco (el comportamiento normal de un botón): con el foco en
+     * «Cancelar», Enter cancela. Tab y Mayús+Tab giran entre los dos botones
+     * sin salir de la ventana, y al cerrarse el foco vuelve a donde estaba
+     * (normalmente, el botón que pidió la confirmación).
      *
      * @param {Object}  opciones
      * @param {string}  [opciones.titulo]  título; por defecto «¿Confirmás?».
@@ -86,9 +89,12 @@
     function confirmar(opciones) {
         return new Promise(function (resolve) {
             var ov = construirModal();
+            // Dónde estaba el foco antes de abrir, para devolverlo al cerrar.
+            var previo = document.activeElement;
             ov.querySelector('h2').textContent = opciones.titulo || '¿Confirmás?';
             ov.querySelector('.modal-body').textContent = opciones.texto || '';
             var btnSi = ov.querySelector('[data-accion="si"]');
+            var btnNo = ov.querySelector('[data-accion="no"]');
             btnSi.textContent = opciones.aceptar || 'Confirmar';
             btnSi.className = 'btn ' + (opciones.peligro ? 'btn-danger' : 'btn-primary');
             ov.querySelector('.modal-ic').className = 'modal-ic' + (opciones.peligro ? '' : ' info');
@@ -99,33 +105,94 @@
             // si quedaran colgados, cada confirmación sumaría uno más.
             function cerrar(valor) {
                 ov.classList.remove('open');
-                document.removeEventListener('keydown', porTecla);
+                document.removeEventListener('keydown', porTecla, true);
                 ov.onclick = null;
+                if (previo && typeof previo.focus === 'function' && document.contains(previo)) {
+                    try { previo.focus(); } catch (e) {}
+                }
                 resolve(valor);
             }
+            // En captura y frenando la propagación: mientras la ventana está
+            // abierta, Escape y Tab son sólo de ella (no cierran el cajón ni
+            // una lista de selects.js que hubiera quedado detrás).
             function porTecla(e) {
-                if (e.key === 'Escape') { cerrar(false); }
-                if (e.key === 'Enter')  { cerrar(true); }
+                if (e.key === 'Escape') {
+                    e.preventDefault(); e.stopPropagation();
+                    cerrar(false);
+                    return;
+                }
+                if (e.key === 'Tab') {
+                    // Encierra el foco entre los dos botones.
+                    e.preventDefault(); e.stopPropagation();
+                    (document.activeElement === btnSi ? btnNo : btnSi).focus();
+                    return;
+                }
+                // Con el foco fuera de los botones (un clic en el texto, por
+                // ejemplo), Enter no confirma nada: se devuelve el foco a la
+                // ventana y la persona elige.
+                if (e.key === 'Enter' && document.activeElement !== btnSi && document.activeElement !== btnNo) {
+                    e.preventDefault();
+                    btnSi.focus();
+                }
             }
             ov.onclick = function (e) {
                 var a = e.target.closest('[data-accion]');
                 if (a) { cerrar(a.getAttribute('data-accion') === 'si'); }
                 else if (e.target === ov) { cerrar(false); }
             };
-            document.addEventListener('keydown', porTecla);
+            document.addEventListener('keydown', porTecla, true);
         });
+    }
+
+    /**
+     * Envía el formulario de un botón ya confirmado como si se lo hubiera
+     * apretado: con su name/value y pasando por el evento `submit` (validación
+     * del navegador, aviso de data-cargando, secciones.js).
+     *
+     * requestSubmit(boton) hace justamente eso. En navegadores que no lo
+     * tienen se agrega al formulario un campo oculto con el name/value del
+     * botón (va al final, así que PHP se queda con ese si había otro campo
+     * con el mismo nombre, como el `accion=guardar` de Ajustes) y se envía con
+     * submit(), que no dispara `submit` ni valida.
+     *
+     * @param {HTMLFormElement} form
+     * @param {HTMLElement} el el botón confirmado.
+     */
+    function enviarConBoton(form, el) {
+        var esEnvio = (el.tagName === 'BUTTON' || el.tagName === 'INPUT') && el.type === 'submit';
+        if (typeof form.requestSubmit === 'function') {
+            // requestSubmit sólo acepta como «remitente» un botón de envío de
+            // ese mismo formulario; si no lo es, se envía sin remitente.
+            if (esEnvio) { form.requestSubmit(el); } else { form.requestSubmit(); }
+            return;
+        }
+        var nombre = el.getAttribute('name');
+        if (esEnvio && nombre) {
+            var oculto = form.querySelector('input[type="hidden"][data-remitente]');
+            if (!oculto) {
+                oculto = document.createElement('input');
+                oculto.type = 'hidden';
+                oculto.setAttribute('data-remitente', '1');
+                form.appendChild(oculto);
+            }
+            oculto.name  = nombre;
+            oculto.value = el.value;
+        }
+        form.submit();
     }
 
     // Intercepta cualquier elemento con data-confirmar y frena la acción hasta
     // que el usuario acepte. Funciona con enlaces y con botones de formulario.
     // Se escucha en fase de captura para frenar el clic antes que cualquier
-    // otro manejador. Una vez aceptado, el elemento queda marcado con
-    // data-confirmado="1" y el clic repetido ya no pregunta.
-    // Trampa: para un botón de formulario se llama a form.submit(), que NO
-    // incluye el name/value del botón apretado ni dispara el evento `submit`
-    // (no aparece el aviso de data-cargando). Un formulario que distingue la
-    // acción por el botón (`name="accion" value="..."`) recibe la del campo
-    // oculto o ninguna.
+    // otro manejador.
+    // Un botón de formulario se envía con enviarConBoton(): llega el
+    // name/value del botón (los formularios que distinguen la acción por el
+    // botón, como Ajustes, Feriados o «Aprobar las marcadas», dependen de eso)
+    // y corre el evento `submit`. requestSubmit no vuelve a disparar `click`,
+    // así que no se pregunta dos veces; igual, mientras se envía, el elemento
+    // queda marcado con data-confirmado="1" y este manejador lo deja pasar.
+    // Si el envío no salió (el navegador lo frenó por un campo inválido), la
+    // marca se quita: el próximo clic vuelve a preguntar.
     document.addEventListener('click', function (e) {
         var el = e.target.closest('[data-confirmar]');
         if (!el || el.dataset.confirmado === '1') { return; }
@@ -139,9 +206,15 @@
         }).then(function (ok) {
             if (!ok) { return; }
             el.dataset.confirmado = '1';
-            if (el.tagName === 'A') { window.location.href = el.href; }
-            else if (el.form)       { el.form.submit(); }
-            else                    { el.click(); }
+            if (el.tagName === 'A') { window.location.href = el.href; return; }
+            try {
+                if (el.form) { enviarConBoton(el.form, el); }
+                else         { el.click(); }
+            } finally {
+                // El envío ya arrancó (o lo frenó la validación) dentro de
+                // la llamada: la marca no hace falta más.
+                delete el.dataset.confirmado;
+            }
         });
     }, true);
 
@@ -167,32 +240,8 @@
         if (e.key === 'Escape') { document.body.classList.remove('nav-open'); }
     });
 
-    // --------------------------------------------------------
-    //  Aviso de cierre de sesión por inactividad.
-    //  Es SOLO cosmético: quien corta la sesión de verdad es el servidor.
-    //
-    //  Este bloque es anterior a idle.js y quedó duplicado: idle.js hace lo
-    //  mismo con aviso previo, latido y una revisión cada 2 segundos, así que
-    //  casi siempre llega primero. Diferencias: este manda a «login» (no a
-    //  «logout», así que no cierra la sesión en el servidor) y sólo corre si
-    //  la configuración trae idle > 0; idle.js usa 600 segundos por defecto.
-    //  Revisa cada 15 segundos.
-    // --------------------------------------------------------
-    var cfg = window.__sesion;
-    if (cfg && cfg.idle > 0) {
-        var ultimo = Date.now();
-        ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(function (ev) {
-            document.addEventListener(ev, function () { ultimo = Date.now(); }, { passive: true });
-        });
-        setInterval(function () {
-            var inactivo = (Date.now() - ultimo) / 1000;
-            // cfg.loginAt viene en segundos (time() de PHP); Date.now() en ms.
-            var vencida  = cfg.abs > 0 && (Date.now() / 1000 - cfg.loginAt) > cfg.abs;
-            if (inactivo > cfg.idle || vencida) {
-                window.location.href = cfg.base + 'login?expiro=' + (vencida ? 'expiro' : 'inactividad');
-            }
-        }, 15000);
-    }
+    // El aviso y el cierre por inactividad son de idle.js (había acá un
+    // bloque viejo que hacía una versión reducida y se quitó).
 
     // --------------------------------------------------------
     //  Filtros: el botón «Limpiar» vacía sin recargar dos veces
