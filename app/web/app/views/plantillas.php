@@ -76,7 +76,7 @@
                             <input type="hidden" name="volver" value="plantillas">
                             <button class="act danger" title="Enviar a la papelera" data-peligro
                                     data-confirmar-titulo="Enviar a la papelera"
-                                    data-confirmar="La plantilla &laquo;<?= e($p['nombre']) ?>&raquo; deja de estar a la vista. Las campañas que ya la usaron no se tocan. Se puede restaurar durante 60 días."
+                                    data-confirmar="La plantilla &laquo;<?= e($p['nombre']) ?>&raquo; deja de estar a la vista. Las campañas que ya la usaron no se tocan. Se puede restaurar durante <?= (int) dias_papelera() ?> días."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
 

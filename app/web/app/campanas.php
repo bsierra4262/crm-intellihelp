@@ -35,16 +35,23 @@ require_once __DIR__ . '/envio.php';
 //
 //  Estados de un envío (`envios.estado`):
 //    pendiente → enviando → enviado | rechazado (5xx en RCPT) | error (tras
-//    20 intentos fallidos). «omitido» es lo que nunca se intentó (baja,
-//    inválido, campaña cancelada). «rebotado» lo pone después el lector IMAP
-//    o marcar_rebote() sobre un envío que ya había salido.
+//    20 intentos fallidos, un 5xx en otro paso, o un envío «dudoso» que pudo
+//    haber salido y no se reintenta solo). «omitido» es lo que nunca se
+//    intentó (baja, inválido, papelera, fuera de la lista blanca del modo
+//    prueba, campaña cancelada). «rebotado» lo pone después el lector IMAP o
+//    marcar_rebote() sobre un envío que ya había salido.
 //
 //  Estados de una campaña: borrador → (programada) → enviando ⇄ pausada →
-//  completada | cancelada. No hay paso de aprobación: cualquier usuario con
-//  sesión y el módulo encendido puede iniciar cualquier campaña.
+//  completada | cancelada. No hay paso de aprobación. Iniciar y cancelar
+//  sólo pueden su creador, su responsable o un admin
+//  (campana_puede_gestionar()); las transiciones válidas las fija
+//  campana_transicion_valida().
 //
-//  Trampa: los valores de las variables ({{nombre}}, {{empresa}}…) se
-//  insertan en el HTML tal cual, sin escapar (ver render_plantilla()).
+//  Modo prueba (es_testing()): el despachador sólo manda a la lista blanca
+//  (campana_lista_blanca()); lo demás queda omitido.
+//
+//  Los valores de las variables ({{nombre}}, {{empresa}}…) se escapan al
+//  insertarlos en el HTML (render_plantilla() con $html = true).
 // ============================================================
 
 // Cada cuánto se despierta el cron en el hosting, y cuánto trabaja cada vez.
@@ -161,28 +168,29 @@ function contexto_marca(): array
 /**
  * Crea o actualiza una plantilla.
  *
- * Hay dos tipos: 'visual' (se arma con bloques y el HTML se genera acá) y
- * 'html' (el HTML viene escrito a mano en `cuerpo_html`). La pantalla sólo
- * manda 'visual', pero el tipo 'html' se acepta igual si llega en el POST y
- * en ese caso el HTML se guarda sin ningún saneamiento.
+ * Siempre se guarda como 'visual': el HTML se genera acá a partir de los
+ * bloques. El tipo 'html' (HTML escrito a mano en `cuerpo_html`) existió
+ * pero ninguna pantalla lo manda, y aceptarlo de un POST armado a mano
+ * dejaba guardar cualquier HTML (scripts incluidos) que después se mostraba
+ * en el CRM. Si llega `tipo=html` o `cuerpo_html`, se ignoran.
  *
- * @param array    $d  datos del formulario: nombre, asunto, tipo, bloques
- *                     (JSON con {bloques, ajustes} o la lista sola),
- *                     cuerpo_html, cuerpo_texto, carpeta, preajuste, activo.
+ * @param array    $d  datos del formulario: nombre, asunto, bloques (JSON
+ *                     con {bloques, ajustes} o la lista sola), carpeta,
+ *                     preajuste, activo.
  * @param int|null $id null para crear.
  * @return int id de la plantilla.
  * Efectos: escribe `plantillas` y deja registro en el log de actividad.
  */
 function plantilla_guardar(array $d, ?int $id = null): int
 {
-    $tipo = ($d['tipo'] ?? 'visual') === 'html' ? 'html' : 'visual';
+    $tipo = 'visual';
 
     // En el editor visual el HTML NO se escribe a mano: se genera a partir de
     // los bloques. Así el correo siempre sale con la estructura de tablas que
     // sobrevive en Outlook, sin depender de que quien lo arma sepa de HTML.
     $bloques = null;
-    $html    = (string)($d['cuerpo_html'] ?? '');
-    $texto   = trim((string)($d['cuerpo_texto'] ?? ''));
+    $html    = '';
+    $texto   = '';
 
     if ($tipo === 'visual') {
         // Se aceptan los dos formatos históricos del JSON: {bloques, ajustes}
@@ -228,9 +236,8 @@ function plantilla_guardar(array $d, ?int $id = null): int
  * Variables que se pueden usar en asunto y cuerpo.
  *
  * Es el catálogo que muestra el editor (clave => descripción). Agregar una
- * acá no alcanza: también hay que resolverla en render_plantilla().
- * `{{cargo}}` figura en el catálogo pero campana_armar_mensaje() no la llena,
- * así que en un envío real sale vacía.
+ * acá no alcanza: también hay que resolverla en render_plantilla() y
+ * llenarla en campana_armar_mensaje().
  */
 function variables_plantilla(): array
 {
@@ -252,18 +259,23 @@ function variables_plantilla(): array
 /**
  * Reemplaza las variables de una plantilla por los datos del destinatario.
  *
- * Se usa igual para el asunto, el HTML y el texto plano, así que los valores
- * NO se escapan: un nombre o una empresa con `<` o `"` entra crudo al HTML
- * del correo (y a la vista previa de campana-ver). Sin nombre de pila,
- * {{nombre}} vale «Hola» para que «{{nombre}},» no quede como «,».
+ * Sirve para el asunto y el texto plano (valores tal cual) y para el HTML,
+ * donde hay que pedirlo con $html = true: ahí cada valor se escapa con e().
+ * Un nombre o una empresa los puede escribir cualquiera desde el formulario
+ * de la web, y sin escapar un `<img onerror=…>` llegaba como etiqueta al
+ * correo y a las vistas previas del CRM. Las direcciones (agenda, baja)
+ * también se escapan, que es lo correcto dentro de un href.
+ * Sin nombre de pila, {{nombre}} vale «Hola» para que «{{nombre}},» no
+ * quede como «,».
  *
  * @param string $texto plantilla con variables {{...}}.
  * @param array  $datos nombre, apellido, empresa, cargo, email, remitente,
  *                      remitente_empresa, empresa_web, agenda, baja.
+ * @param bool   $html  true si $texto es HTML: los valores se escapan.
  * @return string el texto con las variables reemplazadas; las desconocidas
  *                quedan tal cual.
  */
-function render_plantilla(string $texto, array $datos): string
+function render_plantilla(string $texto, array $datos, bool $html = false): string
 {
     $nombre   = trim((string)($datos['nombre'] ?? ''));
     $apellido = trim((string)($datos['apellido'] ?? ''));
@@ -286,6 +298,9 @@ function render_plantilla(string $texto, array $datos): string
         '{{agenda}}'            => (string)($datos['agenda'] ?? ''),
         '{{baja}}'              => (string)($datos['baja'] ?? ''),
     ];
+    if ($html) {
+        $mapa = array_map('e', $mapa);
+    }
     return strtr($texto, $mapa);
 }
 
@@ -388,9 +403,9 @@ function lista_cargar_contactos(int $listaId, array $filtro): int
  * son el motivo por el que esas columnas existen.
  *
  * Espera los alias `m` (lista_miembros), `ct`, `cu` y `pc` que arma
- * lista_miembro_join(). Ojo: el JOIN no filtra `ct.eliminado_en`, así que un
- * contacto mandado a la papelera sigue figurando y sigue recibiendo campañas
- * mientras esté en la lista.
+ * lista_miembro_join(). El JOIN no filtra `ct.eliminado_en`: un contacto en
+ * la papelera sigue figurando en la lista (se puede restaurar), pero
+ * campana_preparar() y el despachador lo dejan afuera del envío.
  */
 function lista_miembro_sql(): string
 {
@@ -461,10 +476,12 @@ function lista_miembros(int $listaId, array $f = []): array
  * El correo nuevo puede chocar con otro miembro que ya lo tenía: en ese caso
  * el que sobra se borra, porque son la misma persona en la misma lista.
  *
- * Si el contacto se quedó sin correo, la copia pasa a un marcador fijo
- * ('sin-correo@invalido.local') para no violar el NOT NULL; campana_preparar()
- * lo descarta como inválido. Ese marcador también entra en la clave única
- * (lista_id, email): dos contactos sin correo en la misma lista chocan.
+ * Si el contacto se quedó sin correo, la copia pasa a un marcador
+ * ('sin-correo+<id del miembro>@invalido.local', ver lista_marcador_sin_correo())
+ * para no violar el NOT NULL; campana_preparar() lo descarta como inválido.
+ * Lleva el id del miembro porque la columna sostiene la clave única
+ * (lista_id, email): con un marcador fijo, dos contactos sin correo en la
+ * misma lista chocaban y guardar el segundo daba error.
  *
  * @return int cuántas filas de lista_miembros se actualizaron.
  */
@@ -484,9 +501,45 @@ function lista_sincronizar_contacto(int $contactoId): int
               [(int)$m['lista_id'], $email, (int)$m['id']]);
         }
         $n += q('UPDATE lista_miembros SET email = ?, nombre = ?, empresa = ? WHERE id = ?',
-                [$email !== '' ? $email : 'sin-correo@invalido.local', $nombre, $ct['empresa'], (int)$m['id']])->rowCount();
+                [$email !== '' ? $email : lista_marcador_sin_correo((int)$m['id']),
+                 $nombre, $ct['empresa'], (int)$m['id']])->rowCount();
     }
     return $n;
+}
+
+/** El correo de relleno de un miembro sin correo: único por miembro. */
+function lista_marcador_sin_correo(int $miembroId): string
+{
+    return 'sin-correo+' . $miembroId . '@invalido.local';
+}
+
+/**
+ * Por qué un miembro de la lista NO tiene que recibir la campaña, o null.
+ *
+ * Es pura (recibe todo resuelto) para poder probarla sin base; la usan
+ * campana_preparar() al armar la cola. El orden decide qué motivo se anota
+ * cuando hay varios.
+ *
+ * @param string $email       correo ya normalizado.
+ * @param bool   $dadoDeBaja  figura en `desuscripciones`.
+ * @param array  $m           marcas del contacto (ct_*) y del posible
+ *                            cliente (pc_*): no_email, email_rebotado,
+ *                            eliminado_en.
+ */
+function campana_motivo_omision(string $email, bool $dadoDeBaja, array $m): ?string
+{
+    if (!email_valido($email) || str_ends_with($email, '@invalido.local')) { return 'Correo inválido'; }
+    if ($dadoDeBaja)                                  { return 'Se dio de baja'; }
+    if (!empty($m['ct_eliminado_en']) || !empty($m['pc_eliminado_en'])) {
+        return 'Está en la papelera';
+    }
+    if (!empty($m['ct_no_email']) || !empty($m['pc_no_email'])) {
+        return 'Marcado como «no incluir en campañas»';
+    }
+    if (!empty($m['ct_email_rebotado']) || !empty($m['pc_email_rebotado'])) {
+        return 'El correo rebotó antes';
+    }
+    return null;
 }
 
 // ------------------------------------------------------------
@@ -513,31 +566,65 @@ function campanas_listar(array $f = []): array
     $where = 'WHERE ' . implode(' AND ', $w);
     $total = (int) qv("SELECT COUNT(*) FROM campanas c $where", $p);
     $pg    = paginar($total, $f['page'] ?? 1);
-    // Los contadores se leen de la cola en el momento, no de las columnas de
-    // la campaña: si el envío se corta a mitad, esas columnas quedan
-    // desactualizadas. Contar sobre `envios` da el valor real y es barato: la columna
-    // está indexada y las campañas son pocas.
     $rows  = q("SELECT c.*, l.nombre AS lista, pl.nombre AS plantilla, u.nombre AS propietario,
-                       cat.nombre AS categoria, cat.color AS categoria_color,
-                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado <> 'omitido') AS total,
-                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = 'enviado') AS enviados,
-                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado IN ('rebotado','rechazado')) AS rebotados,
-                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.respondido_en IS NOT NULL) AS respondidos,
-                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = 'error') AS errores,
-                       -- «Procesados» es lo que ya se resolvió: entregados, rebotados y
-                       -- fallidos. Es lo que mide el AVANCE, y no es lo mismo que
-                       -- «enviados». Una campaña que entregó 3 y rebotó 3 terminó su
-                       -- trabajo con los 6: mostrar «3 de 6» hacía parecer que se había
-                       -- quedado a mitad de camino cuando en realidad no quedaba nada.
-                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id
-                         AND e.estado NOT IN ('pendiente','enviando','omitido')) AS procesados
+                       cat.nombre AS categoria, cat.color AS categoria_color
                 FROM campanas c
                 LEFT JOIN listas l     ON l.id  = c.lista_id
                 LEFT JOIN plantillas pl ON pl.id = c.plantilla_id
                 LEFT JOIN usuarios u   ON u.id  = c.propietario_id
                 LEFT JOIN categorias cat ON cat.id = c.categoria_id
                 $where ORDER BY c.creado_en DESC LIMIT {$pg['per']} OFFSET {$pg['offset']}", $p)->fetchAll();
+    // Los contadores se leen de la cola en el momento, no de las columnas de
+    // la campaña: si el envío se corta a mitad, esas columnas quedan
+    // desactualizadas. Van en UNA consulta agrupada para toda la página, no
+    // en siete subconsultas por fila: api-campana pide esto cada pocos
+    // segundos.
+    $cifras = campanas_cifras(array_map(fn($r) => (int)$r['id'], $rows));
+    foreach ($rows as &$r) {
+        $r = array_merge($r, $cifras[(int)$r['id']] ?? campanas_cifras_vacias());
+    }
+    unset($r);
     return $pg + ['rows' => $rows, 'total' => $total];
+}
+
+/** Las cifras de una campaña sin ningún envío. */
+function campanas_cifras_vacias(): array
+{
+    return ['total' => 0, 'enviados' => 0, 'rebotados' => 0, 'respondidos' => 0, 'errores' => 0, 'procesados' => 0];
+}
+
+/**
+ * Cifras de varias campañas contadas sobre la cola, en una sola consulta.
+ *
+ * «Procesados» es lo que ya se resolvió: entregados, rebotados y fallidos.
+ * Es lo que mide el AVANCE, y no es lo mismo que «enviados». Una campaña que
+ * entregó 3 y rebotó 3 terminó su trabajo con los 6: mostrar «3 de 6» hacía
+ * parecer que se había quedado a mitad de camino.
+ *
+ * @param int[] $ids
+ * @return array<int,array> id => total, enviados, rebotados, respondidos,
+ *                          errores, procesados (las campañas sin envíos no
+ *                          figuran).
+ */
+function campanas_cifras(array $ids): array
+{
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+    if (!$ids) { return []; }
+    $ph  = implode(',', array_fill(0, count($ids), '?'));
+    $out = [];
+    foreach (q("SELECT campana_id,
+                       SUM(CASE WHEN estado <> 'omitido' THEN 1 ELSE 0 END) AS total,
+                       SUM(CASE WHEN estado = 'enviado' THEN 1 ELSE 0 END) AS enviados,
+                       SUM(CASE WHEN estado IN ('rebotado','rechazado') THEN 1 ELSE 0 END) AS rebotados,
+                       SUM(CASE WHEN respondido_en IS NOT NULL THEN 1 ELSE 0 END) AS respondidos,
+                       SUM(CASE WHEN estado = 'error' THEN 1 ELSE 0 END) AS errores,
+                       SUM(CASE WHEN estado NOT IN ('pendiente','enviando','omitido') THEN 1 ELSE 0 END) AS procesados
+                FROM envios WHERE campana_id IN ($ph) GROUP BY campana_id", $ids)->fetchAll() as $f) {
+        $id = (int)$f['campana_id'];
+        unset($f['campana_id']);
+        $out[$id] = array_map('intval', $f);
+    }
+    return $out;
 }
 
 /**
@@ -631,12 +718,14 @@ function campana_guardar(array $d, ?int $id = null): int
 /**
  * Arma la cola de la campaña a partir de su lista.
  *
- * Reglas de exclusión (en este orden), cada una con su motivo registrado:
- *   1. correo inválido
+ * Reglas de exclusión (en este orden), cada una con su motivo registrado
+ * (campana_motivo_omision()):
+ *   1. correo inválido (incluido el marcador de los miembros sin correo)
  *   2. dado de baja (lista negra global)
- *   3. contacto marcado «no incluir en campañas»
- *   4. correo que ya rebotó antes
- *   5. repetido dentro de la misma campaña (lo impide la clave única)
+ *   3. contacto o posible cliente en la papelera
+ *   4. contacto o posible cliente marcado «no incluir en campañas»
+ *   5. correo que ya rebotó antes
+ *   6. repetido dentro de la misma campaña (lo impide la clave única)
  *
  * Es idempotente: se puede volver a preparar sin duplicar ni reenviar.
  * Volver a preparar sí suma a la cola a quienes se agregaron a la lista
@@ -665,28 +754,28 @@ function campana_preparar(int $campanaId): array
     // servía de nada: la campaña le seguía escribiendo a la dirección vieja.
     $datos    = lista_miembro_sql();
     $join     = lista_miembro_join();
-    $miembros = q("SELECT m.contacto_id, $datos, ct.no_email, ct.email_rebotado
+    $miembros = q("SELECT m.contacto_id, m.posible_cliente_id, $datos,
+                          ct.no_email AS ct_no_email, ct.email_rebotado AS ct_email_rebotado,
+                          ct.eliminado_en AS ct_eliminado_en,
+                          pc.no_email AS pc_no_email, pc.email_rebotado AS pc_email_rebotado,
+                          pc.eliminado_en AS pc_eliminado_en
                    FROM lista_miembros m $join
                    WHERE m.lista_id = ?", [(int)$c['lista_id']])->fetchAll();
 
     // Una consulta a desuscripciones por miembro: con listas de miles son miles
     // de consultas, aceptable porque se prepara a mano y de vez en cuando.
-    // Sólo se miran las marcas del contacto (ct.*): las de un posible cliente
-    // (pc.no_email, pc.email_rebotado) no se consultan acá.
     foreach ($miembros as $m) {
         $email  = normalizar_email($m['email']);
-        $motivo = null;
-        if (!email_valido($email))                                   { $motivo = 'Correo inválido'; }
-        elseif (qv('SELECT 1 FROM desuscripciones WHERE email = ?', [$email])) { $motivo = 'Se dio de baja'; }
-        elseif (!empty($m['no_email']))                              { $motivo = 'Marcado como «no incluir en campañas»'; }
-        elseif (!empty($m['email_rebotado']))                        { $motivo = 'El correo rebotó antes'; }
+        $baja   = email_valido($email) && (bool) qv('SELECT 1 FROM desuscripciones WHERE email = ?', [$email]);
+        $motivo = campana_motivo_omision($email, $baja, $m);
 
         // INSERT IGNORE: si la fila ya existe (misma campaña y correo) no se
         // toca, ni siquiera su estado. El token es el que después identifica
         // al destinatario en la baja y en el píxel de apertura.
-        $st = q('INSERT IGNORE INTO envios (campana_id, contacto_id, email, nombre, empresa, estado, motivo, token, proximo_intento_en)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
-                [$campanaId, ($m['contacto_id'] ?? null) ?: null, $email, $m['nombre'], $m['empresa'],
+        $st = q('INSERT IGNORE INTO envios (campana_id, contacto_id, posible_cliente_id, email, nombre, empresa, estado, motivo, token, proximo_intento_en)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+                [$campanaId, ($m['contacto_id'] ?? null) ?: null, ($m['posible_cliente_id'] ?? null) ?: null,
+                 $email, $m['nombre'], $m['empresa'],
                  $motivo ? 'omitido' : 'pendiente', $motivo, token32()]);
         if ($st->rowCount() > 0) {
             if ($motivo) {
@@ -724,9 +813,10 @@ function campana_recontar(int $campanaId): void
 /**
  * Cambia el estado de una campaña (iniciar, pausar, reanudar, cancelar).
  *
- * No controla transiciones: cualquier estado válido se puede pisar con
- * cualquier otro. Al pasar a 'enviando' se fija `inicio_en` sólo la primera
- * vez; al pasar a 'completada' se fija `fin_en`.
+ * No controla transiciones (lo usan también el despachador y el cron): las
+ * que llegan de la pantalla las valida antes campana-accion con
+ * campana_transicion_valida(). Al pasar a 'enviando' se fija `inicio_en`
+ * sólo la primera vez; al pasar a 'completada' se fija `fin_en`.
  *
  * @throws InvalidArgumentException si el estado no es uno de los conocidos.
  */
@@ -742,6 +832,113 @@ function campana_estado(int $id, string $estado): void
     q("UPDATE campanas SET estado = ? $extra WHERE id = ?", [$estado, $id]);
     log_app('campana.' . $estado, ['entidad' => 'campana', 'entidad_id' => $id,
         'detalle' => 'La campaña pasó a «' . $estado . '»']);
+}
+
+/**
+ * ¿Se puede aplicar esta acción de la pantalla a una campaña en este estado?
+ *
+ *   preparar → mientras la campaña no terminó (borrador, programada,
+ *              enviando, pausada). Sobre una completada o cancelada dejaba
+ *              filas pendientes que nadie iba a despachar.
+ *   iniciar  → desde borrador, pausada o programada. Antes un POST directo
+ *              volvía a poner a enviar una completada o una cancelada.
+ *   pausar   → desde enviando o programada.
+ *   cancelar → desde borrador, programada, enviando o pausada.
+ */
+function campana_transicion_valida(string $estado, string $accion): bool
+{
+    $desde = [
+        'preparar' => ['borrador', 'programada', 'enviando', 'pausada'],
+        'iniciar'  => ['borrador', 'pausada', 'programada'],
+        'pausar'   => ['enviando', 'programada'],
+        'cancelar' => ['borrador', 'programada', 'enviando', 'pausada'],
+    ];
+    return in_array($estado, $desde[$accion] ?? [], true);
+}
+
+/**
+ * ¿Este usuario puede iniciar o cancelar la campaña?
+ *
+ * Su creador, su responsable o un admin. Preparar la cola y pausar quedan
+ * abiertos a todo el equipo: no mandan nada (pausar, al contrario, frena).
+ *
+ * @param array      $c la campaña (creado_por, propietario_id).
+ * @param array|null $u el usuario (id, rol); null = sin sesión.
+ */
+function campana_puede_gestionar(array $c, ?array $u): bool
+{
+    if (!$u) { return false; }
+    if (($u['rol'] ?? '') === 'admin') { return true; }
+    $uid = (int)($u['id'] ?? 0);
+    return $uid > 0 && ($uid === (int)($c['creado_por'] ?? 0) || $uid === (int)($c['propietario_id'] ?? 0));
+}
+
+/**
+ * Los correos a los que se puede mandar en modo prueba.
+ *
+ * Son los de los usuarios activos del CRM más los del ajuste
+ * `testing_lista_blanca` (separados por coma, punto y coma o espacios), todo
+ * normalizado. En producción no se usa.
+ *
+ * @return array<string,bool> correo => true, para buscar rápido.
+ */
+function campana_lista_blanca(): array
+{
+    $extra = function_exists('setting_get') ? (string) setting_get('testing_lista_blanca', '') : '';
+    $usuarios = [];
+    try {
+        $usuarios = q('SELECT email FROM usuarios WHERE activo = 1')->fetchAll(PDO::FETCH_COLUMN);
+    } catch (\Throwable $e) {
+        // Sin la tabla, sólo vale el ajuste.
+    }
+    return campana_lista_blanca_armar($usuarios, $extra);
+}
+
+/** La parte pura de campana_lista_blanca(): junta y normaliza. */
+function campana_lista_blanca_armar(array $usuarios, string $extra): array
+{
+    $out = [];
+    foreach (array_merge($usuarios, preg_split('/[\s,;]+/', $extra) ?: []) as $e) {
+        $e = normalizar_email((string)$e);
+        if ($e !== '' && email_valido($e)) { $out[$e] = true; }
+    }
+    return $out;
+}
+
+/**
+ * ¿Se le puede mandar a este correo? Siempre en producción; en modo prueba
+ * sólo si está en la lista blanca.
+ *
+ * @param array|null $lista la de campana_lista_blanca(), para no releerla
+ *                          en cada correo; null = la lee.
+ */
+function campana_destino_permitido(string $email, bool $testing, ?array $lista = null): bool
+{
+    if (!$testing) { return true; }
+    $lista = $lista ?? campana_lista_blanca();
+    return isset($lista[normalizar_email($email)]);
+}
+
+/** Motivo con el que queda omitido un envío fuera de la lista blanca. */
+const CAMPANA_MOTIVO_TESTING = 'Modo prueba: fuera de la lista blanca';
+
+/**
+ * En modo prueba, pasa a 'omitido' los pendientes de la campaña que no están
+ * en la lista blanca. Devuelve cuántos. En producción no hace nada.
+ */
+function campana_aplicar_lista_blanca(int $campanaId, bool $testing): int
+{
+    if (!$testing) { return 0; }
+    $lista = campana_lista_blanca();
+    $n = 0;
+    foreach (q("SELECT id, email FROM envios WHERE campana_id = ? AND estado = 'pendiente'", [$campanaId])->fetchAll() as $e) {
+        if (!campana_destino_permitido((string)$e['email'], true, $lista)) {
+            $n += q("UPDATE envios SET estado = 'omitido', motivo = ? WHERE id = ? AND estado = 'pendiente'",
+                    [CAMPANA_MOTIVO_TESTING, (int)$e['id']])->rowCount();
+        }
+    }
+    if ($n > 0) { campana_recontar($campanaId); }
+    return $n;
 }
 
 /**
@@ -809,15 +1006,20 @@ function campana_pasos(array $c): array
         ? cuenta_correo_get((int)$c['cuenta_correo_id'])
         : cuenta_correo_predeterminada();
     $cuentaOk = $cuenta && (int)$cuenta['activo'] === 1;
+    // Si la campaña eligió una cuenta y está desactivada (o ya no existe), el
+    // despachador la espera en vez de caer a otra casilla: es bloqueante.
+    $elegidaMal = !empty($c['cuenta_correo_id']) && !$cuentaOk;
     $add('cuenta', $cuentaOk,
         'Desde qué casilla sale',
         $cuentaOk
             ? 'Sale desde «' . $cuenta['nombre'] . '» (' . $cuenta['remitente'] . '), '
               . 'hasta ' . (int)$cuenta['limite_diario'] . ' por día.'
-            : (smtp_configurado()
-                ? 'No hay ninguna cuenta activa elegida. Se puede usar la de Ajustes, pero conviene cargar una cuenta propia.'
-                : 'Falta configurar la cuenta desde la que salen los correos.'),
-        'Cuentas de correo', url('cuentas-correo'), !smtp_configurado());
+            : ($elegidaMal
+                ? 'La cuenta elegida para esta campaña está desactivada o ya no existe. Activala o elegí otra.'
+                : (smtp_configurado()
+                    ? 'No hay ninguna cuenta activa elegida. Se puede usar la de Ajustes, pero conviene cargar una cuenta propia.'
+                    : 'Falta configurar la cuenta desde la que salen los correos.')),
+        'Cuentas de correo', url('cuentas-correo'), $elegidaMal || !smtp_configurado());
 
     // 3b. ¿Vamos a poder VER las respuestas?
     //
@@ -879,8 +1081,8 @@ function campana_pasos(array $c): array
  * ¿Se puede arrancar la campaña?
  *
  * Sí cuando no falta ningún paso bloqueante. La cola se excluye a propósito:
- * «Iniciar» la prepara sola. Hoy sólo lo usa la vista para el texto del
- * último paso; campana-accion NO lo consulta antes de iniciar.
+ * «Iniciar» la prepara sola. Lo usan la vista (texto del último paso) y
+ * campana-accion antes de iniciar.
  */
 function campana_lista_para_enviar(array $c): bool
 {
@@ -900,10 +1102,9 @@ function campana_lista_para_enviar(array $c): bool
  * en su presupuesto de tiempo, uno cada 25 a 45 segundos.
  *
  * Se tienen en cuenta las tres cosas que limitan: el ritmo, el tope
- * diario de la casilla y la franja horaria en la que se permite enviar.
- * El «tope diario» que se usa es el de la CAMPAÑA (`limite_diario`), aunque
- * el texto diga «de la casilla»; el cupo propio de la cuenta de correo no
- * entra en la cuenta.
+ * diario de la campaña (`limite_diario`) y la franja horaria en la que se
+ * permite enviar. El cupo propio de la cuenta de correo no entra en la
+ * cuenta (lo comparten todas las campañas de esa casilla).
  *
  * Es una estimación: supone que la corrida trabaja todos los minutos
  * (CRON_PERIODO_SEG) y que ninguna otra campaña comparte la casilla.
@@ -947,7 +1148,7 @@ function campana_ritmo(array $c, ?int $pendientes = null): array
     $freno = null;
     if ($total > $porDia) {
         $freno = $tope <= (int) round($porHora * $horasDia)
-            ? 'el tope de ' . $tope . ' correos por día de la casilla'
+            ? 'el tope de ' . $tope . ' correos por día de la campaña'
             : 'la franja horaria de envío (' . round($horasDia) . ' h por día)';
     }
 
@@ -1007,10 +1208,14 @@ function campana_enviados_hoy(int $campanaId): int
  * @param array      $envio  la fila de `envios` (token, email, nombre, empresa).
  * @param array|null $cuenta la casilla de salida, para remitente y Reply-To
  *                           cuando la campaña no los define.
+ * @param bool       $pixel  false para la vista previa del CRM: sin el píxel
+ *                           de apertura, que si no contaba como «abierto» al
+ *                           primer destinatario cada vez que alguien miraba
+ *                           la campaña.
  * @return array el mensaje en el formato que espera smtp_enviar(), más
  *               `baja_url`. No escribe nada en la base.
  */
-function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): array
+function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null, bool $pixel = true): array
 {
     $baja   = url_abs('baja?t=' . $envio['token']);
     // Enlace a la agenda del responsable de la campaña. Lleva el id de la
@@ -1025,6 +1230,7 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
         'nombre'            => $partes[0] ?? '',
         'apellido'          => count($partes) > 1 ? implode(' ', array_slice($partes, 1)) : '',
         'empresa'           => (string)($envio['empresa'] ?? ''),
+        'cargo'             => campana_cargo_destinatario($envio),
         'email'             => (string)$envio['email'],
         'remitente'         => (string)(($c['remitente_nombre'] ?? null)
                                         ?: ($cuenta['remitente_nombre'] ?? '')
@@ -1036,11 +1242,14 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
     ];
 
     $asunto = render_plantilla((string)(($c['asunto'] ?? null) ?: ($c['plantilla_asunto'] ?? null) ?: ''), $datos);
-    $html   = render_plantilla((string)($c['cuerpo_html'] ?? ''), $datos);
+    // El HTML con los valores escapados; el asunto y el texto plano, tal cual.
+    $html   = render_plantilla((string)($c['cuerpo_html'] ?? ''), $datos, true);
     $texto  = render_plantilla((string)($c['cuerpo_texto'] ?? ''), $datos);
 
     // El pie de baja es obligatorio: si la plantilla no usó {{baja}}, se agrega.
-    if (stripos($html, $baja) === false) {
+    // En el HTML el enlace quedó escapado (el «?» no cambia, pero se busca la
+    // forma escapada por si algún día la dirección lleva «&»).
+    if (stripos($html, e($baja)) === false) {
         $html .= '<hr style="border:none;border-top:1px solid #e7e4ef;margin:24px 0 12px">'
                . '<p style="font-family:Arial,sans-serif;font-size:11px;color:#8a8596;line-height:1.5">'
                . 'Recibís este correo porque estás en nuestra base comercial. '
@@ -1057,8 +1266,10 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
     // Va último y sin borde, para que no ensucie el diseño; los clientes que
     // bloquean imágenes no lo cargan y esa apertura no se cuenta, que es lo
     // normal.
-    $html .= '<img src="' . e(url_abs('px?t=' . $envio['token'])) . '" width="1" height="1"'
-           . ' alt="" style="display:block;width:1px;height:1px;border:0;">';
+    if ($pixel) {
+        $html .= '<img src="' . e(url_abs('px?t=' . $envio['token'])) . '" width="1" height="1"'
+               . ' alt="" style="display:block;width:1px;height:1px;border:0;">';
+    }
 
     return [
         'para'        => (string)$envio['email'],
@@ -1072,6 +1283,62 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
         'cc'          => array_filter(array_map('trim', preg_split('/[;,\s]+/', (string)($c['copia_a'] ?? '')) ?: [])),
         'baja_url'    => $baja,
     ];
+}
+
+/**
+ * El cargo del destinatario, para {{cargo}}: sale de la ficha del contacto o
+ * del posible cliente (la cola no lo guarda). Cadena vacía si no hay ficha
+ * o no se puede leer.
+ */
+function campana_cargo_destinatario(array $envio): string
+{
+    try {
+        if (!empty($envio['contacto_id'])) {
+            return trim((string) qv('SELECT cargo FROM contactos WHERE id = ?', [(int)$envio['contacto_id']]));
+        }
+        if (!empty($envio['posible_cliente_id'])) {
+            return trim((string) qv('SELECT cargo FROM posibles_clientes WHERE id = ?', [(int)$envio['posible_cliente_id']]));
+        }
+    } catch (\Throwable $e) {
+        // Sin el dato, la variable sale vacía: no es motivo para no mandar.
+    }
+    return '';
+}
+
+/** Lo que se anota en `envios.motivo` justo antes de entregarle el mensaje al servidor. */
+const CAMPANA_MARCA_ENTREGA = 'Entregando al servidor…';
+
+/** Motivo de un envío que pudo haber salido y no se reintenta solo. */
+const CAMPANA_MOTIVO_DUDOSO = 'Dudoso: el servidor pudo haberlo recibido. No se reintenta solo para no duplicarlo.';
+
+/**
+ * Qué hacer con un envío según lo que devolvió smtp_enviar().
+ *
+ * Pura, para poder probarla. 'enviado' y 'rechazado' los resuelve el
+ * despachador aparte (tienen más efectos); acá van los fallos.
+ *
+ * @param string $resultado 'fallido' | 'dudoso' | 'error'.
+ * @param int    $intentos  intentos contando éste.
+ * @param string $err       el motivo que dio smtp_enviar.
+ * @return array{estado:string, motivo:string, reintentar_min:?int}
+ *               reintentar_min null = no se reintenta.
+ */
+function campana_resultado_fallo(string $resultado, int $intentos, string $err): array
+{
+    if ($resultado === 'fallido') {
+        return ['estado' => 'error', 'motivo' => recortar('Rechazado por el servidor (no se reintenta): ' . $err, 250),
+                'reintentar_min' => null];
+    }
+    if ($resultado === 'dudoso') {
+        return ['estado' => 'error', 'motivo' => recortar(CAMPANA_MOTIVO_DUDOSO . ' ' . $err, 250),
+                'reintentar_min' => null];
+    }
+    if ($intentos >= 20) {
+        return ['estado' => 'error', 'motivo' => recortar('Sin éxito tras ' . $intentos . ' intentos: ' . $err, 250),
+                'reintentar_min' => null];
+    }
+    // La espera crece de a 5 minutos, con techo de 60.
+    return ['estado' => 'pendiente', 'motivo' => recortar($err, 250), 'reintentar_min' => min(60, $intentos * 5)];
 }
 
 /**
@@ -1089,15 +1356,30 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
  * vez de 5.
  *
  * Garantías contra el doble envío: la clave única campaña+correo en la cola
- * y el UPDATE condicional que «reclama» cada fila antes de mandarla. Queda un
- * hueco: si el servidor SMTP aceptó el mensaje pero el proceso muere (o se
- * cae la conexión a la base) antes de marcarlo 'enviado', la fila queda en
- * 'enviando' y el rescate de 15 minutos la vuelve a la cola: ese correo sale
- * dos veces. Lo mismo si se pierde la respuesta 250 del DATA (smtp_enviar
- * devuelve 'error' y se reintenta).
+ * y el UPDATE condicional que «reclama» cada fila antes de mandarla. Para
+ * los cortes a mitad de camino:
+ *   · Justo antes de entregar el mensaje (el servidor ya aceptó el DATA) se
+ *     anota CAMPANA_MARCA_ENTREGA en el envío. Si el proceso muere o se cae
+ *     la base después de eso, el rescate de 15 minutos NO lo vuelve a la
+ *     cola: lo deja en 'error' como dudoso, porque pudo haber salido.
+ *   · Si se pierde la respuesta 250 del DATA, smtp_enviar devuelve 'dudoso'
+ *     y tampoco se reintenta.
+ *   · La conexión a la base se renueva (db_reanudar) antes de anotar el
+ *     resultado: la charla con el servidor SMTP puede pasar los 20 s de
+ *     inactividad que tolera el hosting.
+ * Lo que se rescata y vuelve a la cola es sólo lo que se cortó antes de
+ * llegar al DATA, que seguro no salió.
  *
- * Cualquier excepción corta toda la corrida (sin cerrar las sesiones SMTP
- * abiertas); la atrapa quien llama: app/cron.php o campana-accion.
+ * En modo prueba (es_testing()) sólo se manda a la lista blanca
+ * (campana_lista_blanca()); el resto queda 'omitido' con su motivo.
+ *
+ * El tope diario de la campaña y el cupo de la casilla se miran antes de
+ * CADA correo, así que tampoco se pasan cuando varias campañas comparten
+ * casilla. Si la campaña eligió una cuenta y está desactivada, la campaña
+ * espera: no se cae a otra casilla que nadie eligió.
+ *
+ * Una excepción corta la corrida y la atrapa quien llama (app/cron.php o
+ * campana-accion); las sesiones SMTP abiertas se cierran igual.
  *
  * @param int      $maxPorCorrida se multiplica por 6 para el LIMIT de
  *                                pendientes que se leen por campaña; en la
@@ -1112,8 +1394,6 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null): a
  *               y los ids de las campañas que se trabajaron.
  * Efectos: escribe envios, envio_eventos, campanas, contactos, cuentas_correo,
  * manda correos, duerme (sleep) entre uno y otro y puede leer la casilla IMAP.
- * NO consulta es_testing(): en la instalación de pruebas los correos salen
- * de verdad.
  */
 function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $soloCampana = null): array
 {
@@ -1128,15 +1408,29 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
     // es más que suficiente para cualquier envío real.
     // Al tomar un envío se le pone `proximo_intento_en = NOW()`, que en ese
     // estado significa «lo estoy trabajando ahora». Si esa marca quedó vieja,
-    // es que el proceso se cortó y hay que devolverlo a la cola.
+    // es que el proceso se cortó.
+    // Los que llegaron a entregarle el mensaje al servidor (CAMPANA_MARCA_ENTREGA)
+    // pudieron haber salido: van a 'error' como dudosos, no a la cola.
+    $vencido = "(proximo_intento_en IS NULL OR proximo_intento_en < DATE_SUB(NOW(), INTERVAL 15 MINUTE))";
+    $dudosos = q("UPDATE envios SET estado = 'error', motivo = ?
+                  WHERE estado = 'enviando' AND motivo = ? AND $vencido",
+                 [CAMPANA_MOTIVO_DUDOSO, CAMPANA_MARCA_ENTREGA])->rowCount();
     $rescatados = q("UPDATE envios SET estado = 'pendiente'
-                     WHERE estado = 'enviando'
-                       AND (proximo_intento_en IS NULL
-                            OR proximo_intento_en < DATE_SUB(NOW(), INTERVAL 15 MINUTE))")->rowCount();
+                     WHERE estado = 'enviando' AND (motivo IS NULL OR motivo <> ?) AND $vencido",
+                    [CAMPANA_MARCA_ENTREGA])->rowCount();
     if ($rescatados > 0) {
         log_app('campana.rescate', ['tipo' => 'sistema', 'actor' => 'cron',
             'detalle' => $rescatados . ' envío(s) trabados volvieron a la cola']);
     }
+    if ($dudosos > 0) {
+        log_app('campana.rescate', ['tipo' => 'error', 'actor' => 'cron',
+            'detalle' => $dudosos . ' envío(s) se cortaron después de entregarle el mensaje al servidor: '
+                       . 'quedan como dudosos y no se reintentan solos']);
+    }
+
+    // Modo prueba: la lista blanca se lee una vez por corrida.
+    $testing = function_exists('es_testing') && es_testing();
+    $lista   = $testing ? campana_lista_blanca() : null;
 
     // El id se concatena ya convertido a entero, así que no hay inyección.
     $filtro = $soloCampana ? ' AND id = ' . (int)$soloCampana : '';
@@ -1145,216 +1439,240 @@ function campanas_despachar(int $maxPorCorrida = 5, int $segundos = 240, ?int $s
                    ORDER BY inicio_en IS NULL, inicio_en")->fetchAll();
 
     // Una sesión SMTP abierta POR CUENTA: varias campañas que comparten la
-    // misma casilla reusan la conexión, y las que usan casillas distintas
-    // avanzan en paralelo sin pisarse.
-    // «En paralelo» dentro de la misma vuelta, en realidad una detrás de otra:
+    // misma casilla reusan la conexión.
+    // Las campañas se procesan una detrás de otra dentro de la misma vuelta:
     // el presupuesto ($hasta) es uno solo para todas, así que la primera
     // campaña se lo gasta y las siguientes mandan uno cada una (el primero de
     // cada campaña sale sin mirar el presupuesto) y cortan.
     $sesiones = [];
-    foreach ($campanas as $c) {
-        $cid = (int)$c['id'];
+    try {
+        foreach ($campanas as $c) {
+            $cid = (int)$c['id'];
 
-        // Programada que todavía no llegó su hora: no se toca.
-        // Una programada sin fecha arranca en la primera corrida.
-        if ($c['estado'] === 'programada') {
-            if (!empty($c['programada_para']) && strtotime((string)$c['programada_para']) > time()) {
-                continue;
-            }
-            campana_estado($cid, 'enviando');
-            $c['estado'] = 'enviando';
-        }
-
-        // El límite diario y el cupo de la casilla se miran UNA vez por
-        // campaña y por vuelta, no antes de cada correo: dentro de la vuelta se
-        // puede pasar por uno o dos. Varias campañas que comparten casilla
-        // también pueden pasar juntas el cupo de la cuenta en la misma vuelta.
-        if (!campana_en_horario($c))                                    { continue; }
-        if (campana_enviados_hoy($cid) >= (int)$c['limite_diario'])     { continue; }
-
-        // Casilla desde la que sale esta campaña.
-        $cuenta = !empty($c['cuenta_correo_id'])
-            ? cuenta_correo_get((int)$c['cuenta_correo_id'])
-            : cuenta_correo_predeterminada();
-        // Una cuenta desactivada no frena la campaña: se cae a la configuración
-        // de Ajustes / la predeterminada (smtp_cfg) en vez de a la elegida.
-        if ($cuenta && (int)$cuenta['activo'] !== 1) { $cuenta = null; }
-        if ($cuenta && !cuenta_tiene_cupo($cuenta)) {
-            // La casilla llegó a su tope diario: la campaña espera a mañana en
-            // vez de forzar un envío que arruinaría la reputación.
-            continue;
-        }
-
-        $pendientes = q("SELECT * FROM envios
-                         WHERE campana_id = ? AND estado = 'pendiente'
-                           AND (proximo_intento_en IS NULL OR proximo_intento_en <= NOW())
-                         ORDER BY id LIMIT ?", [$cid, max($maxPorCorrida, 1) * 6])->fetchAll();
-
-        if (!$pendientes) {
-            // Se cuentan también las que están 'enviando': si hay una a mitad
-            // de camino la campaña NO terminó, y darla por completada dejaba a
-            // esa persona sin recibir nada, sin que nadie se enterara.
-            $quedan = (int) qv("SELECT COUNT(*) FROM envios
-                                WHERE campana_id = ? AND estado IN ('pendiente','enviando')", [$cid]);
-            if ($quedan === 0) {
-                campana_recontar($cid);
-                campana_estado($cid, 'completada');
-            }
-            continue;
-        }
-
-        // Datos completos de la campaña (plantilla incluida) una sola vez.
-        $completa = campana_get($cid);
-        if (!$completa) { continue; }
-
-        foreach ($pendientes as $envio) {
-            // Chequeo de última hora: entre que se armó la cola y ahora, la
-            // persona pudo haberse dado de baja.
-            if (qv('SELECT 1 FROM desuscripciones WHERE email = ?', [$envio['email']])) {
-                q("UPDATE envios SET estado = 'omitido', motivo = 'Se dio de baja antes del envío' WHERE id = ?",
-                  [(int)$envio['id']]);
-                $res['omitidos']++;
-                continue;
-            }
-
-            $clave = $cuenta ? 'c' . (int)$cuenta['id'] : 'ajustes';
-            $cfg   = $cuenta ? cuenta_a_config($cuenta) : null;
-            if (!isset($sesiones[$clave])) {
-                $err = null;
-                $fp  = smtp_abrir($err, $cfg);
-                if (!$fp) {
-                    log_app('campana.smtp_error', ['tipo' => 'error', 'entidad' => 'campana', 'entidad_id' => $cid,
-                        'detalle' => ($cuenta ? 'Cuenta «' . $cuenta['nombre'] . '»: ' : '') . (string)$err]);
-                    if ($cuenta) {
-                        q('UPDATE cuentas_correo SET ultimo_error = ? WHERE id = ?',
-                          [recortar($err, 250), (int)$cuenta['id']]);
-                    }
-                    continue 2;   // esta campaña no puede avanzar; las demás sí
+            // Programada que todavía no llegó su hora: no se toca.
+            // Una programada sin fecha arranca en la primera corrida.
+            if ($c['estado'] === 'programada') {
+                if (!empty($c['programada_para']) && strtotime((string)$c['programada_para']) > time()) {
+                    continue;
                 }
-                $sesiones[$clave] = $fp;
+                campana_estado($cid, 'enviando');
+                $c['estado'] = 'enviando';
             }
-            $fp = $sesiones[$clave];
 
-            // Se toma la fila con una condición sobre su estado: si otra
-            // corrida se adelantó, este UPDATE afecta cero filas y el correo no
-            // se manda dos veces. El bloqueo del cron por sí solo no alcanza,
-            // porque la conexión se reabre después de cada pausa y con ella se
-            // suelta el bloqueo.
-            $tomada = q("UPDATE envios SET estado = 'enviando', intentos = intentos + 1,
-                                cuenta_correo_id = ?, proximo_intento_en = NOW()
-                         WHERE id = ? AND estado = 'pendiente'",
-                        [$cuenta ? (int)$cuenta['id'] : null, (int)$envio['id']])->rowCount();
-            if ($tomada !== 1) { continue; }   // ya la agarró otra corrida
+            if (!campana_en_horario($c))                                { continue; }
+            if (campana_enviados_hoy($cid) >= (int)$c['limite_diario']) { continue; }
 
-            $msg = campana_armar_mensaje($completa, $envio, $cuenta);
-            $msg['message_id'] = nuevo_message_id();
-            $err = null;
-            $resultado = smtp_enviar($fp, $msg, $err, $cfg);
-
-            if ($resultado === 'enviado') {
-                q("UPDATE envios SET estado = 'enviado', enviado_en = NOW(), message_id = ?, motivo = NULL WHERE id = ?",
-                  [$msg['message_id'], (int)$envio['id']]);
-                q("INSERT INTO envio_eventos (envio_id, tipo) VALUES (?, 'enviado')", [(int)$envio['id']]);
-                if (!empty($envio['contacto_id'])) {
-                    q('UPDATE contactos SET ultima_actividad_en = NOW() WHERE id = ?', [(int)$envio['contacto_id']]);
-                }
-                $res['enviados']++;
-            } elseif ($resultado === 'rechazado') {
-                q("UPDATE envios SET estado = 'rechazado', motivo = ?, rebotado_en = NOW() WHERE id = ?",
-                  [recortar($err, 250), (int)$envio['id']]);
-                q("INSERT INTO envio_eventos (envio_id, tipo, detalle) VALUES (?, 'rebote', ?)",
-                  [(int)$envio['id'], recortar($err, 400)]);
-                // Un 5xx en el RCPT es el servidor diciendo «esa casilla no existe»:
-                // es definitivo, así que el contacto se archiva.
-                marcar_rebote((string)$envio['email'],
-                              'El servidor rechazó la dirección: ' . recortar($err, 150), true);
-                $res['rebotados']++;
+            // Casilla desde la que sale esta campaña. Si eligió una y está
+            // desactivada (o ya no existe), la campaña espera: caer a otra
+            // casilla mandaría desde un remitente que nadie eligió.
+            if (!empty($c['cuenta_correo_id'])) {
+                $cuenta = cuenta_correo_get((int)$c['cuenta_correo_id']);
+                if (!$cuenta || (int)$cuenta['activo'] !== 1) { continue; }
             } else {
-                // Error temporal: se reintenta más tarde, con el tope de Pulsemail.
-                // Cae acá todo lo que no es un 5xx en el RCPT, incluido un 5xx
-                // definitivo en MAIL FROM o al cerrar el DATA (mensaje
-                // rechazado por contenido): también se reintenta hasta 20 veces.
-                // La espera crece de a 5 minutos, con techo de 60.
-                $intentos = (int)$envio['intentos'] + 1;
-                if ($intentos >= 20) {
-                    q("UPDATE envios SET estado = 'error', motivo = ? WHERE id = ?",
-                      [recortar('Sin éxito tras ' . $intentos . ' intentos: ' . $err, 250), (int)$envio['id']]);
-                    $res['errores']++;
-                } else {
-                    q("UPDATE envios SET estado = 'pendiente', motivo = ?, proximo_intento_en = DATE_ADD(NOW(), INTERVAL ? MINUTE) WHERE id = ?",
-                      [recortar($err, 250), min(60, $intentos * 5), (int)$envio['id']]);
-                }
-                // Un error de conexión invalida la sesión SMTP: se reabre en la
-                // próxima vuelta.
-                smtp_cerrar($fp);
-                unset($sesiones[$clave]);
+                $cuenta = cuenta_correo_predeterminada();
+                if ($cuenta && (int)$cuenta['activo'] !== 1) { $cuenta = null; }
+            }
+            if ($cuenta && !cuenta_tiene_cupo($cuenta)) {
+                // La casilla llegó a su tope diario: la campaña espera a mañana en
+                // vez de forzar un envío que arruinaría la reputación.
+                continue;
             }
 
-            // El avance se actualiza acá, después de cada correo, y no al
-            // terminar la campaña. Una corrida puede durar varios minutos: en
-            // todo ese rato la pantalla mostraba «0 de 6» mientras los correos
-            // ya estaban saliendo, y parecía que el envío no había arrancado.
+            $pendientes = q("SELECT * FROM envios
+                             WHERE campana_id = ? AND estado = 'pendiente'
+                               AND (proximo_intento_en IS NULL OR proximo_intento_en <= NOW())
+                             ORDER BY id LIMIT ?", [$cid, max($maxPorCorrida, 1) * 6])->fetchAll();
+
+            if (!$pendientes) {
+                // Se cuentan también las que están 'enviando': si hay una a mitad
+                // de camino la campaña NO terminó, y darla por completada dejaba a
+                // esa persona sin recibir nada, sin que nadie se enterara.
+                $quedan = (int) qv("SELECT COUNT(*) FROM envios
+                                    WHERE campana_id = ? AND estado IN ('pendiente','enviando')", [$cid]);
+                if ($quedan === 0) {
+                    campana_recontar($cid);
+                    campana_estado($cid, 'completada');
+                }
+                continue;
+            }
+
+            // Datos completos de la campaña (plantilla incluida) una sola vez.
+            $completa = campana_get($cid);
+            if (!$completa) { continue; }
+
+            foreach ($pendientes as $envio) {
+                // Los topes se miran antes de cada correo, no una vez por
+                // vuelta: si no, una vuelta se pasaba por uno o dos, y varias
+                // campañas con la misma casilla lo pasaban juntas.
+                if (campana_enviados_hoy($cid) >= (int)$c['limite_diario']) { break; }
+                if ($cuenta && !cuenta_tiene_cupo($cuenta))                { break; }
+
+                // Chequeo de última hora: entre que se armó la cola y ahora, la
+                // persona pudo haberse dado de baja o el contacto pudo ir a la
+                // papelera. Y en modo prueba, sólo la lista blanca.
+                $omitir = null;
+                if (qv('SELECT 1 FROM desuscripciones WHERE email = ?', [$envio['email']])) {
+                    $omitir = 'Se dio de baja antes del envío';
+                } elseif (!campana_destino_permitido((string)$envio['email'], $testing, $lista)) {
+                    $omitir = CAMPANA_MOTIVO_TESTING;
+                } elseif (!empty($envio['contacto_id'])
+                          && qv('SELECT 1 FROM contactos WHERE id = ? AND eliminado_en IS NOT NULL', [(int)$envio['contacto_id']])) {
+                    $omitir = 'Está en la papelera';
+                }
+                if ($omitir !== null) {
+                    q("UPDATE envios SET estado = 'omitido', motivo = ? WHERE id = ? AND estado = 'pendiente'",
+                      [$omitir, (int)$envio['id']]);
+                    $res['omitidos']++;
+                    continue;
+                }
+
+                $clave = $cuenta ? 'c' . (int)$cuenta['id'] : 'ajustes';
+                $cfg   = $cuenta ? cuenta_a_config($cuenta) : null;
+                if (!isset($sesiones[$clave])) {
+                    $err = null;
+                    $fp  = smtp_abrir($err, $cfg);
+                    if (!$fp) {
+                        log_app('campana.smtp_error', ['tipo' => 'error', 'entidad' => 'campana', 'entidad_id' => $cid,
+                            'detalle' => ($cuenta ? 'Cuenta «' . $cuenta['nombre'] . '»: ' : '') . (string)$err]);
+                        if ($cuenta) {
+                            q('UPDATE cuentas_correo SET ultimo_error = ? WHERE id = ?',
+                              [recortar($err, 250), (int)$cuenta['id']]);
+                        }
+                        continue 2;   // esta campaña no puede avanzar; las demás sí
+                    }
+                    $sesiones[$clave] = $fp;
+                }
+                $fp = $sesiones[$clave];
+
+                // Se toma la fila con una condición sobre su estado: si otra
+                // corrida se adelantó, este UPDATE afecta cero filas y el correo no
+                // se manda dos veces. El bloqueo del cron por sí solo no alcanza,
+                // porque la conexión se reabre después de cada pausa y con ella se
+                // suelta el bloqueo.
+                $tomada = q("UPDATE envios SET estado = 'enviando', intentos = intentos + 1,
+                                    cuenta_correo_id = ?, proximo_intento_en = NOW()
+                             WHERE id = ? AND estado = 'pendiente'",
+                            [$cuenta ? (int)$cuenta['id'] : null, (int)$envio['id']])->rowCount();
+                if ($tomada !== 1) { continue; }   // ya la agarró otra corrida
+
+                $msg = campana_armar_mensaje($completa, $envio, $cuenta);
+                $msg['message_id'] = nuevo_message_id();
+                $err = null;
+                $envioId = (int)$envio['id'];
+                // Justo antes de entregarle el mensaje al servidor queda anotado:
+                // desde acá el correo puede salir aunque después todo se corte.
+                $alEntregar = static function () use ($envioId): void {
+                    if (function_exists('db_reanudar')) { db_reanudar(); }
+                    q('UPDATE envios SET motivo = ? WHERE id = ?', [CAMPANA_MARCA_ENTREGA, $envioId]);
+                };
+                $resultado = smtp_enviar($fp, $msg, $err, $cfg, $alEntregar);
+
+                // La charla con el servidor SMTP pudo tardar más que los 20 s
+                // que el hosting deja ociosa la conexión a la base: se renueva
+                // antes de anotar el resultado, o el 'enviado' se perdía y el
+                // rescate lo volvía a mandar.
+                if (function_exists('db_reanudar')) { db_reanudar(); }
+
+                if ($resultado === 'enviado') {
+                    q("UPDATE envios SET estado = 'enviado', enviado_en = NOW(), message_id = ?, motivo = NULL WHERE id = ?",
+                      [$msg['message_id'], $envioId]);
+                    q("INSERT INTO envio_eventos (envio_id, tipo) VALUES (?, 'enviado')", [$envioId]);
+                    if (!empty($envio['contacto_id'])) {
+                        q('UPDATE contactos SET ultima_actividad_en = NOW() WHERE id = ?', [(int)$envio['contacto_id']]);
+                    }
+                    $res['enviados']++;
+                } elseif ($resultado === 'rechazado') {
+                    q("UPDATE envios SET estado = 'rechazado', motivo = ?, rebotado_en = NOW() WHERE id = ?",
+                      [recortar($err, 250), $envioId]);
+                    q("INSERT INTO envio_eventos (envio_id, tipo, detalle) VALUES (?, 'rebote', ?)",
+                      [$envioId, recortar($err, 400)]);
+                    // Un 5xx en el RCPT es el servidor diciendo «esa casilla no existe»:
+                    // es definitivo, así que el contacto se archiva.
+                    marcar_rebote((string)$envio['email'],
+                                  'El servidor rechazó la dirección: ' . recortar($err, 150), true);
+                    $res['rebotados']++;
+                } else {
+                    // 'fallido' (5xx fuera del RCPT) y 'dudoso' no se reintentan;
+                    // 'error' (temporal) sí, con espera creciente y tope de 20.
+                    $fallo = campana_resultado_fallo((string)$resultado, (int)$envio['intentos'] + 1, (string)$err);
+                    if ($fallo['reintentar_min'] === null) {
+                        q('UPDATE envios SET estado = ?, motivo = ? WHERE id = ?',
+                          [$fallo['estado'], $fallo['motivo'], $envioId]);
+                        $res['errores']++;
+                    } else {
+                        q("UPDATE envios SET estado = 'pendiente', motivo = ?, proximo_intento_en = DATE_ADD(NOW(), INTERVAL ? MINUTE) WHERE id = ?",
+                          [$fallo['motivo'], $fallo['reintentar_min'], $envioId]);
+                    }
+                    // La sesión SMTP puede haber quedado a mitad de camino: se
+                    // reabre en la próxima vuelta.
+                    smtp_cerrar($fp);
+                    unset($sesiones[$clave]);
+                }
+
+                // El avance se actualiza acá, después de cada correo, y no al
+                // terminar la campaña. Una corrida puede durar varios minutos: en
+                // todo ese rato la pantalla mostraba «0 de 6» mientras los correos
+                // ya estaban saliendo, y parecía que el envío no había arrancado.
+                campana_recontar($cid);
+
+                // Pausa aleatoria antes del siguiente de ESTA campaña. Es lo que
+                // hace que el ritmo parezca humano y no una máquina.
+                $pausa = random_int((int)$c['pausa_min_seg'], (int)$c['pausa_max_seg']);
+
+                // Si no entra otra pausa dentro del presupuesto de la corrida, se
+                // deja anotado para cuándo puede salir el siguiente y se corta acá:
+                // sigue la próxima corrida del cron, sin perder el ritmo.
+                if (microtime(true) + $pausa > $hasta) {
+                    // Sólo se adelantan o atrasan las que ya podían salir antes
+                    // de esa pausa: las que esperan su reintento (5, 10… 60 min)
+                    // conservan su espera.
+                    q("UPDATE envios SET proximo_intento_en = DATE_ADD(NOW(), INTERVAL ? SECOND)
+                       WHERE campana_id = ? AND estado = 'pendiente'
+                         AND (proximo_intento_en IS NULL OR proximo_intento_en < DATE_ADD(NOW(), INTERVAL ? SECOND))",
+                      [$pausa, $cid, $pausa]);
+                    break;
+                }
+                sleep($pausa);
+
+                // Este hosting cierra la conexión a los 20 segundos de inactividad
+                // y la pausa mínima es de 25: después de dormir, la conexión SIEMPRE
+                // está muerta. Sin esto, la campaña mandaría el primer correo y todo
+                // lo que viene después fallaría en silencio —el contador, la marca
+                // del cron, hasta el registro del error—, con el avance clavado en
+                // cero.
+                if (function_exists('db_reanudar')) { db_reanudar(); }
+
+                // Se mira la casilla en el medio del envío, no al final.
+                //
+                // Los rebotes vuelven a los pocos segundos de cada correo y las
+                // respuestas empiezan a entrar enseguida. Leyendo sólo al terminar,
+                // la campaña mostraría todo en cero mientras las cosas están
+                // pasando, y después aparecería todo junto. Acá se aprovecha que
+                // ya estamos en una corrida larga: cada minuto se pasa a mirar.
+                if (function_exists('imap_quizas_revisar')) {
+                    imap_quizas_revisar(60);
+                }
+            }
+
             campana_recontar($cid);
 
-            // Pausa aleatoria antes del siguiente de ESTA campaña. Es lo que
-            // hace que el ritmo parezca humano y no una máquina.
-            $pausa = random_int((int)$c['pausa_min_seg'], (int)$c['pausa_max_seg']);
-
-            // Si no entra otra pausa dentro del presupuesto de la corrida, se
-            // deja anotado para cuándo puede salir el siguiente y se corta acá:
-            // sigue la próxima corrida del cron, sin perder el ritmo.
-            if (microtime(true) + $pausa > $hasta) {
-                // Ojo: pisa la fecha de TODAS las pendientes de la campaña,
-                // incluidas las que esperaban su reintento (5, 10… 60 min):
-                // esas vuelven a probar en segundos y no con la espera
-                // creciente de arriba.
-                q("UPDATE envios SET proximo_intento_en = DATE_ADD(NOW(), INTERVAL ? SECOND)
-                   WHERE campana_id = ? AND estado = 'pendiente'", [$pausa, $cid]);
-                break;
+            // Si no quedó nada por mandar, la campaña se cierra ACÁ mismo, sin
+            // esperar a la corrida siguiente del cron: con la cola vacía y el
+            // avance al 100 % no puede seguir figurando como «Enviando».
+            $faltan = (int) qv("SELECT COUNT(*) FROM envios
+                                WHERE campana_id = ? AND estado IN ('pendiente','enviando')", [$cid]);
+            if ($faltan === 0) {
+                campana_estado($cid, 'completada');
             }
-            sleep($pausa);
 
-            // Este hosting cierra la conexión a los 20 segundos de inactividad
-            // y la pausa mínima es de 25: después de dormir, la conexión SIEMPRE
-            // está muerta. Sin esto, la campaña mandaría el primer correo y todo
-            // lo que viene después fallaría en silencio —el contador, la marca
-            // del cron, hasta el registro del error—, con el avance clavado en
-            // cero.
-            db_reanudar();
-
-            // Se mira la casilla en el medio del envío, no al final.
-            //
-            // Los rebotes vuelven a los pocos segundos de cada correo y las
-            // respuestas empiezan a entrar enseguida. Leyendo sólo al terminar,
-            // la campaña mostraría todo en cero mientras las cosas están
-            // pasando, y después aparecería todo junto. Acá se aprovecha que
-            // ya estamos en una corrida larga: cada minuto se pasa a mirar.
-            if (function_exists('imap_quizas_revisar')) {
-                imap_quizas_revisar(60);
-            }
+            $res['campanas'][] = $cid;
         }
-
-        campana_recontar($cid);
-
-        // Si no quedó nada por mandar, la campaña se cierra ACÁ mismo, sin
-        // esperar a la corrida siguiente del cron: con la cola vacía y el
-        // avance al 100 % no puede seguir figurando como «Enviando».
-        $faltan = (int) qv("SELECT COUNT(*) FROM envios
-                            WHERE campana_id = ? AND estado IN ('pendiente','enviando')", [$cid]);
-        if ($faltan === 0) {
-            campana_estado($cid, 'completada');
-        }
-
-        $res['campanas'][] = $cid;
+    } finally {
+        foreach ($sesiones as $fp) { smtp_cerrar($fp); }
     }
-
-    foreach ($sesiones as $fp) { smtp_cerrar($fp); }
     return $res;
 }
 
-// La lista blanca del modo testing que promete la documentación no está
-// implementada: acá no hay ninguna función que la aplique y el despachador
-// no la consulta.
 // ------------------------------------------------------------
 //  Bajas y rebotes
 // ------------------------------------------------------------
@@ -1398,29 +1716,89 @@ function reactivar_suscripcion(string $email): bool
  * de cualquier campaña.
  *
  * Si el correo ya estaba dado de baja, se actualizan motivo y detalle pero
- * no la campaña ni la IP originales. El contador `campanas.desuscriptos` se
- * suma igual en cada llamada, así que repetir la baja lo infla.
+ * no la campaña ni la IP originales, y el contador `campanas.desuscriptos`
+ * NO se vuelve a sumar: repetir la baja (el «un clic» de Gmail más el botón,
+ * o dos clics) no la cuenta dos veces.
+ *
+ * La IP de quien pidió la baja se guarda como hash (ip_hash), nunca en
+ * claro, y en un paso aparte que puede fallar sin afectar la baja.
  *
  * @param string   $email     se normaliza acá.
  * @param string   $motivo    'baja' (la pidió la persona) o 'rebote_duro'.
  * @param int|null $campanaId campaña desde la que llegó la baja, si la hay.
  * @param string|null $detalle texto libre para el registro.
+ * @return bool true si es una baja nueva; false si ya estaba dado de baja.
  */
-function desuscribir(string $email, string $motivo = 'baja', ?int $campanaId = null, ?string $detalle = null): void
+function desuscribir(string $email, string $motivo = 'baja', ?int $campanaId = null, ?string $detalle = null): bool
 {
     $email = normalizar_email($email);
-    q('INSERT INTO desuscripciones (email, motivo, campana_id, detalle, ip) VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE motivo = VALUES(motivo), detalle = VALUES(detalle)',
-      [$email, $motivo, $campanaId, $detalle, client_ip()]);
+    $ya    = (bool) qv('SELECT 1 FROM desuscripciones WHERE email = ?', [$email]);
+    if (!$ya) {
+        try {
+            q('INSERT INTO desuscripciones (email, motivo, campana_id, detalle) VALUES (?, ?, ?, ?)',
+              [$email, $motivo, $campanaId, $detalle]);
+        } catch (\PDOException $e) {
+            // Dos pedidos a la vez (el «un clic» de Gmail y el botón): el otro
+            // ganó la carrera. La baja ya está; se sigue como repetida.
+            if ((int)($e->errorInfo[1] ?? 0) !== 1062) { throw $e; }
+            $ya = true;
+        }
+    }
+    if ($ya) {
+        q('UPDATE desuscripciones SET motivo = ?, detalle = ? WHERE email = ?', [$motivo, $detalle, $email]);
+    } else {
+        // La IP va aparte: si la columna todavía es la vieja (sin la
+        // migración 015) o falla por cualquier motivo, la baja ya quedó.
+        try {
+            q('UPDATE desuscripciones SET ip = ? WHERE email = ?', [campana_ip_registro(), $email]);
+        } catch (\Throwable $e) { }
+    }
     q('UPDATE contactos SET no_email = 1 WHERE email = ?', [$email]);
     q('UPDATE posibles_clientes SET no_email = 1 WHERE email = ?', [$email]);
     q("UPDATE envios SET estado = 'omitido', motivo = 'Se dio de baja'
        WHERE email = ? AND estado = 'pendiente'", [$email]);
-    if ($campanaId) {
+    if ($campanaId && !$ya) {
         q('UPDATE campanas SET desuscriptos = desuscriptos + 1 WHERE id = ?', [$campanaId]);
     }
     log_app('campana.baja', ['tipo' => 'sistema', 'actor' => $email,
-        'detalle' => 'Baja de las campañas · ' . $motivo . ($detalle ? ' · ' . $detalle : '')]);
+        'detalle' => ($ya ? 'Baja repetida · ' : 'Baja de las campañas · ') . $motivo . ($detalle ? ' · ' . $detalle : '')]);
+    return !$ya;
+}
+
+/**
+ * La IP del visitante (baja, píxel) tal como se guarda: el hash con el
+ * secreto de la instalación, nunca en claro (Ley 25.326). Null sin IP.
+ */
+function campana_ip_registro(): ?string
+{
+    return function_exists('ip_hash') ? ip_hash(ip_confiable()) : null;
+}
+
+/**
+ * El destinatario de un enlace de baja, a partir del token.
+ *
+ * Primero en la cola (`envios`); si no está —la campaña se purgó de la
+ * papelera y con ella su cola—, en `bajas_tokens`, donde purgar_papelera()
+ * guarda los tokens antes de borrar (migración 015). Así el enlace de baja
+ * de un correo ya entregado funciona siempre.
+ *
+ * @param string $token 32 hexadecimales (ya filtrado por quien llama).
+ * @return array|null id (del envío; null si viene de bajas_tokens), email,
+ *                    campana_id y campana (el nombre, si existe).
+ */
+function baja_buscar_token(string $token): ?array
+{
+    if (strlen($token) !== 32) { return null; }
+    $envio = q1('SELECT e.id, e.email, e.campana_id, c.nombre AS campana FROM envios e
+                 LEFT JOIN campanas c ON c.id = e.campana_id WHERE e.token = ?', [$token]);
+    if ($envio) { return $envio; }
+    try {
+        $t = q1('SELECT email, campana_id FROM bajas_tokens WHERE token = ?', [$token]);
+    } catch (\Throwable $e) {
+        // Sin la migración 015 la tabla no existe: el token no se encontró.
+        return null;
+    }
+    return $t ? ['id' => null, 'email' => $t['email'], 'campana_id' => $t['campana_id'], 'campana' => null] : null;
 }
 
 /**
@@ -1434,11 +1812,11 @@ function desuscribir(string $email, string $motivo = 'baja', ?int $campanaId = n
  * y se puede restaurar. La eliminación definitiva la hace el cron recién a los
  * 60 días (ver `purgar_papelera()`), por si el archivado fue un error.
  *
- * Ojo con el alcance: el UPDATE sobre `envios` marca como rebotados TODOS los
- * envíos 'enviado' o 'enviando' a ese correo, de cualquier campaña y de
- * cualquier fecha, y lo hace también con un rebote temporal ($duro = false).
- * Un rebote duro, además, da de baja el correo (desuscribir con motivo
- * 'rebote_duro').
+ * En la cola se marca como rebotado sólo el envío más reciente a ese correo
+ * (el que salió en los últimos 7 días): el aviso de rebote llega a los pocos
+ * minutos de cada correo y corresponde a ése, no a los de campañas viejas que
+ * sí se entregaron. Un rebote duro, además, da de baja el correo
+ * (desuscribir con motivo 'rebote_duro').
  *
  * @param string $email   se normaliza acá.
  * @param string $detalle el motivo que dio el servidor, para el registro.
@@ -1449,8 +1827,14 @@ function marcar_rebote(string $email, string $detalle = '', bool $duro = false):
     $email = normalizar_email($email);
     q('UPDATE contactos SET email_rebotado = 1 WHERE email = ?', [$email]);
     q('UPDATE posibles_clientes SET email_rebotado = 1 WHERE email = ?', [$email]);
-    q("UPDATE envios SET estado = 'rebotado', rebotado_en = NOW(), motivo = ?
-       WHERE email = ? AND estado IN ('enviado','enviando')", [recortar($detalle, 250), $email]);
+    $ultimo = qv("SELECT id FROM envios
+                  WHERE email = ? AND estado IN ('enviado','enviando')
+                    AND (enviado_en IS NULL OR enviado_en >= NOW() - INTERVAL 7 DAY)
+                  ORDER BY COALESCE(enviado_en, creado_en) DESC, id DESC LIMIT 1", [$email]);
+    if ($ultimo) {
+        q("UPDATE envios SET estado = 'rebotado', rebotado_en = NOW(), motivo = ? WHERE id = ?",
+          [recortar($detalle, 250), (int)$ultimo]);
+    }
 
     $archivados = 0;
     if ($duro) {
@@ -1494,10 +1878,13 @@ function dias_papelera(): int
  * Es el único lugar del sistema que borra físicamente. Hasta que se cumple
  * el plazo, todo sigue recuperable desde la papelera.
  *
- * Trampa con las campañas: `envios` tiene ON DELETE CASCADE sobre
- * `campanas`, así que purgar una campaña borra su cola y con ella los
- * tokens. Desde ese momento los enlaces de baja de esos correos ya
- * entregados dejan de funcionar (la página dice «enlace no válido»).
+ * Campañas: `envios` tiene ON DELETE CASCADE sobre `campanas`, así que
+ * purgar una campaña borra su cola y con ella los tokens de baja. Antes de
+ * borrar, los tokens se copian a `bajas_tokens` (migración 015), que
+ * baja_buscar_token() consulta cuando el token ya no está en la cola: el
+ * enlace de baja de un correo entregado tiene que funcionar siempre. Si la
+ * copia falla (por ejemplo, sin la migración), las campañas NO se purgan y
+ * siguen en la papelera.
  *
  * Lo llama el cron. Las tablas salen de tablas_papelera().
  *
@@ -1517,9 +1904,25 @@ function purgar_papelera(?int $dias = null): array
             $protegidos = ' AND id NOT IN (SELECT DISTINCT cuenta_id FROM contactos
                                            WHERE cuenta_id IS NOT NULL AND eliminado_en IS NULL)';
         }
+        if ($def['tabla'] === 'campanas') {
+            try {
+                q("INSERT IGNORE INTO bajas_tokens (token, email, campana_id)
+                   SELECT e.token, e.email, e.campana_id FROM envios e
+                   JOIN campanas c ON c.id = e.campana_id
+                   WHERE c.eliminado_en IS NOT NULL
+                     AND c.eliminado_en < NOW() - INTERVAL ? DAY", [$dias]);
+            } catch (\Throwable $e) {
+                // Sin donde guardar los tokens, purgar dejaría enlaces de baja
+                // rotos: las campañas esperan en la papelera.
+                log_app('papelera.purga', ['tipo' => 'error', 'actor' => 'cron', 'entidad' => $entidad,
+                    'detalle' => 'Las campañas no se purgaron: no se pudieron guardar sus tokens de baja '
+                               . '(¿falta la migración 015?)']);
+                continue;
+            }
+        }
         $st = q("DELETE FROM {$def['tabla']}
                  WHERE eliminado_en IS NOT NULL
-                   AND eliminado_en < DATE_SUB(NOW(), INTERVAL ? DAY)" . $protegidos, [$dias]);
+                   AND eliminado_en < NOW() - INTERVAL ? DAY" . $protegidos, [$dias]);
         $n = $st->rowCount();
         if ($n > 0) {
             $out[$entidad] = $n;

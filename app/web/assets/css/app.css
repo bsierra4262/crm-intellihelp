@@ -811,6 +811,8 @@ td.wrap{white-space:normal}
    porque el correo trae sus propios colores y no debe heredar los de la app. */
 .correo-vista{border:1px solid var(--line);border-radius:var(--radius-sm);padding:var(--sp-4);
   background:#fff;overflow-x:auto}
+/* El correo va dentro de un iframe aislado (sandbox): alto fijo con scroll propio. */
+.correo-marco{width:100%;height:640px;border:0;display:block;background:#fff}
 .err-code{font-size:52px;font-weight:800;color:var(--line);letter-spacing:-.03em;line-height:1}
 .empty-state.compacto{padding:var(--sp-8) 0}
 .empty-state.compacto h2{font-size:16px}

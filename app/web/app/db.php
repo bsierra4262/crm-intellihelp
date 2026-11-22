@@ -183,13 +183,16 @@ function setting_refrescar(): void
 }
 
 /**
- * ¿La app está en modo testing? (bloquea envíos reales de campaña).
+ * ¿La app está en modo testing?
  *
  * Es el ajuste `app_entorno` de la base, que se cambia desde Ajustes; no
  * confundir con `app.env` del config, que sólo decide si se muestran los
- * errores. Si el ajuste no existe se asume testing: una instalación nueva no
- * manda correos reales hasta que alguien lo decide. En testing, además,
- * todos los módulos se consideran encendidos (modulo_activo).
+ * errores. Si el ajuste no existe se asume testing. En testing las campañas
+ * sólo les mandan a la lista blanca (usuarios activos más el ajuste
+ * `testing_lista_blanca`, ver campana_lista_blanca() en campanas.php): una
+ * instalación nueva no les escribe a clientes reales hasta que alguien lo
+ * decide. Los correos sueltos (agenda, avisos) salen igual. En testing,
+ * además, todos los módulos se consideran encendidos (modulo_activo).
  */
 function es_testing(): bool
 {
