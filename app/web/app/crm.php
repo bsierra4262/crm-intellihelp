@@ -375,7 +375,8 @@ function cuenta_get(int $id): ?array
  * Lo de mayúsculas y acentos lo resuelve la intercalación utf8mb4_unicode_ci
  * de la columna, no el código. No unifica formas societarias ni espacios
  * dobles: «ACME S.A.» y «Acme SA» son dos empresas distintas para esta
- * función (para eso está empresa_clave(), que usa sólo la entrada web).
+ * función (para eso está empresa_clave(), que usan la entrada web y el
+ * importador antes de llamar a cuenta_asegurar()).
  */
 function cuenta_por_nombre(string $nombre): ?array
 {
@@ -492,6 +493,35 @@ function cuentas_listar(array $f): array
     return $pg + ['rows' => $rows, 'total' => $total];
 }
 
+/** Largo máximo de cada columna de texto de `cuentas` (schema.sql). */
+const CUENTAS_LARGOS = [
+    'nombre' => 200, 'tipo' => 40, 'sector' => 80, 'sitio_web' => 255, 'telefono' => 60,
+    'email' => 190, 'cuit' => 11, 'condicion_iva' => 40, 'calle' => 250, 'localidad' => 120,
+    'provincia' => 80, 'codigo_postal' => 30, 'pais' => 60, 'linkedin' => 255,
+];
+
+/** Largo máximo de cada columna de texto de `contactos` (schema.sql). */
+const CONTACTOS_LARGOS = [
+    'nombre' => 120, 'apellido' => 120, 'cargo' => 150, 'departamento' => 120, 'email' => 190,
+    'email2' => 190, 'email3' => 190, 'telefono' => 60, 'movil' => 60, 'conmutador' => 60,
+    'fuente' => 60, 'linkedin' => 255, 'sitio_web' => 255, 'calle' => 250, 'localidad' => 120,
+    'provincia' => 80, 'codigo_postal' => 30, 'pais' => 60,
+];
+
+/**
+ * Recorta cada texto de $campos al largo indicado en $largos (en caracteres,
+ * no en bytes). Los null y los campos que no están en $largos no se tocan.
+ */
+function recortar_a_columnas(array $campos, array $largos): array
+{
+    foreach ($largos as $k => $max) {
+        if (isset($campos[$k]) && is_string($campos[$k]) && mb_strlen($campos[$k]) > $max) {
+            $campos[$k] = rtrim(mb_substr($campos[$k], 0, $max));
+        }
+    }
+    return $campos;
+}
+
 /**
  * Alta o edición de una cuenta. Devuelve el id.
  *
@@ -513,9 +543,8 @@ function cuenta_guardar(array $d, ?int $id = null): int
         'email'          => normalizar_email($d['email'] ?? '') ?: null,
         'cuit'           => ($c = normalizar_cuit($d['cuit'] ?? '')) !== '' ? $c : null,
         'condicion_iva'  => ($d['condicion_iva'] ?? null) ?: null,
-        // Ojo: 'empleados' se lee sin «?? null» antes de comparar. Si la clave no
-        // viene, PHP avisa y se guarda 0 en lugar de null (ver auditoría).
-        'empleados'      => $d['empleados'] !== '' ? (int)($d['empleados'] ?? 0) : null,
+        // Sin la clave, o vacía, queda en null (no en 0); la columna no admite negativos.
+        'empleados'      => trim((string)($d['empleados'] ?? '')) !== '' ? max(0, (int)$d['empleados']) : null,
         'calle'          => ($d['calle'] ?? null) ?: null,
         'localidad'      => normalizar_localidad($d['localidad'] ?? null),
         'provincia'      => normalizar_provincia($d['provincia'] ?? null),
@@ -524,6 +553,9 @@ function cuenta_guardar(array $d, ?int $id = null): int
         'linkedin'       => ($d['linkedin'] ?? null) ?: null,
         'descripcion'    => ($d['descripcion'] ?? null) ?: null,
     ];
+    // Cada texto se recorta al largo de su columna: en modo estricto un valor
+    // más largo haría fallar el INSERT/UPDATE entero.
+    $campos = recortar_a_columnas($campos, CUENTAS_LARGOS);
     // Igual que en los contactos: la empresa entra aunque le falte algo, pero
     // queda señalada para poder completarla después. Sin CUIT no se factura y
     // sin sector no se puede segmentar una campaña.
@@ -646,8 +678,8 @@ function contactos_listar(array $f): array
  * Sin `_solo_completar`, la edición pisa todos los campos con lo que vino.
  * Efectos: escribe en `contactos`, alinea las listas de campaña con el correo
  * nuevo (si el módulo está cargado) y deja constancia en el log.
- * No recorta los textos al largo de las columnas: un valor más largo (un cargo
- * de 200 caracteres, por ejemplo) hace fallar el INSERT/UPDATE.
+ * Los textos se recortan al largo de su columna (CONTACTOS_LARGOS): un cargo
+ * de 200 caracteres entra cortado en vez de hacer fallar la fila.
  */
 function contacto_guardar(array $d, ?int $id = null): int
 {
@@ -674,6 +706,8 @@ function contacto_guardar(array $d, ?int $id = null): int
         'pais'           => normalizar_pais($d['pais'] ?? null),
         'descripcion'    => ($d['descripcion'] ?? null) ?: null,
     ];
+
+    $campos = recortar_a_columnas($campos, CONTACTOS_LARGOS);
 
     // «No incluir en campañas» sólo se toca si vino en los datos. Es una
     // decisión de la persona, no un campo más: la importación no manda esta
@@ -1148,10 +1182,10 @@ function empresa_clave(string $nombre): string
  * (gmail, hotmail, outlook, yahoo, live, icloud…) y las de los proveedores de
  * internet. Con una casilla gratuita el dominio no dice nada de la empresa.
  *
- * Las gratuitas se reconocen por la primera parte del dominio («gmail» en
- * gmail.com o gmail.com.ar). Efecto colateral: un dominio corporativo que
- * empiece con una de esas palabras (mail.empresa.com, me.empresa.com) también
- * se descarta.
+ * Las gratuitas se reconocen por la parte registrable del dominio, la que va
+ * antes del sufijo público: «gmail» en gmail.com y en gmail.com.ar. Así un
+ * subdominio corporativo que empiece con una de esas palabras
+ * (mail.empresa.com, me.empresa.com.ar) sigue siendo corporativo.
  */
 function email_dominio_corporativo(string $email): ?string
 {
@@ -1160,7 +1194,14 @@ function email_dominio_corporativo(string $email): ?string
     $dominio = substr($email, strrpos($email, '@') + 1);
     if ($dominio === '' || !str_contains($dominio, '.')) { return null; }
 
-    $base = explode('.', $dominio)[0];
+    // La parte registrable: la etiqueta anterior al sufijo público. Los sufijos
+    // de dos niveles más comunes (com.ar, gob.ar, co.uk…) se reconocen por la
+    // forma «com|net|org|gob|gov|edu|co|ac|int|mil|nom» + país de dos letras.
+    $etq = explode('.', $dominio);
+    $n = count($etq);
+    $sufijoDoble = $n >= 3 && strlen($etq[$n - 1]) === 2
+        && in_array($etq[$n - 2], ['com', 'net', 'org', 'gob', 'gov', 'edu', 'co', 'ac', 'int', 'mil', 'nom'], true);
+    $base = $etq[$n - ($sufijoDoble ? 3 : 2)];
     static $gratuitas = ['gmail', 'googlemail', 'hotmail', 'outlook', 'live', 'msn', 'yahoo', 'ymail',
                          'rocketmail', 'icloud', 'me', 'mac', 'aol', 'protonmail', 'proton', 'pm', 'gmx',
                          'yandex', 'mail', 'zoho', 'tutanota', 'hushmail', 'inbox', 'email'];
@@ -1199,8 +1240,9 @@ function like_literal(string $s): string
  *     una sola, o la que tiene ese dominio en el sitio web o el correo;
  *  4. si no, se crea con cuenta_asegurar().
  *
- * No se cambia cuenta_asegurar() porque la usa el importador, y ahí el criterio
- * es otro: el archivo trae el nombre exacto con el que se quiere la empresa.
+ * No se cambia cuenta_asegurar(): compara por nombre exacto y la usan también
+ * el formulario de contacto y el importador (que antes busca por
+ * empresa_clave() con su propio índice en memoria).
  */
 function cuenta_asegurar_web(string $empresa, string $email, int $propietarioId): ?int
 {
@@ -1250,12 +1292,16 @@ function cuenta_asegurar_web(string $empresa, string $email, int $propietarioId)
              LIMIT 3', [$arroba, $arroba, $arroba])->fetchAll(), 'cuenta_id'));
         if (count($ids) === 1) { return $ids[0]; }
         // Ningún contacto con ese dominio: se prueba con el sitio web o el correo de
-        // la empresa misma. El LIKE '%dominio%' sobre sitio_web también encuentra
-        // dominios que lo contienen (acme.com dentro de notacme.com).
+        // la empresa misma. El dominio tiene que aparecer entero en el sitio web:
+        // solo, después de «//» o de un punto («www.acme.com»), y seguido del fin o
+        // de una barra. Así acme.com no encuentra notacme.com.
         if (!$ids) {
+            $d = like_literal($dominio);
             $ids = array_map('intval', array_column(q(
-                'SELECT id FROM cuentas WHERE eliminado_en IS NULL AND (sitio_web LIKE ? OR email LIKE ?) LIMIT 3',
-                ['%' . like_literal($dominio) . '%', $arroba])->fetchAll(), 'id'));
+                "SELECT id FROM cuentas WHERE eliminado_en IS NULL AND (
+                    sitio_web = ? OR sitio_web LIKE ? OR sitio_web LIKE ? OR sitio_web LIKE ?
+                    OR sitio_web LIKE ? OR sitio_web LIKE ? OR email LIKE ?) LIMIT 3",
+                [$dominio, $d . '/%', '%//' . $d, '%//' . $d . '/%', '%.' . $d, '%.' . $d . '/%', $arroba])->fetchAll(), 'id'));
             if (count($ids) === 1) { return $ids[0]; }
         }
     }
@@ -1575,17 +1621,45 @@ function entrada_web_actualizar(int $id, array $campos): void
 /**
  * Vencimiento de la tarea de contestar: el próximo día hábil a las 12 h.
  *
- * «Hábil» acá es sólo lunes a viernes: no mira la tabla de feriados.
+ * «Hábil» es de lunes a viernes y que no sea feriado. Los feriados se leen de
+ * la tabla directamente (entrada_web_feriados), sin sincronizar contra la
+ * fuente oficial: este cálculo corre mientras la web espera la respuesta y no
+ * puede quedar colgado de otra conexión. Sin la tabla, sólo saltea fines de
+ * semana.
  *
- * @param int|null $ahora marca de tiempo de referencia (para las pruebas)
+ * @param int|null   $ahora    marca de tiempo de referencia (para las pruebas)
+ * @param array|null $feriados fechas Y-m-d a saltear; null = las de la tabla
  */
-function entrada_web_vencimiento(?int $ahora = null): string
+function entrada_web_vencimiento(?int $ahora = null, ?array $feriados = null): string
 {
     $t = strtotime('tomorrow 12:00', $ahora ?? time());
-    while ((int) date('N', $t) >= 6) {   // sábado o domingo
+    $feriados ??= entrada_web_feriados(date('Y-m-d', $t), date('Y-m-d', $t + 40 * 86400));
+    $feriados = array_flip($feriados);
+    // Tope de 40 vueltas por si la tabla trae algo absurdo.
+    for ($i = 0; $i < 40 && ((int) date('N', $t) >= 6 || isset($feriados[date('Y-m-d', $t)])); $i++) {
         $t = strtotime('+1 day', $t);
     }
     return date('Y-m-d H:i:s', $t);
+}
+
+/**
+ * Fechas (Y-m-d) de los feriados que rigen entre $desde y $hasta, leídas de
+ * la tabla `feriados` sin sincronizar. Lista vacía si los feriados están
+ * apagados, la tabla no existe o la base falla.
+ */
+function entrada_web_feriados(string $desde, string $hasta): array
+{
+    if (!function_exists('feriados_aplicables')) { return []; }
+    try {
+        if (!feriados_activos()) { return []; }
+        $j = feriados_jurisdiccion();
+        $filas = q("SELECT fecha, nombre, tipo, jurisdiccion, origen, ignorado FROM feriados
+                    WHERE ignorado = 0 AND fecha BETWEEN ? AND ? AND jurisdiccion IN ('nacional', ?)",
+                   [$desde, $hasta, $j])->fetchAll();
+        return array_map('strval', array_keys(feriados_aplicables($filas, $j)));
+    } catch (\Throwable $e) {
+        return [];
+    }
 }
 
 /**
@@ -1876,4 +1950,104 @@ function entradas_web_por_canal(array $f): array
     }
     usort($canales, fn($a, $b) => ($b['agendadas'] + $b['consultas']) <=> ($a['agendadas'] + $a['consultas']));
     return $canales;
+}
+
+// ------------------------------------------------------------
+//  Buscador de registros para los desplegables grandes
+// ------------------------------------------------------------
+//
+//  Producción tiene más de 25.000 contactos y 9.000 empresas: un <select> con
+//  todas las filas pesa megas y, recortado, pierde el valor vinculado cuando
+//  queda fuera del corte (y al guardar sin tocar nada se borraba el vínculo).
+//  Por eso los formularios de negocio, actividad y contacto dibujan el
+//  desplegable sólo con el valor ya vinculado (buscar_opcion_actual) y
+//  assets/js/buscador.js lo convierte en un campo que busca al escribir
+//  contra la ruta api-buscar, que usa buscar_registros().
+
+/**
+ * Qué se puede buscar: tabla, columna con el nombre visible y columnas en las
+ * que se busca. Las columnas salen de esta lista fija, nunca del pedido.
+ */
+function buscar_tipos(): array
+{
+    return [
+        'cuenta'   => ['tabla' => 'cuentas c', 'id' => 'c.id', 'nombre' => 'c.nombre',
+                       'detalle' => "TRIM(CONCAT(COALESCE(c.localidad, ''), ' ', COALESCE(c.provincia, '')))",
+                       'join' => '', 'vivo' => 'c.eliminado_en IS NULL',
+                       'buscar' => ['c.nombre', 'c.cuit', 'c.sitio_web'], 'orden' => 'c.nombre'],
+        'contacto' => ['tabla' => 'contactos ct', 'id' => 'ct.id', 'nombre' => 'ct.nombre_completo',
+                       'detalle' => "TRIM(CONCAT(COALESCE(cu.nombre, ''), CASE WHEN ct.email IS NULL OR ct.email = '' THEN '' ELSE CONCAT(' · ', ct.email) END))",
+                       'join' => 'LEFT JOIN cuentas cu ON cu.id = ct.cuenta_id', 'vivo' => 'ct.eliminado_en IS NULL',
+                       'buscar' => ['ct.nombre_completo', 'ct.email', 'cu.nombre'], 'orden' => 'ct.apellido, ct.nombre'],
+        'negocio'  => ['tabla' => 'negocios n', 'id' => 'n.id', 'nombre' => 'n.nombre',
+                       'detalle' => "COALESCE(cu.nombre, '')",
+                       'join' => 'LEFT JOIN cuentas cu ON cu.id = n.cuenta_id', 'vivo' => 'n.eliminado_en IS NULL',
+                       'buscar' => ['n.nombre', 'cu.nombre'], 'orden' => 'n.creado_en DESC'],
+        'campana'  => ['tabla' => 'campanas ca', 'id' => 'ca.id', 'nombre' => 'ca.nombre',
+                       'detalle' => "COALESCE(ca.estado, '')",
+                       'join' => '', 'vivo' => 'ca.eliminado_en IS NULL',
+                       'buscar' => ['ca.nombre'], 'orden' => 'ca.creado_en DESC'],
+    ];
+}
+
+/**
+ * Busca registros vivos por texto. Cada palabra tiene que aparecer en alguna
+ * de las columnas de búsqueda («juan pérez» encuentra «Pérez, Juan Carlos»).
+ * Los que empiezan con el texto van primero.
+ *
+ * @param string $tipo   cuenta | contacto | negocio | campana
+ * @param string $texto  lo que se escribió (menos de 2 caracteres no busca)
+ * @param int    $limite máximo de resultados (1 a 50)
+ * @return array<int,array{id:int,nombre:string,detalle:string}>
+ */
+function buscar_registros(string $tipo, string $texto, int $limite = 20): array
+{
+    $def = buscar_tipos()[$tipo] ?? null;
+    $texto = trim((string) preg_replace('/\s+/u', ' ', $texto));
+    if (!$def || mb_strlen($texto) < 2) { return []; }
+    $limite = max(1, min(50, $limite));
+
+    $w = [$def['vivo']];
+    $p = [];
+    foreach (array_slice(explode(' ', $texto), 0, 5) as $palabra) {
+        $like = '%' . like_literal($palabra) . '%';
+        $w[] = '(' . implode(' OR ', array_map(fn($c) => "$c LIKE ?", $def['buscar'])) . ')';
+        foreach ($def['buscar'] as $_) { $p[] = $like; }
+    }
+    $p[] = like_literal($texto) . '%';
+    $filas = q("SELECT {$def['id']} AS id, {$def['nombre']} AS nombre, {$def['detalle']} AS detalle
+                FROM {$def['tabla']} {$def['join']}
+                WHERE " . implode(' AND ', $w) . "
+                ORDER BY CASE WHEN {$def['nombre']} LIKE ? THEN 0 ELSE 1 END, {$def['orden']}
+                LIMIT $limite", $p)->fetchAll();
+    return array_map(static fn($f) => ['id' => (int)$f['id'], 'nombre' => (string)$f['nombre'],
+                                       'detalle' => trim((string)$f['detalle'])], $filas);
+}
+
+/**
+ * La opción del valor ya vinculado, para dibujarla en el desplegable aunque
+ * el resto de la lista se busque al escribir. Si el registro está en la
+ * papelera igual se devuelve (marcado), para que guardar sin tocar nada no
+ * borre el vínculo.
+ *
+ * @param string          $tipo cuenta | contacto | negocio | campana
+ * @param int|string|null $id   el id vinculado (vacío o 0 = ninguno)
+ * @return array<int,array{id:int,nombre:string,detalle:string}> cero o una fila
+ */
+function buscar_opcion_actual(string $tipo, $id): array
+{
+    $def = buscar_tipos()[$tipo] ?? null;
+    $id = (int)$id;
+    if (!$def || $id <= 0) { return []; }
+    try {
+        $f = q1("SELECT {$def['id']} AS id, {$def['nombre']} AS nombre, {$def['detalle']} AS detalle,
+                        CASE WHEN {$def['vivo']} THEN 1 ELSE 0 END AS vivo
+                 FROM {$def['tabla']} {$def['join']} WHERE {$def['id']} = ?", [$id]);
+    } catch (\Throwable $e) {
+        return [];
+    }
+    if (!$f) { return []; }
+    return [['id' => (int)$f['id'],
+             'nombre' => (string)$f['nombre'] . ((int)$f['vivo'] ? '' : ' (en la papelera)'),
+             'detalle' => trim((string)$f['detalle'])]];
 }

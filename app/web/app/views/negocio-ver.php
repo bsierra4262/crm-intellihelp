@@ -5,7 +5,8 @@
 //  La dibuja pages/negocio-ver.php. Recibe:
 //    $n            el negocio con los nombres de etapa, embudo, cuenta,
 //                  contacto, propietario y campaña (negocio_get)
-//    $etapas       las etapas activas del embudo del negocio
+//    $etapas       las etapas activas del embudo del negocio, más la actual
+//                  aunque esté desactivada ('inactiva')
 //    $historial    tramos de negocio_etapas, del más viejo al más nuevo
 //    $notas, $actividades, $linea  para los paneles de la derecha
 //
@@ -57,18 +58,18 @@
 
 <div class="card mb-4">
     <div class="card-head"><h2>Mover de etapa</h2></div>
-    <?php // Postea a negocio-etapa. Si la etapa actual está desactivada no figura en la lista y queda marcada otra: apretar «Mover» sin elegir la cambia. ?>
+    <?php // Postea a negocio-etapa. La etapa actual siempre está en la lista y queda marcada: «Mover» sin elegir otra no cambia nada. ?>
     <form method="post" action="<?= e(url('negocio-etapa')) ?>" class="urow">
         <?= csrf_field() ?>
         <input type="hidden" name="id" value="<?= (int)$n['id'] ?>">
         <select name="etapa_id" class="w-lg">
             <?php foreach ($etapas as $et): ?>
                 <option value="<?= (int)$et['id'] ?>" <?= (int)$n['etapa_id'] === (int)$et['id'] ? 'selected' : '' ?>>
-                    <?= e($et['nombre']) ?> (<?= (int)$et['probabilidad'] ?> %)
+                    <?= e($et['nombre']) ?> (<?= (int)$et['probabilidad'] ?> %)<?= !empty($et['inactiva']) ? ' · desactivada' : '' ?>
                 </option>
             <?php endforeach; ?>
         </select>
-        <?php // El motivo sólo se guarda si se escribe; vacío, se conserva el que había. ?>
+        <?php // El motivo se guarda sólo al mover a una etapa perdida (vacío, se conserva el que había); a cualquier otra etapa se borra. ?>
         <input name="motivo_perdida" placeholder="Motivo (si se pierde)" maxlength="200" class="w-lg">
         <button class="btn btn-primary btn-sm"><?= icon('convertir', 15) ?>Mover</button>
     </form>

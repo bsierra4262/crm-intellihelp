@@ -5,12 +5,14 @@
 //  La dibuja pages/cuotas.php y postea a la misma ruta. Recibe:
 //    $usuarios  usuarios activos
 //    $cargadas  usuario_id => objetivo del período
-//    $ganado    usuario_id => importe ganado en el período (ARS y USD juntos)
+//    $ganado    usuario_id => ['ARS' => …, 'USD' => …] ganado en el período
 //    $periodo   AAAA-MM
 //    $aviso     [tipo, mensaje] del último POST, o null
 //
 //  Un objetivo vacío no se guarda como cero: borra la fila, y el
-//  cumplimiento se muestra como «—».
+//  cumplimiento se muestra como «—». El objetivo es en pesos y el
+//  cumplimiento compara sólo lo ganado en pesos; lo ganado en dólares se
+//  muestra aparte, sin convertir.
 // ============================================================
 ?>
 <?php /** @var array $usuarios @var array $cargadas @var array $ganado @var string $periodo @var ?array $aviso */ ?>
@@ -41,24 +43,24 @@
         <input type="hidden" name="periodo" value="<?= e($periodo) ?>">
         <div class="table-scroll">
             <table class="grid">
-                <thead><tr><th>Vendedor</th><th class="num">Objetivo</th>
+                <thead><tr><th>Vendedor</th><th class="num">Objetivo (ARS)</th>
                            <th class="num">Ganado en el mes</th><th class="num">Cumplimiento</th></tr></thead>
                 <tbody>
                 <?php foreach ($usuarios as $u):
                     $uid = (int)$u['id'];
                     $obj = $cargadas[$uid] ?? 0.0;
-                    $gan = $ganado[$uid] ?? 0.0;
-                    $pct = $obj > 0 ? (int) round(100 * $gan / $obj) : null;
+                    $gan = $ganado[$uid] ?? [];
+                    $pct = $obj > 0 ? (int) round(100 * (float)($gan['ARS'] ?? 0) / $obj) : null;
                 ?>
                     <tr>
                         <td data-label="Vendedor"><strong><?= e($u['nombre']) ?></strong></td>
                         <td data-label="Objetivo" class="num">
-                            <?php // El valor se escribe con punto decimal («1500000.5») porque el campo es type="number"; ver en pages/cuotas.php cómo se lee al volver. ?>
+                            <?php // El valor se escribe con punto decimal («1500000.5») porque el campo es type="number"; importe_parsear() lo lee bien al volver. ?>
                             <input type="number" name="objetivo[<?= $uid ?>]" class="w-md"
                                    value="<?= $obj > 0 ? e((string)$obj) : '' ?>"
                                    min="0" step="0.01" inputmode="decimal" placeholder="sin objetivo">
                         </td>
-                        <td data-label="Ganado en el mes" class="num strong"><?= money($gan) ?></td>
+                        <td data-label="Ganado en el mes" class="num strong"><?= montos_por_moneda($gan) ?></td>
                         <td data-label="Cumplimiento" class="num">
                             <?= $pct === null ? '—'
                                 : '<span class="badge ' . ($pct >= 100 ? 'badge-ok' : ($pct >= 60 ? 'badge-pend' : 'badge-rej')) . '">' . $pct . ' %</span>' ?>

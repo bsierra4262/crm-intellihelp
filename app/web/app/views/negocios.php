@@ -4,7 +4,8 @@
 //
 //  La dibuja pages/negocios.php. Recibe:
 //    $f         los filtros aplicados (para volver a marcarlos)
-//    $data      negocios_listar(): rows, total, suma y la paginación
+//    $data      negocios_listar(): rows, total, suma (importe y ponderado,
+//               cada uno moneda => monto) y la paginación
 //    $usuarios  usuarios activos, para el filtro de propietario
 //    $etapas    etapas del embudo predeterminado, para el filtro de etapa
 //
@@ -16,11 +17,11 @@
 <div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Negocios</h1>
-        <?php // Los totales son de todo el filtro, no de la página, y suman ARS y USD juntos mostrados como pesos. ?>
+        <?php // Los totales son de todo el filtro, no de la página, y van separados por moneda: no se convierte. ?>
         <p class="muted">
             <?= number_format($data['total'], 0, ',', '.') ?> negocios ·
-            <?= money((float)($data['suma']['importe'] ?? 0)) ?> ·
-            <?= money((float)($data['suma']['ponderado'] ?? 0)) ?> ponderado
+            <?= montos_por_moneda($data['suma']['importe'] ?? []) ?> ·
+            <?= montos_por_moneda($data['suma']['ponderado'] ?? []) ?> ponderado
         </p>
     </div>
     <div class="head-actions">
@@ -101,7 +102,8 @@
                     <td data-label="Propietario" class="prio-4"><?= e($n['propietario'] ?: '—') ?></td>
                     <td class="acts" data-label="Acciones">
                         <a class="act" href="<?= e(url('negocio-form?id=' . (int)$n['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
-                        <?php // La papelera la maneja registro-eliminar; `volver` dice a qué pantalla regresar. ?>
+                        <?php // La papelera la maneja registro-eliminar; `volver` dice a qué pantalla regresar. El botón sólo se ofrece al propietario, a un administrador o si el negocio no tiene dueño (el servidor igual lo controla). ?>
+                        <?php if (auth_is_admin() || empty($n['propietario_id']) || (int)$n['propietario_id'] === (int)current_user_id()): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="negocio">
@@ -112,6 +114,7 @@
                                     data-confirmar="El negocio «<?= e($n['nombre']) ?>» se va a la papelera."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>

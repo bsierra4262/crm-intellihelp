@@ -6,24 +6,27 @@
 //    $embudos   embudos activos (el selector aparece si hay más de uno)
 //    $embudoId  el que se está mirando
 //    $cols      embudo_kanban(): por etapa, la etapa, sus negocios y el total
+//               (moneda => monto); una etapa desactivada con negocios viene
+//               con 'inactiva'
 //    $f         filtros q y propietario_id
 //    $usuarios  usuarios activos
 //
 //  Las tarjetas son enlaces a la ficha: el tablero no permite arrastrar.
 // ============================================================
 /** @var array $embudos @var int $embudoId @var array $cols @var array $f @var array $usuarios */
-// El total del encabezado suma sólo las etapas abiertas, y mezcla monedas:
-// se muestra en pesos aunque haya negocios en dólares.
-$totalAbierto = 0.0; $totalNegocios = 0;
+// El total del encabezado suma sólo las etapas abiertas, separado por moneda.
+$totalAbierto = []; $totalNegocios = 0;
 foreach ($cols as $c) {
-    if ($c['etapa']['tipo'] === 'abierta') { $totalAbierto += $c['total']; }
+    if ($c['etapa']['tipo'] === 'abierta') {
+        foreach ($c['total'] as $mon => $monto) { $totalAbierto[$mon] = ($totalAbierto[$mon] ?? 0) + $monto; }
+    }
     $totalNegocios += count($c['negocios']);
 }
 ?>
 <div class="page-head">
     <div>
         <h1>Embudo de ventas</h1>
-        <p class="muted"><?= $totalNegocios ?> negocios · <?= money($totalAbierto) ?> abiertos</p>
+        <p class="muted"><?= $totalNegocios ?> negocios · <?= montos_por_moneda($totalAbierto) ?> abiertos</p>
     </div>
     <div class="head-actions">
         <a class="btn btn-ghost" href="<?= e(url('negocios')) ?>"><?= icon('listas', 16) ?>Ver como lista</a>
@@ -66,9 +69,9 @@ foreach ($cols as $c) {
             <div class="kcol-head">
                 <strong title="<?= e($et['nombre']) ?>">
                     <span class="kcol-dot" style="background:<?= e($et['color']) ?>"></span>
-                    <em><?= e($et['nombre']) ?></em>
+                    <em><?= e($et['nombre']) ?><?= !empty($et['inactiva']) ? ' (desactivada)' : '' ?></em>
                 </strong>
-                <span class="kcol-sum"><?= count($col['negocios']) ?> · <?= money($col['total']) ?></span>
+                <span class="kcol-sum"><?= count($col['negocios']) ?> · <?= montos_por_moneda($col['total']) ?></span>
             </div>
             <div class="kcol-body">
                 <?php if (!$col['negocios']): ?>

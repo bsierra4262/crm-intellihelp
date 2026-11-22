@@ -88,13 +88,13 @@ if (is_post()) {
     $c = array_merge($c ?? [], $d);
 }
 
-// El selector de empresas trae hasta 3000: una base más grande deja afuera
-// las últimas en orden alfabético.
+// El selector de empresa lleva sólo la vinculada (buscar_opcion_actual de
+// crm.php); las demás se buscan al escribir (buscador.js).
 
 render('contacto-form', [
     'c'        => $c,
     'id'       => $id,
     'errores'  => $errores,
     'usuarios' => users_activos(),
-    'cuentas'  => q('SELECT id, nombre FROM cuentas WHERE eliminado_en IS NULL ORDER BY nombre LIMIT 3000')->fetchAll(),
+    'cuentas'  => buscar_opcion_actual('cuenta', $c['cuenta_id'] ?? null),
 ], $id ? 'Editar contacto' : 'Nuevo contacto');

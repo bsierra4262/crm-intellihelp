@@ -31,7 +31,7 @@
         <?php if (($resultado['modo'] ?? '') === 'lista'): ?>
             Se leyeron <?= (int)$resultado['filas'] ?> filas:
             <strong><?= (int)$resultado['agregados'] ?></strong> correos agregados,
-            <?= (int)$resultado['omitidos'] ?> repetidos o inválidos.
+            <?= (int)$resultado['omitidos'] ?> omitidos (el detalle, abajo).
         <?php else: ?>
             <?= !empty($resultado['simulado']) ? '<strong>Simulación</strong> (no se guardó nada): ' : '' ?>
             <?= (int)$resultado['filas'] ?> filas leídas ·
@@ -40,6 +40,9 @@
             <?= (int)$resultado['cuentas_nuevas'] ?> empresas nuevas ·
             <?= (int)$resultado['omitidos'] ?> omitidos ·
             <?= (int)$resultado['errores'] ?> errores.
+            <?php if (!empty($resultado['codificacion']) && $resultado['codificacion'] !== 'UTF-8'): ?>
+                <br><span class="small">El archivo venía en <?= e($resultado['codificacion']) ?> y se convirtió a UTF-8: los acentos se leyeron bien.</span>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
     <?php if (!empty($resultado['detalle_omitidos'])): ?>
@@ -50,6 +53,18 @@
                     <span class="bar-label"><?= e($motivo) ?></span>
                     <?php // El ancho de la barra es la proporción del motivo sobre el total de filas leídas. ?>
                     <span class="bar-track"><i class="bar-fill" style="width:<?= min(100, round(100 * $n / max(1, (int)$resultado['filas']))) ?>%"></i></span>
+                    <span class="bar-val"><?= (int)$n ?></span>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+    <?php if (!empty($resultado['avisos'])): ?>
+        <div class="card mb-4">
+            <div class="card-head"><h2>Qué se corrigió al importar</h2></div>
+            <?php foreach ($resultado['avisos'] as $motivo => $n): ?>
+                <div class="bar-row">
+                    <span class="bar-label"><?= e($motivo) ?></span>
+                    <span class="bar-track"><i class="bar-fill alt" style="width:<?= min(100, round(100 * $n / max(1, (int)$resultado['filas']))) ?>%"></i></span>
                     <span class="bar-val"><?= (int)$n ?></span>
                 </div>
             <?php endforeach; ?>
@@ -78,8 +93,6 @@
                 </label>
                 <i class="hint">Tamaño máximo del servidor: <?= e($maxSubida) ?>.</i>
             </div>
-            <?php // Esta etiqueta «Qué importar» queda abierta y se repite dos líneas más abajo: es HTML mal formado (ver auditoría). ?>
-            <label class="fld"><span>Qué importar</span>
             <?php /* Importar a una lista sólo tiene sentido con las campañas en
                      marcha: ofrecerlo apagado sería prometer un destino al que
                      el archivo no puede llegar. */
@@ -152,10 +165,16 @@
             <thead><tr><th>Cuándo</th><th>Archivo</th><th class="num">Filas</th><th class="num">Nuevos</th>
                        <th class="num">Actualizados</th><th class="num">Errores</th><th class="prio-3">Quién</th></tr></thead>
             <tbody>
-            <?php foreach ($lotes as $l): ?>
+            <?php foreach ($lotes as $l): $estadoLote = importar_estado_lote($l); ?>
                 <tr>
                     <td data-label="Cuándo"><?= fecha_hora($l['creado_en']) ?></td>
-                    <td data-label="Archivo"><?= e(recortar($l['archivo'], 34)) ?></td>
+                    <td data-label="Archivo">
+                        <?= e(recortar($l['archivo'], 34)) ?>
+                        <?php if ($l['modulo'] === 'lista'): ?><span class="badge badge-neutral">Lista</span><?php endif; ?>
+                        <?php // Una corrida que sigue «en curso» después de una hora la cortó el servidor: llegó hasta las filas que dice. ?>
+                        <?php if ($estadoLote === 'cortada'): ?><span class="badge badge-rej" title="El servidor la cortó: se guardó hasta las filas que figuran. Volver a subir el archivo completa el resto.">Cortada</span>
+                        <?php elseif ($estadoLote === 'en curso'): ?><span class="badge badge-pend">En curso</span><?php endif; ?>
+                    </td>
                     <td data-label="Filas" class="num"><?= (int)$l['filas'] ?></td>
                     <td data-label="Nuevos" class="num strong"><?= (int)$l['creados'] ?></td>
                     <td data-label="Actualizados" class="num"><?= (int)$l['actualizados'] ?></td>
