@@ -662,6 +662,9 @@ CREATE TABLE IF NOT EXISTS `agenda_reservas` (
   `estado`        ENUM('confirmada','reprogramada','cancelada') NOT NULL DEFAULT 'confirmada',
   `gcal_event_id` VARCHAR(128)    DEFAULT NULL,
   `meet_url`      VARCHAR(255)    DEFAULT NULL,
+  -- Cambio en Google que quedo por hacer porque Google fallo despues de
+  -- guardar en la base ('mover' o 'borrar'); el cron lo reintenta (013).
+  `gcal_pendiente` VARCHAR(10)    DEFAULT NULL,
   -- Una sola invitacion que se actualiza: mismo UID al mover y al cancelar.
   `ics_uid`         VARCHAR(255)    DEFAULT NULL,
   `ics_secuencia`   INT UNSIGNED    NOT NULL DEFAULT 0,
@@ -682,6 +685,7 @@ CREATE TABLE IF NOT EXISTS `agenda_reservas` (
   KEY `ix_ar_estado`  (`estado`, `inicia_el`),
   KEY `ix_ar_prog`    (`reprogramada_de`),
   KEY `ix_ar_avisada` (`estado`, `avisada_en`),
+  KEY `ix_ar_gcal_pendiente` (`gcal_pendiente`),
   CONSTRAINT `fk_ar_tipo`    FOREIGN KEY (`tipo_id`)    REFERENCES `agenda_tipos` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_ar_usuario` FOREIGN KEY (`usuario_id`) REFERENCES `usuarios` (`id`)     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -976,7 +980,7 @@ CREATE TABLE IF NOT EXISTS `envio_eventos` (
   `envio_id`  BIGINT UNSIGNED NOT NULL,
   `tipo`      ENUM('encolado','enviado','apertura','clic','respuesta','rebote','baja','error') NOT NULL,
   `detalle`   VARCHAR(500) DEFAULT NULL,
-  `ip`        VARCHAR(45)  DEFAULT NULL,
+  `ip`        VARCHAR(64)  DEFAULT NULL,   -- hash de la IP (015), no la IP en claro
   `creado_en` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `ix_ee_envio` (`envio_id`, `creado_en`),
@@ -992,7 +996,7 @@ CREATE TABLE IF NOT EXISTS `desuscripciones` (
   `motivo`     ENUM('baja','rebote_duro','queja','manual') NOT NULL DEFAULT 'baja',
   `campana_id` BIGINT UNSIGNED DEFAULT NULL,
   `detalle`    VARCHAR(255) DEFAULT NULL,
-  `ip`         VARCHAR(45)  DEFAULT NULL,
+  `ip`         VARCHAR(64)  DEFAULT NULL,   -- hash de la IP (015), no la IP en claro
   `creado_en`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`email`),
   KEY `ix_desus_motivo` (`motivo`)
@@ -1006,6 +1010,9 @@ CREATE TABLE IF NOT EXISTS `desuscripciones` (
 CREATE TABLE IF NOT EXISTS `imap_estado` (
   `buzon`      VARCHAR(120) NOT NULL,
   `ultimo_uid` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  -- UIDVALIDITY de la casilla al guardar la marca: si cambia, el servidor
+  -- renumero los mensajes y la marca ya no sirve (016).
+  `uidvalidity` BIGINT UNSIGNED DEFAULT NULL,
   `ultima_corrida` DATETIME DEFAULT NULL,
   PRIMARY KEY (`buzon`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1150,7 +1157,34 @@ CREATE TABLE IF NOT EXISTS `mensajes` (
   UNIQUE KEY `uq_msg` (`message_id`),
   KEY `ix_msg_contacto` (`contacto_id`, `fecha`),
   KEY `ix_msg_envio` (`envio_id`),
-  KEY `ix_msg_sin_leer` (`leido_en`, `direccion`)
+  KEY `ix_msg_sin_leer` (`leido_en`, `direccion`),
+  -- La conversacion se arma por direccion de correo (016).
+  KEY `ix_msg_de`   (`de`, `fecha`),
+  KEY `ix_msg_para` (`para`, `fecha`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Lecturas de alertas por persona (migracion 010): una alerta del equipo
+-- (notificaciones.usuario_id NULL) se marca leida para cada usuario por
+-- separado, asi que una persona no se la esconde a las demas. Las alertas
+-- personales siguen usando notificaciones.leida_en.
+CREATE TABLE IF NOT EXISTS `notificacion_lecturas` (
+  `notificacion_id` BIGINT UNSIGNED NOT NULL,
+  `usuario_id`      BIGINT UNSIGNED NOT NULL,
+  `leida_en`        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`notificacion_id`, `usuario_id`),
+  KEY `ix_lectura_usuario` (`usuario_id`, `notificacion_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Tokens de baja que sobreviven a la purga (migracion 015): antes de borrar
+-- una campana de la papelera, sus tokens se copian aca, para que el enlace de
+-- baja de un correo ya entregado siga funcionando siempre.
+CREATE TABLE IF NOT EXISTS `bajas_tokens` (
+  `token`      CHAR(32)        NOT NULL,
+  `email`      VARCHAR(190)    NOT NULL,
+  `campana_id` BIGINT UNSIGNED DEFAULT NULL,
+  `creado_en`  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`token`),
+  KEY `ix_bt_email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
@@ -1205,6 +1239,9 @@ INSERT INTO `app_settings` (`clave`, `valor`) VALUES
   ('campana_limite_diario', '300'),
   -- Dias que se conserva lo archivado antes de borrarlo de verdad.
   ('papelera_dias', '60'),
+  -- Modo prueba (015): ademas de los usuarios activos, a quienes pueden
+  -- salir las campanas (correos separados por coma).
+  ('testing_lista_blanca', ''),
   -- Entradas desde la web (migracion 008): responsable de las consultas
   -- (vacio = el vendedor del tipo 'diagnostico'), aviso en la campana y si el
   -- invitado va tambien como invitado del evento de Google.

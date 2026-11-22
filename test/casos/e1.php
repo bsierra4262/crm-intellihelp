@@ -179,4 +179,4 @@ ok('ASSETS_V mira todos los JS y CSS', str_contains($bootE1, "glob(\$dir . 'js/*
 
 echo "-- Cron por URL --\n";
 $cronE1 = (string) @file_get_contents(dirname($WEB_E1) . '/cron.php');
-if ($cronE1 !== '') { contiene('la clave del cron se compara en tiempo constante', $cronE1, 'hash_equals($clave, $dada)'); }
+if ($cronE1 !== '') { contiene('la clave del cron se compara en tiempo constante', $cronE1, 'hash_equals($configurada, $recibida)'); }
