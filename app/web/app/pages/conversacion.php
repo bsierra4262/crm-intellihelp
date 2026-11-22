@@ -4,7 +4,8 @@ require_login();
 
 // ============================================================
 //  Ruta `conversacion?email=<correo>` (módulo Campañas; cualquier usuario
-//  con sesión, sin chequeo de dueño de la campaña).
+//  con sesión: la base se comparte en el equipo y cualquiera puede atender
+//  una respuesta).
 //
 //  La conversación con una persona: lo que escribió y lo que le contestamos.
 //  Se entra por correo y no por id de contacto: quien responde una campaña
@@ -13,29 +14,20 @@ require_login();
 //  desde el detalle de la campaña.
 //
 //  GET: muestra el hilo (conversacion_de) y lo marca como leído.
-//  POST: contesta el mensaje `mensaje_id` con `texto` (mensaje_responder) y
-//  vuelve a la misma conversación con un aviso (patrón POST-redirect-GET).
+//  POST: contesta el mensaje `mensaje_id` con `texto` (conversacion_responder,
+//  que comprueba que el mensaje sea de esta conversación) y vuelve a la misma
+//  conversación con un aviso (patrón POST-redirect-GET).
 //
-//  Vista: views/conversacion.php, con $email, $mensajes, $contacto y $ultimo.
-//  Lógica en app/mensajes.php.
+//  Vista: views/conversacion.php, con $email, $mensajes, $contacto, $ultimo y
+//  $limite. Lógica en app/mensajes.php.
 // ============================================================
 
 $email = normalizar_email((string)($_GET['email'] ?? $_POST['email'] ?? ''));
 
 if (is_post()) {
-    // Ojo: csrf_check() no está definida en ningún archivo (la del sistema es
-    // verify_csrf()). Así como está, el POST termina en error fatal antes de
-    // mandar nada.
-    csrf_check();
-    // El mensaje_id viene del formulario y no se comprueba que pertenezca a
-    // esta conversación: la respuesta va al remitente de ESE mensaje.
-    try {
-        $id = (int)($_POST['mensaje_id'] ?? 0);
-        mensaje_responder($id, (string)($_POST['texto'] ?? ''));
-        flash('Respuesta enviada.', 'success');
-    } catch (\Throwable $e) {
-        flash('No se pudo enviar: ' . $e->getMessage(), 'error');
-    }
+    verify_csrf();
+    [$tipo, $texto] = conversacion_responder($_POST, $email);
+    flash($texto, $tipo);
     redirect('conversacion?email=' . urlencode($email));
 }
 
@@ -46,7 +38,10 @@ if ($email === '' || !email_valido($email)) {
     exit;
 }
 
-$mensajes = conversacion_de($email);
+// Los últimos $limite mensajes: en un hilo más largo se dejan afuera los
+// primeros, nunca los que hay que contestar.
+$limite   = 100;
+$mensajes = conversacion_de($email, $limite);
 if (!$mensajes) {
     http_response_code(404);
     render('error', ['codigo' => 404, 'titulo' => 'Todavía no hay conversación',
@@ -59,12 +54,15 @@ conversacion_marcar_leida($email);
 
 $contacto = q1('SELECT * FROM contactos WHERE email = ? AND eliminado_en IS NULL LIMIT 1', [$email]);
 
+// El último que entró es al que se le contesta: encadena el hilo bien. Si no
+// hay ninguno entrante (sólo salientes), queda null y la vista no muestra el
+// formulario.
+$entrantes = array_values(array_filter($mensajes, fn($m) => $m['direccion'] === 'entrante'));
+
 render('conversacion', [
     'email'    => $email,
     'mensajes' => $mensajes,
     'contacto' => $contacto,
-    // El último que entró es al que se le contesta: encadena el hilo bien.
-    // Se filtran los entrantes y se toma el último; si no hay ninguno (sólo
-    // salientes), queda null y la vista no muestra el formulario.
-    'ultimo'   => array_values(array_filter($mensajes, fn($m) => $m['direccion'] === 'entrante'))[count(array_filter($mensajes, fn($m) => $m['direccion'] === 'entrante')) - 1] ?? null,
+    'ultimo'   => $entrantes ? $entrantes[count($entrantes) - 1] : null,
+    'limite'   => $limite,
 ], 'Conversación con ' . ($contacto['nombre_completo'] ?? $email));

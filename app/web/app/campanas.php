@@ -1535,20 +1535,24 @@ function purgar_papelera(?int $dias = null): array
 /**
  * Marca que un destinatario respondió (lo llama el lector IMAP).
  *
- * Se atribuye al envío entregado más reciente a ese correo que todavía no
- * tenía respuesta, sin mirar el In-Reply-To: cualquier correo de esa persona
- * cuenta como respuesta a la última campaña que recibió. Avisa al
- * responsable de la campaña con una notificación que lleva a la conversación.
+ * Con $envioId (imap.php ya cruzó la respuesta con su envío por
+ * In-Reply-To/References) se marca ESE envío, si todavía no tenía
+ * respuesta. Sin él, se atribuye al envío entregado más reciente a ese
+ * correo que todavía no tenía respuesta. Avisa al responsable de la campaña
+ * con una notificación que lleva a la conversación.
  *
- * @param string $email  remitente de la respuesta (se normaliza).
- * @param string $asunto asunto de la respuesta, para el registro y el aviso.
+ * @param string   $email   remitente de la respuesta (se normaliza).
+ * @param string   $asunto  asunto de la respuesta, para el registro y el aviso.
+ * @param int|null $envioId el envío al que responde, si ya se sabe.
  */
-function marcar_respuesta(string $email, string $asunto = ''): void
+function marcar_respuesta(string $email, string $asunto = '', ?int $envioId = null): void
 {
     $email = normalizar_email($email);
-    $envio = q1("SELECT id, campana_id FROM envios
-                 WHERE email = ? AND estado = 'enviado' AND respondido_en IS NULL
-                 ORDER BY enviado_en DESC LIMIT 1", [$email]);
+    $envio = $envioId
+        ? q1('SELECT id, campana_id FROM envios WHERE id = ? AND respondido_en IS NULL', [$envioId])
+        : q1("SELECT id, campana_id FROM envios
+              WHERE email = ? AND estado = 'enviado' AND respondido_en IS NULL
+              ORDER BY enviado_en DESC LIMIT 1", [$email]);
     if (!$envio) { return; }
     q('UPDATE envios SET respondido_en = NOW() WHERE id = ?', [(int)$envio['id']]);
     q("INSERT INTO envio_eventos (envio_id, tipo, detalle) VALUES (?, 'respuesta', ?)",

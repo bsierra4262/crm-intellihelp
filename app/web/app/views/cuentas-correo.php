@@ -93,8 +93,13 @@ foreach ($rows as $rc) {
                         <span class="small muted"><?= (int)$c['enviados_hoy'] ?> / <?= (int)$c['limite_diario'] ?></span>
                     </td>
                     <td data-label="Estado">
-                        <?php // El error manda sobre la verificación: cuenta_probar() puede dejar las dos marcas. ?>
-                        <?php if (!$c['activo']): ?>
+                        <?php // El error manda sobre la verificación: cuenta_probar() puede dejar las dos marcas.
+                              // Una contraseña guardada que ya no se puede descifrar (cambió el
+                              // secreto de la instalación) se avisa antes que nada: sin eso la
+                              // cuenta queda «sin contraseña» en silencio. ?>
+                        <?php if (!empty($c['smtp_pass']) && descifrar((string)$c['smtp_pass']) === ''): ?>
+                            <span class="badge badge-rej" title="La contraseña guardada no se puede leer: probablemente cambió el secreto de la instalación. Volvé a cargarla editando la cuenta.">Recargar contraseña</span>
+                        <?php elseif (!$c['activo']): ?>
                             <span class="badge badge-neutral">Inactiva</span>
                         <?php elseif ($c['ultimo_error']): ?>
                             <span class="badge badge-rej" title="<?= e($c['ultimo_error']) ?>">Con error</span>
@@ -205,8 +210,9 @@ foreach ($rows as $rc) {
                         <option value="<?= (int)$u['id'] ?>" <?= (string)($editar['usuario_id'] ?? '') === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
-                <?php // Ojo: hoy el dueño sólo se muestra; ninguna pantalla restringe el uso de la cuenta por él. ?>
-                <i class="hint">Quién puede usarla. «Compartida» la habilita para todo el equipo.</i>
+                <?php // El dueño es una referencia: la base se comparte en el equipo y cualquier
+                      // cuenta activa se puede elegir al armar una campaña. ?>
+                <i class="hint">Quién es el responsable de esta casilla. Es una referencia: cualquier cuenta activa se puede elegir al armar una campaña.</i>
             </label>
         </div>
 

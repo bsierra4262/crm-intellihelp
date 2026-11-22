@@ -10,9 +10,11 @@ require_admin();
 //  campañas. Un solo POST con `accion`:
 //    · 'probar'   → cuenta_probar($id): conecta SMTP e IMAP y anota el resultado;
 //    · 'eliminar' → cuenta_correo_eliminar($id): baja lógica;
-//    · otra cosa  → guardar (alta si id = 0) y probar enseguida.
-//  No redirige después del POST: el resultado se muestra en la misma
-//  respuesta con $aviso (refrescar la página reenvía el formulario).
+//    · otra cosa  → guardar (alta si id = 0; una dirección dada de baja se
+//      reactiva) y probar enseguida.
+//  Lo que sale bien redirige con un aviso (POST-redirect-GET): refrescar la
+//  página no repite la prueba de red ni el guardado. Lo que no pasa la
+//  validación se muestra en la misma respuesta, con el formulario cargado.
 //
 //  Vista: views/cuentas-correo.php, con $aviso ([tipo, texto] o null),
 //  $rows, $editar (fila a editar, o el POST si falló la validación) y
@@ -29,13 +31,15 @@ if (is_post()) {
 
     if ($accion === 'probar') {
         $err = null;
-        $aviso = cuenta_probar($id, $err)
-            ? ['success', 'La cuenta conecta bien: ya puede mandar campañas.']
-            : ['error', 'No se pudo conectar: ' . $err];
+        cuenta_probar($id, $err)
+            ? flash('La cuenta conecta bien: ya puede mandar campañas.', 'success')
+            : flash('No se pudo conectar: ' . $err, 'error');
+        redirect('cuentas-correo');
 
     } elseif ($accion === 'eliminar') {
         cuenta_correo_eliminar($id);
-        $aviso = ['success', 'Cuenta dada de baja.'];
+        flash('Cuenta dada de baja.', 'success');
+        redirect('cuentas-correo');
 
     } else {
         $d = $_POST;
@@ -43,15 +47,27 @@ if (is_post()) {
             $aviso = ['error', 'Hace falta un nombre y una dirección de correo válida.'];
             $editar = $d;
         } else {
-            // Un remitente repetido (aun de una cuenta dada de baja) hace
-            // lanzar PDOException por la clave única; acá no se ataja.
-            $nuevoId = cuenta_correo_guardar($d, $id ?: null);
-            // Probar al guardar evita descubrir el problema recién cuando la
-            // campaña ya arrancó y falló a mitad de camino.
-            $err = null;
-            $aviso = cuenta_probar($nuevoId, $err)
-                ? ['success', 'Cuenta guardada y verificada.']
-                : ['warn', 'Cuenta guardada, pero no se pudo conectar: ' . $err];
+            try {
+                $nuevoId = cuenta_correo_guardar($d, $id ?: null);
+            } catch (CuentaCorreoRepetida $e) {
+                $aviso  = ['error', $e->getMessage()];
+                $editar = $d;
+                $nuevoId = 0;
+            } catch (\Throwable $e) {
+                log_error('cuenta_correo.guardar', $e->getMessage(), $e->getFile(), $e->getLine());
+                $aviso  = ['error', 'No se pudo guardar la cuenta por un error interno. Quedó registrado para revisarlo.'];
+                $editar = $d;
+                $nuevoId = 0;
+            }
+            if ($nuevoId) {
+                // Probar al guardar evita descubrir el problema recién cuando la
+                // campaña ya arrancó y falló a mitad de camino.
+                $err = null;
+                cuenta_probar($nuevoId, $err)
+                    ? flash('Cuenta guardada y verificada.', 'success')
+                    : flash('Cuenta guardada, pero no se pudo conectar: ' . $err, 'warn');
+                redirect('cuentas-correo');
+            }
         }
     }
 }

@@ -17,8 +17,9 @@ declare(strict_types=1);
 //  Cifrado: cifrar()/descifrar() de google.php, AES-256-GCM con la clave
 //  derivada (sha256) de `app.secret` de la configuración. Si ese secreto no
 //  está, se deriva del nombre y el usuario de la base (débil). Si el secreto
-//  cambia, descifrar() devuelve '' sin avisar: las cuentas quedan «sin
-//  contraseña» y hay que volver a cargarlas.
+//  cambia, descifrar() devuelve '' y las cuentas quedan «sin contraseña»: la
+//  pantalla de cuentas lo marca con «Recargar contraseña» en cada una, y hay
+//  que volver a cargarlas.
 //
 //  Módulo: Campañas. Quién lo usa: pages/cuentas-correo.php (alta, edición,
 //  prueba y baja; sólo administradores), envio.php (smtp_cfg), imap.php,
@@ -29,14 +30,18 @@ declare(strict_types=1);
 //  están también las funciones de `categorias` (segmentos de listas), que no
 //  tienen que ver con el correo pero viven acá desde la migración 002.
 //
-//  Trampas:
+//  Decisiones:
 //    · `remitente` tiene clave única y la baja es lógica (eliminado_en): una
-//      cuenta dada de baja sigue ocupando su dirección, y volver a cargarla
-//      choca con la clave.
-//    · `smtp_pass` es NOT NULL sin valor por defecto y el INSERT del alta no
-//      la incluye (se graba en un UPDATE aparte): con MySQL en modo estricto
-//      el alta falla.
+//      cuenta dada de baja sigue ocupando su dirección. Volver a cargarla la
+//      REACTIVA (misma fila, datos nuevos) en vez de chocar con la clave; una
+//      dirección que ya usa otra cuenta viva da un error claro
+//      (CuentaCorreoRepetida), nunca un 500.
+//    · El alta escribe `smtp_pass` en el mismo INSERT ('' si no vino): la
+//      columna es NOT NULL y, con MySQL en modo estricto, omitirla fallaba.
 // ============================================================
+
+/** Error de validación de una cuenta (dirección repetida): el texto se puede mostrar tal cual. */
+class CuentaCorreoRepetida extends RuntimeException {}
 
 /**
  * Las cuentas de correo no dadas de baja, con el nombre del dueño y cuántos
@@ -76,18 +81,22 @@ function cuenta_correo_predeterminada(): ?array
 /**
  * Da de alta o actualiza una cuenta de correo con lo que vino del formulario.
  *
- * No valida: el nombre y el remitente los chequea la página antes de llamar.
- * Las contraseñas se cifran y sólo se escriben si vinieron con algo. Si la
- * cuenta queda como predeterminada, se les saca la marca a todas las demás.
- * Deja registro en la auditoría.
+ * No valida nombre ni formato: eso lo chequea la página antes de llamar.
+ * Las contraseñas se cifran y sólo se escriben si vinieron con algo (en el
+ * alta, sin contraseña queda ''). Si la cuenta queda como predeterminada, se
+ * les saca la marca a todas las demás. Deja registro en la auditoría.
  *
- * Efectos: INSERT/UPDATE en `cuentas_correo`. Una dirección de remitente
- * repetida (aunque sea de una cuenta dada de baja) lanza PDOException por la
- * clave única, que la página no ataja.
+ * Remitente repetido:
+ *   · alta con la dirección de una cuenta dada de baja → se reactiva esa
+ *     fila con los datos nuevos (las contraseñas viejas se conservan si no
+ *     se escribieron otras) y se devuelve su id;
+ *   · alta o edición con la dirección de otra cuenta viva, o edición con la
+ *     de una dada de baja → CuentaCorreoRepetida con un texto para mostrar.
  *
  * @param array    $d  campos del formulario ($_POST)
  * @param int|null $id cuenta a editar; null = alta
  * @return int id de la cuenta
+ * @throws CuentaCorreoRepetida si la dirección ya es de otra cuenta
  */
 function cuenta_correo_guardar(array $d, ?int $id = null): int
 {
@@ -112,25 +121,54 @@ function cuenta_correo_guardar(array $d, ?int $id = null): int
         'predeterminada'   => !empty($d['predeterminada']) ? 1 : 0,
     ];
 
-    // Los nombres de columna salen de las claves fijas de $campos, nunca del
-    // formulario: armar el SQL con ellos no abre una inyección.
-    if ($id) {
-        $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($campos)));
-        q("UPDATE cuentas_correo SET $sets WHERE id = ?", [...array_values($campos), $id]);
-    } else {
-        $cols = implode(', ', array_keys($campos));
-        $ph   = implode(', ', array_fill(0, count($campos), '?'));
-        q("INSERT INTO cuentas_correo ($cols) VALUES ($ph)", array_values($campos));
-        $id = last_id();
+    // ¿La dirección ya la tiene otra fila (viva o dada de baja)?
+    $otra = q1('SELECT id, eliminado_en FROM cuentas_correo WHERE remitente = ? AND id <> ?',
+               [$campos['remitente'], (int)$id]);
+    $reactivada = false;
+    if ($otra) {
+        if (!$id && $otra['eliminado_en'] !== null) {
+            // Alta de una casilla que se había dado de baja: se reactiva.
+            $id = (int)$otra['id'];
+            $reactivada = true;
+        } elseif ($otra['eliminado_en'] !== null) {
+            throw new CuentaCorreoRepetida('Esa dirección es de una cuenta dada de baja. Para volver a usarla, '
+                . 'cargala como cuenta nueva: se reactiva con los datos que pongas.');
+        } else {
+            throw new CuentaCorreoRepetida('Ya hay otra cuenta con la dirección ' . $campos['remitente'] . '.');
+        }
     }
 
     // Las contraseñas sólo se pisan si escribieron una nueva: así el campo
     // puede quedar vacío en pantalla sin borrar la que ya estaba.
-    foreach (['smtp_pass' => 'smtp_pass', 'imap_pass' => 'imap_pass'] as $campo => $col) {
-        $v = trim((string)($d[$campo] ?? ''));
-        if ($v !== '') {
-            q("UPDATE cuentas_correo SET $col = ? WHERE id = ?", [cifrar($v), $id]);
+    $claves = [];
+    foreach (['smtp_pass', 'imap_pass'] as $col) {
+        $v = trim((string)($d[$col] ?? ''));
+        if ($v !== '') { $claves[$col] = cifrar($v); }
+    }
+
+    // Los nombres de columna salen de las claves fijas de $campos, nunca del
+    // formulario: armar el SQL con ellos no abre una inyección.
+    try {
+        if ($id) {
+            $todo = $campos + $claves;
+            $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($todo)))
+                  . ($reactivada ? ', eliminado_en = NULL' : '');
+            q("UPDATE cuentas_correo SET $sets WHERE id = ?", [...array_values($todo), $id]);
+        } else {
+            // smtp_pass es NOT NULL: va siempre en el INSERT.
+            $todo = $campos + $claves + ['smtp_pass' => ''];
+            $cols = implode(', ', array_keys($todo));
+            $ph   = implode(', ', array_fill(0, count($todo), '?'));
+            q("INSERT INTO cuentas_correo ($cols) VALUES ($ph)", array_values($todo));
+            $id = last_id();
         }
+    } catch (\PDOException $e) {
+        // Dos altas simultáneas con la misma dirección: la segunda choca con
+        // la clave única. Se informa igual que arriba.
+        if ((int)($e->errorInfo[1] ?? 0) === 1062) {
+            throw new CuentaCorreoRepetida('Ya hay otra cuenta con la dirección ' . $campos['remitente'] . '.');
+        }
+        throw $e;
     }
 
     // Una sola predeterminada.
@@ -138,8 +176,9 @@ function cuenta_correo_guardar(array $d, ?int $id = null): int
         q('UPDATE cuentas_correo SET predeterminada = 0 WHERE id <> ?', [$id]);
     }
 
-    log_app('cuenta_correo.guardar', ['entidad' => 'cuenta_correo', 'entidad_id' => $id,
-        'detalle' => $campos['nombre'] . ' · ' . $campos['remitente']]);
+    log_app($reactivada ? 'cuenta_correo.reactivar' : 'cuenta_correo.guardar',
+        ['entidad' => 'cuenta_correo', 'entidad_id' => $id,
+         'detalle' => $campos['nombre'] . ' · ' . $campos['remitente'] . ($reactivada ? ' (reactivada)' : '')]);
     return $id;
 }
 
@@ -277,23 +316,4 @@ function categorias_listar(): array
     return q('SELECT c.*, (SELECT COUNT(*) FROM listas l
                            WHERE l.categoria_id = c.id AND l.eliminado_en IS NULL) AS listas
               FROM categorias c ORDER BY c.orden, c.nombre')->fetchAll();
-}
-
-/**
- * Devuelve el id de la categoría con ese nombre exacto y, si no existe, la
- * crea (recortada a 80 caracteres). Null si el nombre viene vacío.
- *
- * Trampa: se busca con el nombre entero pero se inserta recortado; con un
- * nombre de más de 80 caracteres, la segunda vez no se encuentra y el INSERT
- * choca con la clave única `uq_categorias_nombre` (PDOException).
- * Nota: hoy no la llama ningún archivo.
- */
-function categoria_asegurar(string $nombre): ?int
-{
-    $nombre = trim($nombre);
-    if ($nombre === '') { return null; }
-    $c = q1('SELECT id FROM categorias WHERE nombre = ?', [$nombre]);
-    if ($c) { return (int)$c['id']; }
-    q('INSERT INTO categorias (nombre) VALUES (?)', [mb_substr($nombre, 0, 80)]);
-    return last_id();
 }

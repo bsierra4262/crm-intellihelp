@@ -21,7 +21,8 @@
 //    · data-auto: un select de filtro que envía su formulario al cambiar.
 //    · data-cargando (+ data-cargando-detalle): botón de envío de un trabajo
 //      largo (importar, campañas, actividades); tapa la pantalla con un aviso.
-//    · iframe[data-marco]: los correos de conversacion.php; se ajusta su alto.
+//    · iframe[data-marco]: los correos de conversacion.php; se ajusta su alto
+//      con el que manda cada marco por postMessage.
 //    · data-barra-seleccion, data-sel-n, data-marcar-todo e
 //      input[name="ids[]"]: selección múltiple de contactos y empresas.
 //    · .filefield input[type=file]: muestra el nombre del archivo elegido.
@@ -241,45 +242,27 @@
     //  cuánto mide su contenido: si no se le dice, queda con una altura fija y
     //  el mensaje aparece cortado con una barra de scroll adentro, que es
     //  exactamente lo que uno no quiere al leer un correo.
+    //
+    //  El marco va con sandbox SIN allow-same-origin (conversacion.php): desde
+    //  acá no se puede leer su documento. Es el propio marco el que mide su
+    //  alto y lo manda con postMessage; acá sólo se acepta el mensaje si viene
+    //  de la ventana de uno de esos marcos (e.source), nunca por el origen,
+    //  que en un marco aislado es «null».
     // --------------------------------------------------------
-    /**
-     * Ajusta el alto de un iframe de correo a su contenido.
-     *
-     * Sólo funciona porque el marco tiene `sandbox="allow-same-origin"`
-     * (conversacion.php): sin eso contentDocument da null y queda el alto
-     * mínimo del CSS (.msg-marco).
-     *
-     * @param {HTMLIFrameElement} f
-     */
-    function ajustarMarco(f) {
-        try {
-            var d = f.contentDocument;
-            if (!d || !d.body) { return; }
-            // +2 px: sin ese margen algunos navegadores dejan una barra de
-            // scroll de un píxel que se ve como un borde raro.
-            f.style.height = Math.max(40, d.documentElement.scrollHeight) + 2 + 'px';
-        } catch (e) { /* si el navegador no deja medirlo, queda la altura por defecto */ }
-    }
-
-    /** Ajusta todos los marcos de correo de la pantalla. */
-    function ajustarMarcos() {
-        document.querySelectorAll('iframe[data-marco]').forEach(ajustarMarco);
-    }
-
-    // El evento `load` de un iframe no burbujea: se escucha en captura para
-    // poder atenderlo desde `document`, incluso en marcos que llegan después.
-    document.addEventListener('load', function (e) {
-        if (e.target.matches && e.target.matches('iframe[data-marco]')) { ajustarMarco(e.target); }
-    }, true);
-
-    // Al desplegar la cita, el marco de adentro recién ahí tiene tamaño.
-    document.addEventListener('toggle', function (e) {
-        if (e.target.matches && e.target.matches('details')) { setTimeout(ajustarMarcos, 30); }
-    }, true);
-
-    window.addEventListener('resize', function () { setTimeout(ajustarMarcos, 80); });
-    setTimeout(ajustarMarcos, 60);
-    setTimeout(ajustarMarcos, 400);   // las imágenes del correo llegan después
+    window.addEventListener('message', function (e) {
+        var d = e.data;
+        if (!d || typeof d !== 'object' || typeof d.alto !== 'number' || !isFinite(d.alto)) { return; }
+        var marcos = document.querySelectorAll('iframe[data-marco]');
+        for (var i = 0; i < marcos.length; i++) {
+            if (marcos[i].contentWindow === e.source) {
+                // +2 px: sin ese margen algunos navegadores dejan una barra de
+                // scroll de un píxel que se ve como un borde raro. Tope de
+                // 20000 px para que un correo no pueda estirar la pantalla sin fin.
+                marcos[i].style.height = Math.min(20000, Math.max(40, Math.ceil(d.alto))) + 2 + 'px';
+                return;
+            }
+        }
+    });
 
     // --------------------------------------------------------
     //  Lo que se recorta en la tabla, se puede leer igual

@@ -41,7 +41,7 @@
                     <td data-label="Descripción" class="prio-2"><?= e(recortar($l['descripcion'], 60) ?: '—') ?></td>
                     <td data-label="Creada" class="prio-3"><?= fecha_corta($l['creado_en']) ?></td>
                     <td class="acts" data-label="Acciones">
-                        <?php // Ojo: el texto dice 60 días fijo; el plazo real es el ajuste papelera_dias (dias_papelera()). ?>
+                        <?php // El plazo es el ajuste papelera_dias (dias_papelera()), no un número fijo. ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="lista">
@@ -49,7 +49,7 @@
                             <input type="hidden" name="volver" value="listas">
                             <button class="act danger" title="Enviar a la papelera" data-peligro
                                     data-confirmar-titulo="Enviar a la papelera"
-                                    data-confirmar="La lista &laquo;<?= e($l['nombre']) ?>&raquo; deja de estar a la vista. Los contactos no se borran. Se puede restaurar durante 60 días."
+                                    data-confirmar="La lista &laquo;<?= e($l['nombre']) ?>&raquo; deja de estar a la vista. Los contactos no se borran. Se puede restaurar durante <?= (int)dias_papelera() ?> días."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
 

@@ -363,8 +363,10 @@ ok('la baja de campañas sólo se toca si viene en los datos',
 ok('la importación ya no manda esa clave', !preg_match("/'no_email'\s*=>\s*0/", $importa));
 // El puntero de la casilla avanzaba antes de leer: un rebote ilegible se daba
 // por procesado y no se volvía a mirar nunca.
+// La marca avanza mensaje por mensaje, y sólo después de ver que se pudo leer.
 ok('el lector de la casilla no da por leído lo que no pudo leer',
-   strpos($imapPhp, "\$maxUid = max(\$maxUid, \$uid);") > strpos($imapPhp, "if (!\$h['ok'])"));
+   strpos($imapPhp, "if (!empty(\$p['reintentar']))") !== false
+   && strpos($imapPhp, "imap_guardar_uid(\$etiquetaBuzon, \$uid);") > strpos($imapPhp, "if (!empty(\$p['reintentar']))"));
 // Dos corridas solapadas mandaban el mismo correo dos veces.
 ok('el cron no se pisa consigo mismo', str_contains($cronPhp, "GET_LOCK('crm_cron'"));
 ok('y suelta el bloqueo al terminar', str_contains($cronPhp, "RELEASE_LOCK('crm_cron'"));
@@ -888,7 +890,7 @@ $msg     = (string) @file_get_contents($WEB . '/app/mensajes.php');
 $imapSrc = (string) @file_get_contents($WEB . '/app/imap.php');
 ok('el correo que entra se guarda entero, no sólo la marca de que respondió',
    $msg !== '' && str_contains($msg, 'function mensaje_entrante(')
-   && str_contains($imapSrc, 'mensaje_entrante(['));
+   && str_contains($imapSrc, 'mensaje_entrante($d)'));
 ok('se puede contestar desde adentro', str_contains($msg, 'function mensaje_responder('));
 ok('la respuesta sale por la misma casilla que recibió el original',
    str_contains($msg, 'cuenta_correo_id'), 'contestar desde otra dirección rompe el hilo y la siguiente respuesta ya no se detecta');
