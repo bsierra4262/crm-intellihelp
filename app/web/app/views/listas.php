@@ -42,6 +42,8 @@
                     <td data-label="Creada" class="prio-3"><?= fecha_corta($l['creado_en']) ?></td>
                     <td class="acts" data-label="Acciones">
                         <?php // El plazo es el ajuste papelera_dias (dias_papelera()), no un número fijo. ?>
+                        <?php // La papelera: quien creó el registro (o su responsable) o un administrador; el servidor igual lo controla. ?>
+                        <?php if (puedo_mandar_papelera('lista', $l)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="lista">
@@ -52,6 +54,7 @@
                                     data-confirmar="La lista &laquo;<?= e($l['nombre']) ?>&raquo; deja de estar a la vista. Los contactos no se borran. Se puede restaurar durante <?= (int)dias_papelera() ?> días."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
 
                         <a class="act" href="<?= e(url('lista-ver?id=' . (int)$l['id'])) ?>" title="Ver miembros"><?= icon('contactos', 16) ?></a>
                         <a class="act" href="<?= e(url('lista-form?id=' . (int)$l['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>

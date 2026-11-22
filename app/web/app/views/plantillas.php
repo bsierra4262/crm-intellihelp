@@ -69,6 +69,8 @@
                     </td>
                     <td data-label="Actualizada" class="prio-3"><?= fecha_hora($p['actualizado_en']) ?></td>
                     <td class="acts" data-label="Acciones">
+                        <?php // La papelera: quien creó el registro (o su responsable) o un administrador; el servidor igual lo controla. ?>
+                        <?php if (puedo_mandar_papelera('plantilla', $p)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="plantilla">
@@ -79,6 +81,7 @@
                                     data-confirmar="La plantilla &laquo;<?= e($p['nombre']) ?>&raquo; deja de estar a la vista. Las campañas que ya la usaron no se tocan. Se puede restaurar durante <?= (int) dias_papelera() ?> días."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
 
                         <a class="act" href="<?= e(url('plantilla-form?id=' . (int)$p['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
                         <a class="act" href="<?= e(url('plantilla-vista?id=' . (int)$p['id'])) ?>" target="_blank" title="Ver como lo recibe el cliente"><?= icon('enlace', 16) ?></a>

@@ -119,6 +119,8 @@
                     <td data-label="Reuniones" class="num prio-3" data-vivo-col="reuniones"><?= (int)$c['reuniones'] ?></td>
                     <td data-label="Responsable" class="prio-4"><?= e($c['propietario'] ?: '—') ?></td>
                     <td class="acts" data-label="Acciones">
+                        <?php // La papelera: quien creó el registro (o su responsable) o un administrador; el servidor igual lo controla. ?>
+                        <?php if (puedo_mandar_papelera('campana', $c)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="campana">
@@ -129,6 +131,7 @@
                                     data-confirmar="&laquo;<?= e($c['nombre']) ?>&raquo; deja de estar a la vista. Lo que ya se envió no se toca. Se puede restaurar durante <?= (int) dias_papelera() ?> días."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
 
                         <a class="act" href="<?= e(url('campana-ver?id=' . (int)$c['id'])) ?>" title="Ver"><?= icon('reportes', 16) ?></a>
                         <a class="act" href="<?= e(url('campana-form?id=' . (int)$c['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
