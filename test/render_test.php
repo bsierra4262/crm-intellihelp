@@ -15,37 +15,46 @@ declare(strict_types=1);
 //  funciones de ejecución de procesos (shell_exec, exec, system…).
 //
 //  Uso:
-//    bash test/render.sh                      → corre todas las pantallas
-//    php test/render_test.php --rutas         → lista las claves
-//    php test/render_test.php contactos WEB   → corre una sola
-//    php test/render_test.php --limpiar WEB   → borra el usuario de prueba
+//    bash test/render.sh [--produccion] [WEB]  → corre todas las pantallas
+//    php test/render_test.php --rutas            → lista las claves
+//    php test/render_test.php contactos [WEB]    → corre una sola
+//    php test/render_test.php --limpiar [WEB]    → borra el usuario de prueba
+//  (a cualquiera se le puede agregar --produccion, ver abajo)
 //
 //  Necesita la base de datos (usa la configuración desplegada).
 //
 //  Contra qué instalación: la del webroot WEB (segundo argumento) o, si no
-//  se pasa, CRM_WEB, y si tampoco, la de PRODUCCIÓN (public_html/crm). Se
-//  corre en el servidor por SSH; no lo lanza `deploy.py test`.
+//  se pasa, CRM_WEB, y si tampoco, la de PRUEBAS (public_html/crm-pruebas).
+//  Producción («producción no se toca») sólo con el argumento explícito
+//  --produccion: sin él, un webroot que sea el de producción (carpeta «crm»)
+//  se rechaza con código 9 antes de abrir la base. Se corre en el servidor
+//  por SSH; no lo lanza `deploy.py test`.
 //
 //  ESCRIBE EN LA BASE de esa instalación: crea (si no existe) el usuario
 //  administrador render.test@intellihelp.tech, y lo que alguna pantalla
-//  anote en la tabla actividad queda a su nombre. `--limpiar` borra ese
-//  usuario y su actividad; render.sh lo llama al final. Las pantallas se
-//  piden por GET (no se envía ningún formulario), pero alguna hace trabajo
-//  al abrirse: la de feriados, por ejemplo, puede sincronizar el calendario
-//  oficial (sale a internet y escribe la tabla feriados). Se entra directo
-//  a app/pages/<ruta>.php, sin pasar por index.php: no se aplican los
-//  permisos ni los módulos de la ruta.
+//  anote en la tabla actividad queda a su nombre. Cada proceso borra ese
+//  usuario y su actividad al terminar (en un handler de shutdown, así que
+//  también si la pantalla corta con exit o revienta); `--limpiar` hace lo
+//  mismo a mano y render.sh lo llama al final aunque se lo corte con Ctrl+C.
+//  Las pantallas se piden por GET (no se envía ningún formulario), pero
+//  alguna hace trabajo al abrirse: la de feriados, por ejemplo, puede
+//  sincronizar el calendario oficial (sale a internet y escribe la tabla
+//  feriados). Se entra directo a app/pages/<ruta>.php, sin pasar por
+//  index.php: no se aplican los permisos ni los módulos de la ruta.
 //
 //  Resultado de una pantalla: imprime «ok <bytes>» y sale con 0, o un
 //  mensaje por STDERR y un código: 2 error de PHP o excepción, 3 salida
 //  demasiado corta, 4 sin layout, 5 la vista cayó en la pantalla de error,
-//  6 el refresco trajo el layout, 7 el refresco sin zonas, 8 sin huella.
+//  6 el refresco trajo el layout, 7 el refresco sin zonas, 8 sin huella,
+//  9 webroot de producción sin --produccion.
 //  Una ficha cuya tabla está vacía se da por buena con «ok 0».
 // ============================================================
 
-// Webroot por defecto: PRODUCCIÓN. Para correr contra pruebas hay que pasar
-// el webroot de crm-pruebas como argumento o en CRM_WEB.
-$RAIZ = getenv('CRM_WEB') ?: '/home/u566451014/domains/intellihelp.tech/public_html/crm';
+// Webroots conocidos. El de por defecto es el de PRUEBAS; producción se usa
+// sólo si se pasa --produccion.
+const WEB_PRUEBAS    = '/home/u566451014/domains/intellihelp.tech/public_html/crm-pruebas';
+const WEB_PRODUCCION = '/home/u566451014/domains/intellihelp.tech/public_html/crm';
+const USUARIO_TEST   = 'render.test@intellihelp.tech';
 
 /**
  * Pantallas a probar: clave => parámetros GET.
@@ -142,10 +151,24 @@ function rutas_a_probar(): array
     ];
 }
 
+/**
+ * Borra el usuario de prueba y lo que quedó a su nombre en actividad.
+ * No hace nada si la base todavía no se abrió (q() no existe).
+ */
+function render_limpiar(): void
+{
+    if (!function_exists('q')) { return; }
+    q("DELETE FROM actividad WHERE usuario_id IN (SELECT id FROM usuarios WHERE email = ?)", [USUARIO_TEST]);
+    q("DELETE FROM usuarios WHERE email = ?", [USUARIO_TEST]);
+}
+
 // Argumentos: $modo es la clave de la pantalla (o --rutas / --limpiar) y $web
-// el webroot de la instalación.
-$modo = $argv[1] ?? '--rutas';
-$web  = $argv[2] ?? $RAIZ;
+// el webroot de la instalación. --produccion puede ir en cualquier lugar.
+$args       = array_slice($argv, 1);
+$produccion = in_array('--produccion', $args, true);
+$args       = array_values(array_filter($args, static fn($a) => $a !== '--produccion'));
+$modo = $args[0] ?? '--rutas';
+$web  = rtrim($args[1] ?? (getenv('CRM_WEB') ?: ($produccion ? WEB_PRODUCCION : WEB_PRUEBAS)), '/');
 
 // Lista de claves, para que el bucle de bash sepa qué correr.
 if ($modo === '--rutas') {
@@ -153,11 +176,19 @@ if ($modo === '--rutas') {
     exit(0);
 }
 
+// Freno de producción: la carpeta «crm» es la instalación real. Se compara el
+// nombre de la carpeta, no la ruta entera, para que también atrape un
+// webroot pasado con otra forma (enlace, ruta relativa).
+$real = realpath($web) ?: $web;
+if (!$produccion && (basename($web) === 'crm' || basename($real) === 'crm')) {
+    fwrite(STDERR, "$web es PRODUCCIÓN: este test escribe en la base. Para correrlo igual, agregar --produccion.\n");
+    exit(9);
+}
+
 // Limpieza: el usuario de prueba no queda dando vueltas en la base.
 if ($modo === '--limpiar') {
     require $web . '/app/bootstrap.php';
-    q("DELETE FROM actividad WHERE usuario_id IN (SELECT id FROM usuarios WHERE email = 'render.test@intellihelp.tech')");
-    q("DELETE FROM usuarios WHERE email = 'render.test@intellihelp.tech'");
+    render_limpiar();
     echo "limpio\n";
     exit(0);
 }
@@ -210,13 +241,23 @@ if ($modo === '--limpiar') {
     // $_SESSION se completa DESPUÉS del bootstrap a propósito: la sesión ya
     // arrancó y las páginas leen uid y _csrf de ahí.
     // Sesión falsa de administrador. El usuario de prueba se crea si no está y
-    // se borra al final de la batería.
+    // se borra al cerrar el proceso: el handler se registra ANTES que el del
+    // refresco, porque ése termina con exit y PHP no corre los handlers que
+    // vengan después. Si la base falla en el borrado, se avisa por STDERR sin
+    // cambiar el resultado de la pantalla.
+    register_shutdown_function(static function (): void {
+        try {
+            render_limpiar();
+        } catch (\Throwable $e) {
+            fwrite(STDERR, 'No se pudo borrar el usuario de prueba: ' . $e->getMessage() . "\n");
+        }
+    });
     if ($sinSesion) {
         $_SESSION = [];
     } else {
-        $u = q1("SELECT id FROM usuarios WHERE email = 'render.test@intellihelp.tech'");
+        $u = q1("SELECT id FROM usuarios WHERE email = ?", [USUARIO_TEST]);
         if (!$u) {
-            q("INSERT INTO usuarios (nombre, email, rol, activo) VALUES ('Render Test', 'render.test@intellihelp.tech', 'admin', 1)");
+            q("INSERT INTO usuarios (nombre, email, rol, activo) VALUES ('Render Test', ?, 'admin', 1)", [USUARIO_TEST]);
             $uid = last_id();
         } else {
             $uid = (int)$u['id'];

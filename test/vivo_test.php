@@ -16,12 +16,14 @@ declare(strict_types=1);
 //      nadie delante. Si contara, una pantalla olvidada mantendría la sesión
 //      viva para siempre y el cierre automático no cerraría nunca nada.
 //
-//  Uso:  php test/vivo_test.php
+//  Uso:  php test/vivo_test.php [--produccion]
 //  Necesita la base y salir a la web (usa la configuración desplegada).
 //
 //  Contra qué instalación: carga el bootstrap de CRM_WEB y, si no está
-//  definida, el de PRODUCCIÓN (public_html/crm); los pedidos HTTP van a la
-//  URL canónica de esa configuración. Se corre en el servidor, porque lee y
+//  definida, el de PRUEBAS (public_html/crm-pruebas); los pedidos HTTP van a
+//  la URL canónica de esa configuración. Producción sólo con el argumento
+//  --produccion: sin él, un webroot de producción (carpeta «crm») se rechaza
+//  con código 9 antes de abrir la base. Se corre en el servidor, porque lee y
 //  reescribe a mano el archivo de sesión de PHP (tiene que ser el mismo
 //  directorio de sesiones que usa el sitio). No lo lanza `deploy.py test`.
 //
@@ -29,15 +31,26 @@ declare(strict_types=1);
 //    · crea el usuario administrador vivo.test@intellihelp.tech y una sesión
 //      real para él (archivo sess_<id>);
 //    · le cambia el nombre al primer contacto vivo por «Zzz<número>» y
-//      después se lo devuelve.
-//  Al final borra el usuario y el archivo de sesión. No hay try/finally: si
-//  el proceso se corta en el medio (curl sin respuesta, error fatal), quedan
-//  el usuario administrador y, según dónde se corte, el contacto renombrado.
+//      después se lo devuelve (con su actualizado_en original).
+//  La limpieza (devolver el nombre, borrar el usuario, su actividad y el
+//  archivo de sesión) corre en un finally y, por si el proceso muere con un
+//  error fatal, también en un handler de shutdown; se ejecuta una sola vez.
 //
 //  Necesita la extensión curl. Salida: 0 todo bien, 1 alguna falla.
 // ============================================================
 
-$RAIZ = getenv('CRM_WEB') ?: '/home/u566451014/domains/intellihelp.tech/public_html/crm';
+const VIVO_USUARIO = 'vivo.test@intellihelp.tech';
+
+// --produccion habilita el webroot real; sin él, el de pruebas.
+$produccion = in_array('--produccion', array_slice($argv, 1), true);
+$RAIZ = rtrim(getenv('CRM_WEB') ?: ($produccion
+    ? '/home/u566451014/domains/intellihelp.tech/public_html/crm'
+    : '/home/u566451014/domains/intellihelp.tech/public_html/crm-pruebas'), '/');
+// Freno de producción: se mira el nombre de la carpeta, también resuelto.
+if (!$produccion && (basename($RAIZ) === 'crm' || basename(realpath($RAIZ) ?: $RAIZ) === 'crm')) {
+    fwrite(STDERR, "$RAIZ es PRODUCCIÓN: este test escribe en la base. Para correrlo igual, agregar --produccion.\n");
+    exit(9);
+}
 require $RAIZ . '/app/bootstrap.php';
 
 // URL base para los pedidos: la canónica de la instalación cargada.
@@ -57,13 +70,60 @@ function ok(string $q, bool $bien, string $detalle = ''): void
     else       { $mal++; echo "  [XX] $q" . ($detalle ? "\n       → $detalle" : '') . "\n"; }
 }
 
+// Lo que hay que deshacer al terminar. $contactoOriginal se llena justo
+// antes de renombrar el contacto; $archivoSesion, al abrir la sesión.
+$contactoOriginal = null;   // ['id' => int, 'nombre' => string, 'actualizado_en' => string]
+$archivoSesion    = '';
+
+/**
+ * Deja la base como estaba: devuelve el nombre del contacto, borra el
+ * usuario de prueba con su actividad y el archivo de sesión. Idempotente:
+ * la llaman el finally y el handler de shutdown, y corre una sola vez. Cada
+ * paso va por separado para que una falla no impida los siguientes.
+ */
+function vivo_limpiar(): void
+{
+    global $contactoOriginal, $archivoSesion;
+    static $hecho = false;
+    if ($hecho) { return; }
+    $hecho = true;
+    $pasos = [
+        'devolver el nombre del contacto' => static function () use (&$contactoOriginal): void {
+            if ($contactoOriginal === null) { return; }
+            // Se fija actualizado_en a mano para que el ON UPDATE no deje la
+            // marca de hoy en un contacto real que nadie tocó.
+            q('UPDATE contactos SET nombre = ?, actualizado_en = ? WHERE id = ?',
+              [$contactoOriginal['nombre'], $contactoOriginal['actualizado_en'], $contactoOriginal['id']]);
+            $contactoOriginal = null;
+        },
+        'borrar la actividad del usuario de prueba' => static function (): void {
+            q('DELETE FROM actividad WHERE usuario_id IN (SELECT id FROM usuarios WHERE email = ?)', [VIVO_USUARIO]);
+        },
+        'borrar el usuario de prueba' => static function (): void {
+            q('DELETE FROM usuarios WHERE email = ?', [VIVO_USUARIO]);
+        },
+        'borrar el archivo de sesión' => static function () use ($archivoSesion): void {
+            if ($archivoSesion !== '') { @unlink($archivoSesion); }
+        },
+    ];
+    foreach ($pasos as $que => $paso) {
+        try {
+            $paso();
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "LIMPIEZA: no se pudo $que: " . $e->getMessage() . "\n");
+        }
+    }
+}
+register_shutdown_function('vivo_limpiar');
+
+try {
+
 // ------------------------------------------------------------
 //  Una sesión de verdad, escrita como la escribiría el sistema.
 // ------------------------------------------------------------
-$u = q1("SELECT id FROM usuarios WHERE email = 'vivo.test@intellihelp.tech'");
+$u = q1('SELECT id FROM usuarios WHERE email = ?', [VIVO_USUARIO]);
 if (!$u) {
-    q("INSERT INTO usuarios (nombre, email, rol, activo)
-       VALUES ('Vivo Test', 'vivo.test@intellihelp.tech', 'admin', 1)");
+    q("INSERT INTO usuarios (nombre, email, rol, activo) VALUES ('Vivo Test', ?, 'admin', 1)", [VIVO_USUARIO]);
     $uid = last_id();
 } else {
     $uid = (int)$u['id'];
@@ -159,11 +219,14 @@ echo "\n== Cuando cambia un dato, el refresco lo trae ==\n";
 
 // Se cambia el nombre de un contacto por la base, como si lo hubiera editado
 // otra persona desde otra computadora, que es el caso real.
-$ct = q1('SELECT id, nombre FROM contactos WHERE eliminado_en IS NULL ORDER BY id LIMIT 1');
+$ct = q1('SELECT id, nombre, actualizado_en FROM contactos WHERE eliminado_en IS NULL ORDER BY id LIMIT 1');
 if (!$ct) {
     ok('hay un contacto para probar', false, 'no hay contactos en la base');
 } else {
-    $original = (string)$ct['nombre'];
+    // Se guarda lo original ANTES de tocar: desde acá, si algo corta la
+    // batería, la limpieza lo devuelve.
+    $contactoOriginal = ['id' => (int)$ct['id'], 'nombre' => (string)$ct['nombre'],
+                         'actualizado_en' => (string)$ct['actualizado_en']];
     $marca    = 'Zzz' . substr((string)time(), -5);
     q('UPDATE contactos SET nombre = ? WHERE id = ?', [$marca, (int)$ct['id']]);
 
@@ -180,7 +243,10 @@ if (!$ct) {
     preg_match('/^<!--vivo:([0-9a-f]{32})-->/', $b4, $m2);
     ok('con una huella distinta a la anterior', ($m2[1] ?? '') !== $huella);
 
-    q('UPDATE contactos SET nombre = ? WHERE id = ?', [$original, (int)$ct['id']]);
+    // Se devuelve en seguida (no al final), con su actualizado_en original.
+    q('UPDATE contactos SET nombre = ?, actualizado_en = ? WHERE id = ?',
+      [$contactoOriginal['nombre'], $contactoOriginal['actualizado_en'], $contactoOriginal['id']]);
+    $contactoOriginal = null;
 }
 
 // ---- 4. El refresco no cuenta como actividad (cierre por inactividad) ----
@@ -204,22 +270,26 @@ ok('y cuando entrás de verdad a la pantalla, sí se actualiza',
    $trasNormal > $viejo, 'la marca quedó en ' . $trasNormal);
 
 // ---- 5. El refresco no deja una línea «ver.contactos» en la bitácora ----
-// Cuenta todas las filas de esa acción, de cualquier usuario: si alguien
-// entra a Contactos justo en ese momento, la comprobación falla sin culpa.
+// Se cuentan sólo las filas del usuario de prueba: si alguien entra a
+// Contactos en ese momento, no altera la cuenta.
 echo "\n== La bitácora no se llena de ruido ==\n";
 
-$antes = (int) qv("SELECT COUNT(*) FROM actividad WHERE accion = 'ver.contactos'");
+$cuentaVer = static fn(): int => (int) qv(
+    "SELECT COUNT(*) FROM actividad WHERE accion = 'ver.contactos' AND usuario_id = ?", [$uid]);
+$antes = $cuentaVer();
 pedir($url . '?__vivo=1');
 pedir($url . '?__vivo=1');
-$despues = (int) qv("SELECT COUNT(*) FROM actividad WHERE accion = 'ver.contactos'");
+$despues = $cuentaVer();
 ok('dos refrescos no dejan rastro: si no, taparían los movimientos reales',
    $despues === $antes, "la bitácora pasó de $antes a $despues");
 
-// Se borra el usuario de prueba y su archivo de sesión. Las filas que haya
-// dejado en la bitácora (la pantalla normal pedida en el paso 4) quedan.
-// Limpieza.
-q('DELETE FROM usuarios WHERE email = ?', ['vivo.test@intellihelp.tech']);
-@unlink($archivoSesion);
+} catch (\Throwable $e) {
+    // Una excepción a mitad de camino cuenta como falla y se ve en el resumen.
+    ok('la batería corrió hasta el final', false, get_class($e) . ': ' . $e->getMessage());
+} finally {
+    // Se deshace todo aunque una comprobación haya tirado una excepción.
+    vivo_limpiar();
+}
 
 // ---- Resumen y código de salida (0 = todo bien, 1 = alguna falla) ----
 $total = $ok + $mal;

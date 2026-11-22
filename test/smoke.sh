@@ -28,8 +28,8 @@
 #  con el campo trampa, que el sitio descarta; los pedidos a la API v1 van
 #  sin firma válida y se rechazan antes de tocar nada.
 #
-#  OJO: la comprobación del subdominio va SIEMPRE contra
-#  crm.intellihelp.tech, aunque BASE sea la de pruebas.
+#  El subdominio se deriva de BASE (/crm → crm.<dominio>); contra pruebas,
+#  que no tiene subdominio, esa comprobación se saltea con un aviso.
 #
 #  Necesita bash y curl. Cada pedido espera hasta 25 s. Salida: 0 todo bien,
 #  1 alguna falla.
@@ -38,6 +38,7 @@ set -u
 
 # BASE sin barra final; AGENDA vacía saltea la prueba del campo trampa.
 BASE="${1:-https://intellihelp.tech/crm}"
+BASE="${BASE%/}"
 AGENDA="${2:-${SMOKE_AGENDA:-}}"
 OK=0
 FALLOS=0
@@ -78,17 +79,34 @@ contiene() {  # contiene <descripción> <url> <texto>
     fi
 }
 
-# El subdominio viejo tiene que mandar (3xx) a la dirección oficial.
+# El subdominio viejo tiene que mandar (3xx) a la dirección oficial. Se arma
+# a partir de BASE: https://<dominio>/<carpeta> → https://<carpeta>.<dominio>.
+# Sólo existe el de producción (crm.intellihelp.tech); contra otra carpeta
+# (crm-pruebas) la comprobación se saltea con un aviso en vez de ir a
+# producción. Se prueba hasta dos veces: el hosting a veces contesta un
+# pedido suelto con la página de WordPress (ver el .htaccess raíz).
 echo "== Una sola dirección: el subdominio redirige =="
-red="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -m 25 https://crm.intellihelp.tech/login)"
-case "$red" in
-    30*\ https://intellihelp.tech/crm/login*)
-        echo "  [OK] crm.intellihelp.tech redirige a intellihelp.tech/crm  ($red)"
-        OK=$((OK + 1)) ;;
-    *)
-        echo "  [XX] el subdominio no redirige como corresponde  → $red"
-        FALLOS=$((FALLOS + 1)) ;;
-esac
+DOMINIO="$(printf '%s' "$BASE" | sed -E 's#^https?://([^/]+).*#\1#')"
+CARPETA="$(printf '%s' "$BASE" | sed -E 's#^https?://[^/]+/?##; s#/.*##')"
+if [ "$CARPETA" = "crm" ]; then
+    SUB="https://$CARPETA.$DOMINIO"
+    red=""
+    for intento in 1 2; do
+        red="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -m 25 "$SUB/login")"
+        case "$red" in 30*\ "$BASE"/login*) break ;; esac
+        [ "$intento" = 1 ] && sleep 2
+    done
+    case "$red" in
+        30*\ "$BASE"/login*)
+            echo "  [OK] $CARPETA.$DOMINIO redirige a $DOMINIO/$CARPETA  ($red)"
+            OK=$((OK + 1)) ;;
+        *)
+            echo "  [XX] el subdominio no redirige como corresponde  → $red"
+            FALLOS=$((FALLOS + 1)) ;;
+    esac
+else
+    echo "  (salteada: «$CARPETA» no tiene subdominio propio; sólo se prueba con /crm)"
+fi
 
 echo "== Acceso =="
 probar "el login responde"                 "$BASE/login"            "200"

@@ -297,10 +297,17 @@ try {
     ok('el mismo horario con otra clave: 409 horario_tomado', $c === 409 && ($j2['error'] ?? '') === 'horario_tomado',
        "código $c " . ($j2['error'] ?? ''));
     // Domingo a las 3 de la mañana (hora del servidor): fuera de cualquier
-    // horario cargado. Sólo se exige un 409; no se mira cuál fue el error.
+    // horario cargado. Por contrato con la web, «fuera de horario» viaja con
+    // el mismo código que «tomado» (409 horario_tomado; reserva.php mapea
+    // horario_invalido a ése). Lo que los distingue es el mensaje: se exige
+    // ese código y que el mensaje NO sea el de «justo lo tomaron», así no
+    // pasa con un feriado, un en_proceso ni un choque real.
     $domingo3 = strtotime('next sunday 03:00');
     [$c, $j2] = api('POST', 'reserva', cuerpo($domingo3));
-    ok('un domingo a las 3: 409 (no es un horario que se ofrezca)', $c === 409, "código $c " . ($j2['error'] ?? ''));
+    ok('un domingo a las 3: 409 por estar fuera del horario (no es un horario que se ofrezca)',
+       $c === 409 && ($j2['error'] ?? '') === 'horario_tomado'
+       && ($j2['mensaje'] ?? '') !== '' && !str_contains((string)$j2['mensaje'], 'Justo tomaron'),
+       "código $c " . ($j2['error'] ?? '') . ' · ' . ($j2['mensaje'] ?? ''));
     [$c, $j2] = api('POST', 'reserva', cuerpo($slots[1], ['nombre' => 'J']));
     ok('datos inválidos: 422 con el campo', $c === 422 && isset($j2['campos']['nombre']), "código $c");
     [$c, $j2] = api('POST', 'reserva', cuerpo($slots[1], ['nombre' => 'Juan, verificá tu cuenta en https://evil.example/login']));
@@ -345,11 +352,12 @@ try {
     ok('la reunión está en Actividades con la empresa', ($act['tipo'] ?? '') === 'reunion' && !empty($act['cuenta_id']));
     ok('y en su descripción la línea de origen (interna del CRM)', str_contains((string)($act['descripcion'] ?? ''), 'canal Google Ads'));
     $ct = q1('SELECT * FROM contactos WHERE id = ?', [(int)($r['contacto_id'] ?? 0)]) ?? [];
-    // Sólo se comprueba si la reserva creó un contacto NUEVO. Como el correo de
-    // prueba ya suele ser contacto, en la práctica esta comprobación casi nunca
-    // corre.
+    // Si la reserva creó un contacto NUEVO se comprueba acá. El correo de
+    // prueba ya suele ser contacto, así que lo normal es que no; el alta de un
+    // contacto nuevo se prueba siempre más abajo, con una consulta desde un
+    // correo que no existe («Consulta sin reunión»).
     if ((int)($ct['id'] ?? 0) > $maxContacto) {
-        ok('el contacto nuevo entra «Sitio web» y fuera de las campañas',
+        ok('el contacto nuevo de la reserva entra «Sitio web» y fuera de las campañas',
            ($ct['fuente'] ?? '') === 'Sitio web' && (int)($ct['no_email'] ?? 0) === 1);
     }
 
@@ -434,6 +442,10 @@ try {
     // ---- Consulta sin reunión (recurso «entrada»): tarea, nota, duplicados y
     // límite por visitante ----
     echo "== Consulta sin reunión ==\n";
+    // Lo que existe antes de la consulta, para comprobar que no cree posibles
+    // clientes ni negocios (sólo se miran los que se creen desde acá).
+    $maxPosible = (int) qv('SELECT COALESCE(MAX(id), 0) FROM posibles_clientes');
+    $maxNegocio = (int) qv('SELECT COALESCE(MAX(id), 0) FROM negocios');
     $ipCons = bin2hex(random_bytes(32));
     $cons   = cuerpo(null, ['mensaje' => 'Consulta de prueba automática ' . bin2hex(random_bytes(4))]);
     [$c, $j] = api('POST', 'entrada', $cons, ['ip' => $ipCons]);
@@ -446,19 +458,52 @@ try {
        && (int)($tarea['propietario_id'] ?? 0) === entrada_web_dueno());
     ok('y una nota con el mensaje', (bool) qv('SELECT 1 FROM notas WHERE id = ? AND cuerpo LIKE ?',
        [(int)($e['nota_id'] ?? 0), '%Consulta de prueba automática%']));
-    // Mira sólo la tabla negocios, de forma global (cualquier negocio creado en
-    // los últimos 5 minutos, por quien sea).
-    ok('sin posibles clientes ni negocios', (int) qv("SELECT COUNT(*) FROM negocios WHERE creado_en >= NOW() - INTERVAL 5 MINUTE") === 0);
+    // Sólo lo creado desde que empezó la consulta y que sea de esta persona
+    // (su correo, su contacto o su empresa): lo que cargue otro usuario al
+    // mismo tiempo no cuenta.
+    $ctCons = (int)($e['contacto_id'] ?? 0);
+    $cuCons = (int)($e['cuenta_id'] ?? 0);
+    $posiblesNuevos = (int) qv('SELECT COUNT(*) FROM posibles_clientes WHERE id > ?
+                                  AND (email = ? OR contacto_id = ? OR cuenta_id = ?)',
+                               [$maxPosible, $correo, $ctCons, $cuCons]);
+    $negociosNuevos = (int) qv('SELECT COUNT(*) FROM negocios WHERE id > ? AND (contacto_id = ? OR cuenta_id = ?)',
+                               [$maxNegocio, $ctCons, $cuCons]);
+    ok('sin posibles clientes ni negocios', $e !== [] && $posiblesNuevos === 0 && $negociosNuevos === 0,
+       "$posiblesNuevos posibles · $negociosNuevos negocios");
     [$c, $j] = api('POST', 'entrada', $cons, ['ip' => $ipCons]);
     ok('la misma consulta a los segundos: 200 repetida (doble clic)', $c === 200 && !empty($j['repetida']), "código $c");
-    // Tres más desde el mismo visitante para llegar al tope de la hora (cinco
-    // pedidos por IP y hora): el sexto tiene que dar 429.
-    for ($i = 0; $i < 3; $i++) { api('POST', 'entrada', $cons, ['ip' => $ipCons]); }
-    [$c, $j, $cab] = api('POST', 'entrada', $cons, ['ip' => $ipCons]);
-    ok('la sexta en la hora desde el mismo visitante: 429 con Retry-After',
-       $c === 429 && stripos($cab, 'Retry-After:') !== false, "código $c");
+    // El tope de consultas por IP y hora se lee de entrada.php, para que si
+    // cambia la prueba siga sabiendo cuántos pedidos hacen falta. Ya van dos
+    // (la nueva y la repetida); se completan hasta el tope y el siguiente
+    // tiene que dar 429.
+    $srcEntrada = (string) @file_get_contents($RAIZ . '/app/pages/api/v1/entrada.php');
+    $patronTope = '/' . preg_quote('api_limitar(\'ip:\' . $ipHash . \':entrada:3600\',', '/') . '\s*(\d+),\s*3600\)/';
+    $tope = preg_match($patronTope, $srcEntrada, $mt) ? (int)$mt[1] : 0;
+    ok('se encontró el tope de consultas por hora en entrada.php', $tope >= 2,
+       'no se pudo leer api_limitar(...entrada:3600, N, 3600): ajustar la búsqueda');
+    if ($tope >= 2) {
+        for ($i = 2; $i < $tope; $i++) { api('POST', 'entrada', $cons, ['ip' => $ipCons]); }
+        [$c, $j, $cab] = api('POST', 'entrada', $cons, ['ip' => $ipCons]);
+        ok('pasado el tope (' . $tope . ' por hora) desde el mismo visitante: 429 con Retry-After',
+           $c === 429 && stripos($cab, 'Retry-After:') !== false, "código $c");
+    }
     ok('los duplicados no generaron otra tarea',
        (int) qv("SELECT COUNT(*) FROM entradas_web WHERE token_id = ? AND tipo = 'consulta' AND estado = 'ok'", [$idEsc]) === 1);
+
+    // Un contacto NUEVO: consulta desde un correo que no existe (variante
+    // +etiqueta del buzón de prueba, al azar) y desde otro visitante, para no
+    // chocar con el tope. Tiene que entrar con fuente «Sitio web» y fuera de
+    // las campañas (no pidió novedades). La limpieza lo borra (id > máximo).
+    $correoNuevo = $otroCorreo('nuevo' . bin2hex(random_bytes(4)));
+    [$c, $j] = api('POST', 'entrada', cuerpo(null, ['email' => $correoNuevo,
+        'mensaje' => 'Consulta de prueba automática (contacto nuevo) ' . bin2hex(random_bytes(4))]),
+        ['ip' => bin2hex(random_bytes(32))]);
+    $eNuevo = q1('SELECT * FROM entradas_web WHERE id = ?', [(int)($j['entrada_id'] ?? 0)]) ?? [];
+    $ctNuevo = q1('SELECT * FROM contactos WHERE id = ?', [(int)($eNuevo['contacto_id'] ?? 0)]) ?? [];
+    ok('una consulta desde un correo desconocido crea el contacto', $c === 201 && (int)($ctNuevo['id'] ?? 0) > $maxContacto,
+       "código $c " . ($j['error'] ?? ''));
+    ok('el contacto nuevo entra «Sitio web» y fuera de las campañas',
+       ($ctNuevo['fuente'] ?? '') === 'Sitio web' && (int)($ctNuevo['no_email'] ?? 0) === 1);
 
     // ---- Auditoría de la API: hay rastro de cada pedido y sin datos personales ----
     echo "== Auditoría ==\n";
@@ -520,12 +565,14 @@ try {
         }
         foreach ($tokens as $t) { q('DELETE FROM api_limites WHERE clave LIKE ?', ['k:' . $t . ':%']); }
         q('DELETE FROM api_tokens WHERE id IN (?, ?)', [$idEsc, $idLec]);
-        // Ojo: esta comprobación suma a $mal pero no cambia $codigoSalida, que ya
-        // se fijó al final del try.
+        // Si esta comprobación falla suma a $mal, y el código de salida sale de
+        // $mal (ver fin() abajo): una clave huérfana hace fallar la corrida.
         ok('se borró todo lo que creó el test', !qv('SELECT COUNT(*) FROM api_tokens WHERE id IN (?, ?)', [$idEsc, $idLec]));
     } catch (\Throwable $e) {
         ok('limpieza', false, get_class($e) . ': ' . $e->getMessage());
         $codigoSalida = 1;
     }
 }
-fin($codigoSalida);
+// Cualquier falla, también las de la limpieza (que corre después de fijar
+// $codigoSalida), hace salir con 1.
+fin($mal > 0 ? 1 : $codigoSalida);

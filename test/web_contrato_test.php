@@ -126,10 +126,11 @@ ok('el reintento de la misma reserva: también', crm_form_token_valido($cfgW, $t
 ok('hasta tres reservas distintas con el mismo token',
    crm_form_token_valido($cfgW, $tok, 'idem-2', $m) && crm_form_token_valido($cfgW, $tok, 'idem-3', $m));
 ok('la cuarta no', !crm_form_token_valido($cfgW, $tok, 'idem-4', $m) && $m === 'usado');
-// Se altera el último carácter cambiándolo por «0». Si ya terminaba en «0»
-// el token queda igual (pasa a ser el quinto uso y da «usado», no
-// «invalido»): la comprobación falla una vez cada 16 corridas.
-ok('un token alterado no', !crm_form_token_valido($cfgW, substr($tok, 0, -1) . '0', 'idem-9', $m) && $m === 'invalido');
+// Se altera el último carácter alternando «f» y «e», como run_tests.php:
+// así el token siempre cambia (reemplazarlo por un «0» fijo lo dejaba igual
+// una vez cada 16 corridas, y daba «usado» en vez de «invalido»).
+$alterado = substr($tok, 0, -1) . (substr($tok, -1) === 'f' ? 'e' : 'f');
+ok('un token alterado no', !crm_form_token_valido($cfgW, $alterado, 'idem-9', $m) && $m === 'invalido');
 @mkdir($tmp . '/lim', 0700, true);
 for ($i = 0; $i < 3; $i++) { limite_ip('prueba', '203.0.113.7', 3, 600, $tmp . '/lim'); }
 ok('el límite frena el cuarto envío', limite_ip('prueba', '203.0.113.7', 3, 600, $tmp . '/lim'));
