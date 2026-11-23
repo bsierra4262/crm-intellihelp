@@ -78,6 +78,11 @@ return [
         'allowed_domain' => 'intellihelp.tech',                   // hd: sólo cuentas del dominio
         'auto_provision' => true,                                 // crear usuarios nuevos con rol 'comercial'
     ],
+    // Sólo en la config de PRUEBAS (crm-pruebas.php): todo correo que salga
+    // (campañas, respuestas, agenda, avisos) va únicamente a esta casilla, con
+    // el destinatario original en el asunto, y los invitados de Google Calendar
+    // se reemplazan por ella. Ver correo_desvio() en envio.php. En producción NO.
+    // 'mail' => ['desviar_a' => 'usuario@intellihelp.tech'],
     // Sólo en la config de PRUEBAS (crm-pruebas.php): los datos de personas
     // reales que reinicio.php usa para sembrar los contactos de prueba. No van
     // en el código porque el repositorio es público. Cada uno se puede dejar

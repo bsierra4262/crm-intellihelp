@@ -5,6 +5,7 @@
 //    $f        filtros actuales (q, estado, categoria_id, page).
 //    $data     lo que devuelve campanas_listar(): rows, total y paginación.
 //    $testing  true si la instalación está en modo prueba (es_testing()).
+//    $desvio   casilla a la que se desvía todo correo (correo_desvio()), o null.
 //    $smtp     true si hay cuenta de salida por defecto (smtp_configurado()).
 //  Los atributos data-vivo-* son los ganchos que usa el script de app.js
 //  para refrescar estado, avance, respuestas, rebotes y reuniones con lo que
@@ -13,7 +14,7 @@
 //  `papelera_dias` (dias_papelera()).
 // ============================================================
 ?>
-<?php /** @var array $f @var array $data @var bool $testing @var bool $smtp */ ?>
+<?php /** @var array $f @var array $data @var bool $testing @var bool $smtp @var ?string $desvio */ ?>
 <div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Campañas</h1>
@@ -34,7 +35,14 @@
         Todavía no está configurada la cuenta desde la que salen los correos.
         <?php if (auth_is_admin()): ?><a href="<?= e(url('ajustes')) ?>">Configurarla ahora</a>.<?php else: ?>Pedísela al administrador.<?php endif; ?>
     </div>
-<?php elseif ($testing): ?>
+<?php endif; ?>
+<?php if (!empty($desvio)): ?>
+    <div class="flash flash-warn">
+        <strong>Instalación de pruebas.</strong> Todos los correos que salen de acá (campañas, respuestas,
+        agenda, avisos) le llegan sólo a <strong><?= e($desvio) ?></strong>, con el destinatario original en el asunto.
+        Ningún contacto recibe nada.
+    </div>
+<?php elseif ($smtp && $testing): ?>
     <div class="flash flash-info">
         <strong>Modo prueba.</strong> Las campañas sólo les mandan a la lista blanca: los correos de los
         usuarios del CRM y los del ajuste «testing_lista_blanca». El resto de los destinatarios queda omitido.

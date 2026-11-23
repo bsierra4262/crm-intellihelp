@@ -75,6 +75,44 @@ function smtp_cfg(): array
 }
 
 /**
+ * Casilla a la que se desvía TODO correo saliente, o null si no hay desvío.
+ *
+ * Es la barrera de la instalación de pruebas: con `$CONFIG['mail']['desviar_a']`
+ * puesto en su config (crm-pruebas.php), ningún correo sale a un contacto real
+ * aunque la base de pruebas tenga direcciones reales o alguien la pase a modo
+ * producción. Vive en el archivo de config del servidor y no en la base a
+ * propósito: copiar o reiniciar la base no la apaga. En producción no se pone.
+ * Una dirección inválida se toma como «sin desvío» para no tragarse correos
+ * en silencio, y el chequeo de instalación lo avisa.
+ */
+function correo_desvio(): ?string
+{
+    $d = normalizar_email((string)($GLOBALS['CONFIG']['mail']['desviar_a'] ?? ''));
+    return email_valido($d) ? $d : null;
+}
+
+/**
+ * Aplica el desvío de pruebas a un mensaje (pura, para poder probarla).
+ *
+ * El destinatario pasa a ser la casilla de desvío, se sacan las copias y el
+ * asunto avisa a quién iba: «[PRUEBAS → cliente@x.com] Asunto». Sin desvío
+ * devuelve el mensaje tal cual.
+ */
+function correo_aplicar_desvio(array $msg, ?string $desvio): array
+{
+    if ($desvio === null) { return $msg; }
+    $original = trim((string)($msg['para'] ?? ''));
+    $cc = array_values(array_filter((array)($msg['cc'] ?? [])));
+    $iba = $original . ($cc ? ' + cc ' . implode(', ', $cc) : '');
+    $msg['para']        = $desvio;
+    $msg['para_nombre'] = '';
+    $msg['cc']          = [];
+    $msg['asunto']      = '[PRUEBAS → ' . $iba . '] ' . (string)($msg['asunto'] ?? '');
+    $msg['desviado_de'] = $original;
+    return $msg;
+}
+
+/**
  * ¿Hay usuario y contraseña para salir? Sólo mira que estén cargados, no que
  * funcionen (para eso está smtp_probar). Mira la cuenta por defecto, no la
  * que haya elegido cada campaña.
@@ -288,8 +326,11 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null, 
     $cmd = static function (string $x) use ($fp, $leer): string { fwrite($fp, $x . "\r\n"); return $leer(); };
     $ok  = static fn(string $r, string $code) => str_starts_with(ltrim($r), $code);
 
+    // Instalación de pruebas: todo va a la casilla de desvío (correo_desvio).
+    // Es el único punto por donde sale un correo, así que alcanza con hacerlo acá.
+    $msg      = correo_aplicar_desvio($msg, correo_desvio());
     $c        = $cfg ?? smtp_cfg();
-    $de       = (string)($msg['de'] ?? $c['from'] ?? $c['user']);
+    $de       =(string)($msg['de'] ?? $c['from'] ?? $c['user']);
     $deNombre = (string)($msg['de_nombre'] ?? $c['from_name'] ?? 'INTELLIHELP');
     $para     = normalizar_email((string)($msg['para'] ?? ''));
     if (!email_valido($para)) { $err = 'Destinatario inválido: ' . $para; return 'rechazado'; }
@@ -328,6 +369,9 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null, 
     // como pide la norma (mime_asunto).
     $cab .= 'Subject: ' . mime_asunto((string)($msg['asunto'] ?? '')) . "\r\n";
     $cab .= 'Message-ID: ' . $messageId . "\r\n";
+    if (!empty($msg['desviado_de']) && !preg_match('/[\r\n]/', (string)$msg['desviado_de'])) {
+        $cab .= 'X-CRM-Desviado-De: ' . $msg['desviado_de'] . "\r\n";
+    }
     // Sin estas dos, una respuesta escrita desde el CRM le llega al destinatario
     // como un correo suelto en vez de aparecer pegada a la conversación que él
     // mismo empezó. Es la diferencia entre contestar y escribir de nuevo.

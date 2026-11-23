@@ -411,6 +411,13 @@ function gcal_avisar_valido(string $avisar): string
 function gcal_crear_evento(int $usuarioId, array $d, string $calendario = 'primary'): array
 {
     $zona = (string)($d['zona'] ?? '') ?: 'America/Argentina/Buenos_Aires';
+    // Instalación de pruebas: aunque Google no les avise (sendUpdates=none),
+    // un invitado de Google Workspace ve el evento en su calendario. Con
+    // desvío, el único invitado es la casilla de desvío y Google no avisa.
+    if (function_exists('correo_desvio') && ($desvio = correo_desvio()) !== null) {
+        $d['invitados'] = array_filter((array)($d['invitados'] ?? [])) ? [$desvio] : [];
+        $d['avisar']    = 'none';
+    }
     $evento = [
         'summary'     => (string)($d['titulo'] ?? 'Reunión'),
         'description' => (string)($d['descripcion'] ?? ''),
