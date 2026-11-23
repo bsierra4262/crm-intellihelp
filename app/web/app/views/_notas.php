@@ -2,6 +2,16 @@
 /**
  * Panel de notas de un registro. Espera $notas y, en el scope, la entidad y el
  * id (se deducen de la ruta actual para no repetirlos en cada vista).
+ *
+ * Se incluye desde las fichas (contacto-ver, cuenta-ver, posible-ver,
+ * negocio-ver); $notas lo arma la página con notas_de(). En otra ruta no se
+ * muestra el formulario de alta (entidad vacía). El formulario va a
+ * nota-guardar; el botón de borrar, a nota-eliminar.
+ *
+ * El botón de borrar sólo aparece en las notas que la persona puede borrar:
+ * las suyas, o todas si es administrador (el servidor igual lo controla).
+ * El borrado es lógico (eliminado_en): la nota deja de verse en la ficha,
+ * pero no hay pantalla para recuperarla.
  */
 /** @var array $notas */
 $ent = match (current_route()) {
@@ -12,6 +22,8 @@ $ent = match (current_route()) {
     default        => '',
 };
 $entId = (int)($_GET['id'] ?? 0);
+$notaUid   = current_user_id();
+$notaAdmin = auth_is_admin();
 ?>
 <div class="card">
     <div class="card-head"><h2>Notas</h2></div>
@@ -38,14 +50,16 @@ $entId = (int)($_GET['id'] ?? 0);
                     <div class="tl-detail cuerpo"><?= e($n['cuerpo']) ?></div>
                     <?php /* Borrar una nota existía como función y no la llamaba
                              nadie: una nota escrita por error no se podía sacar. */ ?>
+                    <?php if ($notaAdmin || ((int)($n['creado_por'] ?? 0) === $notaUid && $notaUid)): ?>
                     <form class="inline-form" method="post" action="<?= e(url('nota-eliminar')) ?>">
                         <?= csrf_field() ?>
                         <input type="hidden" name="id" value="<?= (int)$n['id'] ?>">
                         <button class="act danger" title="Borrar la nota" data-peligro
                                 data-confirmar-titulo="Borrar la nota"
-                                data-confirmar="La nota se borra definitivamente. Esto no va a la papelera."
+                                data-confirmar="La nota deja de verse en la ficha. No va a la papelera: no se puede recuperar desde la pantalla."
                                 data-confirmar-ok="Borrar"><?= icon('papelera', 14) ?></button>
                     </form>
+                    <?php endif; ?>
                 </div>
             <?php endforeach; ?>
         </div>

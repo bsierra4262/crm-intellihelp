@@ -10,6 +10,21 @@ declare(strict_types=1);
 //  Los enlaces de mover y cancelar llegan sólo al correo de quien reservó.
 //  Sirven aunque sean de un correo viejo: si la reunión ya se movió, se
 //  sigue la cadena hasta la reserva vigente (agenda_reserva_vigente).
+//
+//  Aclaración para quien llega por las campañas: esto NO es un redirector de
+//  clics. El sistema no reescribe los enlaces de los correos para medir
+//  clics, así que no hay ninguna ruta que redirija a una URL recibida por
+//  parámetro. La relación con las campañas es el botón «Agendar»:
+//  agenda_de_usuario() arma /r/<usuario>/<tipo>?c=<id de campaña> y la
+//  reserva que sale de ahí se le atribuye a esa campaña (agenda.php).
+//
+//  index.php manda acá todo lo que empieza con /r/ y deja el resto del camino
+//  en `_ruta`. Pertenece al módulo «agenda», pero se controla acá adentro
+//  (ver abajo) en vez de en la lista de rutas del módulo.
+//  Todos los POST validan un token de formulario propio de la agenda
+//  (agenda_form_token_valido) en lugar del CSRF de sesión, porque quien
+//  reserva no tiene sesión; además hay límites por visitante para las vistas
+//  y para los cambios.
 // ============================================================
 
 $resto = trim((string)($_GET['_ruta'] ?? ''), '/');
@@ -55,8 +70,9 @@ $avisoToken = static fn(?string $m): string => match ($m) {
 // ---- Cancelación desde el enlace del correo ----
 if ($resto === 'cancelar') {
     $r     = agenda_reserva_vigente((string)($_GET['t'] ?? ''));
-    $ok    = false;
-    $error = null;
+    $ok      = false;
+    $avisado = false;
+    $error   = null;
     if ($r && $r['estado'] === 'confirmada' && is_post()) {
         $m = null;
         if (!agenda_form_token_valido((string)($_POST['form_token'] ?? ''), (int)$r['tipo_id'], $m, 'cancelar', true)) {
@@ -65,7 +81,17 @@ if ($resto === 'cancelar') {
             http_response_code(429);
             $error = 'Hiciste varios cambios seguidos. Esperá un rato o escribinos y lo resolvemos.';
         } else {
-            $ok = agenda_cancelar((string)$r['token'], recortar(trim((string)($_POST['motivo'] ?? '')), 1000));
+            // agenda_cancelar() puede lanzar si el calendario quedó bloqueado
+            // por otro cambio: el visitante ve el aviso y puede reintentar.
+            try {
+                $ok = agenda_cancelar((string)$r['token'], recortar(trim((string)($_POST['motivo'] ?? '')), 1000), $avisado);
+            } catch (AgendaExcepcion $e) {
+                $error = $e->getMessage();
+            } catch (\Throwable $e) {
+                log_error('reservar.cancelar', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine());
+                $error = 'Tuvimos un problema al cancelar. Probá de nuevo en un momento; '
+                       . 'si sigue pasando, escribinos y lo resolvemos.';
+            }
             $r  = q1('SELECT * FROM agenda_reservas WHERE id = ?', [(int)$r['id']]) ?? $r;
         }
     }
@@ -74,6 +100,7 @@ if ($resto === 'cancelar') {
         'r'         => $r,
         'tipo'      => $tipo,
         'ok'        => $ok,
+        'avisado'   => $avisado,
         'error'     => $error,
         'formToken' => $r ? agenda_form_token((int)$r['tipo_id'], 'cancelar') : '',
         'bodyClass' => $bodyClass,
@@ -133,6 +160,9 @@ if ($resto === 'mover') {
     exit;
 }
 
+// ---- Página de reserva: /r/<usuario>/<tipo> ----
+// <usuario> es la parte local del correo del vendedor y <tipo> el slug del
+// tipo de reunión. Lo que venga después de esos dos tramos se ignora.
 $partes  = explode('/', $resto);
 $usuario = $partes[0] ?? '';
 $slug    = $partes[1] ?? '';

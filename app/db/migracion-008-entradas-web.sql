@@ -10,16 +10,32 @@
 --  encuentra el primero y no se duplica la reunión.
 --
 --  Es idempotente: se puede correr muchas veces.
+--
+--  Usa `ADD COLUMN IF NOT EXISTS` y `ADD INDEX IF NOT EXISTS`, que son de
+--  MariaDB (la base de Hostinger); en MySQL 8 esas líneas no corren.
+--  La usan app/api.php, pages/api/v1/*, pages/entradas-web.php y las
+--  funciones entrada_web_* / entradas_web_* de crm.php. Si el código llega
+--  antes que esta migración, la API responde 503 migracion_pendiente.
 -- ============================================================
 
+-- Una fila por pedido de la web (y por envío de la agenda pública /r/).
+-- `estado`: 'procesando' mientras se atiende; 'ok' entró; 'error' falló sin
+-- crear nada (un reintento con la misma clave la retoma); 'descartada' es
+-- una consulta repetida en la última media hora.
+-- Los datos personales se anonimizan en las entradas viejas que ya no tienen
+-- contacto o que quedaron con error o descartadas (entradas_web_anonimizar()
+-- en crm.php, desde el cron); lo de origen queda para las estadísticas.
 CREATE TABLE IF NOT EXISTS `entradas_web` (
   `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  -- Cabecera X-ITH-Idempotency; para /r/ el CRM genera una ('r-' + azar).
   `idempotencia`    VARCHAR(80)  NOT NULL,
   `cuerpo_hash`     CHAR(64)     DEFAULT NULL,   -- para detectar la misma clave con otro pedido
   `token_id`        BIGINT UNSIGNED DEFAULT NULL, -- NULL = agenda pública /r/
   `tipo`            ENUM('consulta','reserva') NOT NULL,
   `estado`          ENUM('procesando','ok','error','descartada') NOT NULL DEFAULT 'procesando',
   `error`           VARCHAR(200) DEFAULT NULL,
+  -- `error`: motivo corto para la pantalla de entradas ('horario_tomado',
+  -- 'error_interno', 'duplicada de la entrada N'…), nunca una traza.
   `respuesta`       TEXT         DEFAULT NULL,   -- la respuesta original, para los reintentos
   -- Persona
   `nombre`          VARCHAR(160) NOT NULL,
@@ -33,7 +49,9 @@ CREATE TABLE IF NOT EXISTS `entradas_web` (
   `consentimiento_en`      DATETIME    NOT NULL,
   `consentimiento_version` VARCHAR(40) NOT NULL,
   `consentimiento_hash`    CHAR(64)    DEFAULT NULL,
-  -- Origen
+  -- Origen: lo que manda la web en `origen` (api_limpiar_origen()); lo que no
+  -- cumple el formato llega vacío. `canal` lo deduce la web (Google Ads,
+  -- LinkedIn, orgánico…); `landing` es la primera página que vio la persona.
   `origen_pagina`   VARCHAR(200) DEFAULT NULL,
   `canal`           VARCHAR(80)  DEFAULT NULL,
   `utm_source`      VARCHAR(150) DEFAULT NULL,
@@ -60,6 +78,9 @@ CREATE TABLE IF NOT EXISTS `entradas_web` (
   `creado_en`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `actualizado_en`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  -- La clave de idempotencia es única POR CLAVE DE API. Con token_id NULL
+  -- (agenda pública) la base no impide repetidas: en un índice único MySQL y
+  -- MariaDB admiten varios NULL.
   UNIQUE KEY `uq_ew_idem`   (`token_id`, `idempotencia`),
   KEY `ix_ew_creado`        (`creado_en`),
   KEY `ix_ew_canal`         (`canal`, `creado_en`),
@@ -75,6 +96,10 @@ CREATE TABLE IF NOT EXISTS `entradas_web` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Límite de pedidos: un contador por clave y por ventana de tiempo.
+-- También guarda marcas de un solo uso con ventana 0: 'sig:<firma>' (firmas
+-- de la API ya usadas) y 'ft:<nonce>' (tokens de formulario de /r/).
+-- `vence_en` es cuándo se puede borrar la fila; la limpieza la hace
+-- limite_superado() de vez en cuando y el cron una vez por día.
 CREATE TABLE IF NOT EXISTS `api_limites` (
   `clave`    VARCHAR(120) NOT NULL,     -- 'k:<token>:escritura:60', 'ip:<hash>:reserva:3600', …
   `ventana`  INT UNSIGNED NOT NULL,     -- floor(time() / segundos)
@@ -90,6 +115,13 @@ ALTER TABLE `api_tokens`
   ADD COLUMN IF NOT EXISTS `secreto_cifrado` TEXT DEFAULT NULL AFTER `token_hash`;
 
 -- Reservas: una sola invitación que se actualiza, y de dónde vino.
+--   · ics_uid / ics_secuencia: el UID de la invitación .ics (el iCalUID de
+--     Google cuando hay evento) y su número de versión, que tiene que subir
+--     en cada cambio para que el calendario del invitado lo tome;
+--   · reprogramada_de: la reserva anterior cuando se cambió el horario;
+--   · origen: 'web', 'publica' o 'crm'; NULL = creada antes de esta migración;
+--   · avisada_en: cuándo se creó el evento y salió el correo; NULL = el cron
+--     tiene que completarla (agenda_reserva_completar()).
 ALTER TABLE `agenda_reservas`
   ADD COLUMN IF NOT EXISTS `ics_uid`         VARCHAR(255)    DEFAULT NULL AFTER `meet_url`,
   ADD COLUMN IF NOT EXISTS `ics_secuencia`   INT UNSIGNED    NOT NULL DEFAULT 0 AFTER `ics_uid`,
@@ -116,6 +148,10 @@ UPDATE `agenda_reservas`
  WHERE `ics_uid` IS NULL;
 
 -- Ajustes nuevos. No pisan lo que ya esté cargado.
+--   · web_dueno_id: quién recibe las consultas de la web ('' = automático);
+--   · avisar_web: además de la alerta en pantalla, aviso por correo de cada
+--     consulta de la web;
+--   · agenda_invitado_en_google: el invitado figura como asistente del evento.
 INSERT INTO `app_settings` (`clave`, `valor`) VALUES
     ('web_dueno_id',               ''),
     ('avisar_web',                 '1'),

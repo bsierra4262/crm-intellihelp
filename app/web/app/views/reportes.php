@@ -1,10 +1,15 @@
 <?php
 /** @var string $periodo @var array $pronostico @var array $etapas @var array $fuentes
  *  @var array $campanas @var array $actividad */
-$maxEtapa = 0.0;
-foreach ($etapas as $e) { $maxEtapa = max($maxEtapa, (float)$e['total']); }
-$maxFuente = 0.0;
-foreach ($fuentes as $f) { $maxFuente = max($maxFuente, (float)$f['total']); }
+// Vista de reportes, desde pages/reportes.php. Las barras se dibujan con CSS:
+// cada una mide en proporción al máximo de su bloque (mínimo 1 % para que
+// un valor chico se vea). En el embudo y las fuentes la barra mide CANTIDAD
+// de negocios: los importes van por moneda y no se pueden comparar entre sí.
+// El color de etapa viene de la tabla `etapas`.
+$maxEtapa = 0;
+foreach ($etapas as $e) { $maxEtapa = max($maxEtapa, (int)$e['n']); }
+$maxFuente = 0;
+foreach ($fuentes as $f) { $maxFuente = max($maxFuente, (int)$f['n']); }
 $maxAct = 0;
 foreach ($actividad as $a) { $maxAct = max($maxAct, (int)$a['n']); }
 $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
@@ -21,12 +26,12 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
 </div>
 
 <div class="card mb-4">
-    <div class="card-head"><h2>Embudo por etapa</h2><span class="small muted">Todos los negocios abiertos e históricos</span></div>
+    <div class="card-head"><h2>Embudo por etapa</h2><span class="small muted">Todos los negocios, hoy (no depende del período)</span></div>
     <?php foreach ($etapas as $e): ?>
         <div class="bar-row">
             <span class="bar-label"><?= e($e['nombre']) ?> <span class="muted">(<?= (int)$e['n'] ?>)</span></span>
-            <span class="bar-track"><i class="bar-fill" style="width:<?= $pct((float)$e['total'], $maxEtapa) ?>%;background:<?= e($e['color']) ?>"></i></span>
-            <span class="bar-val"><?= money((float)$e['total']) ?></span>
+            <span class="bar-track"><i class="bar-fill" style="width:<?= $pct((int)$e['n'], $maxEtapa) ?>%;background:<?= e($e['color']) ?>"></i></span>
+            <span class="bar-val"><?= e(money_por_moneda($e['totales'])) ?></span>
         </div>
     <?php endforeach; ?>
 </div>
@@ -45,13 +50,14 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
                 <tr>
                     <td data-label="Vendedor"><strong><?= e($p['nombre']) ?></strong></td>
                     <td data-label="Objetivo" class="num"><?= (float)$p['objetivo'] > 0 ? money((float)$p['objetivo']) : '—' ?></td>
-                    <td data-label="Ganado" class="num strong"><?= money((float)$p['ganado']) ?></td>
+                    <?php // Pronóstico separado por moneda (pronostico() de negocios.php): el cumplimiento compara sólo pesos, la moneda de la cuota. ?>
+                    <td data-label="Ganado" class="num strong"><?= montos_por_moneda(['ARS' => $p['ganado'], 'USD' => $p['ganado_usd'] ?? 0]) ?></td>
                     <td data-label="Cumplimiento" class="num">
                         <?= $cumple === null ? '—' : '<span class="badge ' . ($cumple >= 100 ? 'badge-ok' : ($cumple >= 60 ? 'badge-pend' : 'badge-rej')) . '">' . $cumple . ' %</span>' ?>
                     </td>
-                    <td data-label="Abierto" class="num prio-2"><?= money((float)$p['abierto']) ?></td>
-                    <td data-label="Ponderado" class="num prio-2"><?= money((float)$p['ponderado']) ?></td>
-                    <td data-label="Perdido" class="num prio-3"><?= money((float)$p['perdido']) ?></td>
+                    <td data-label="Abierto" class="num prio-2"><?= montos_por_moneda(['ARS' => $p['abierto'], 'USD' => $p['abierto_usd'] ?? 0]) ?></td>
+                    <td data-label="Ponderado" class="num prio-2"><?= montos_por_moneda(['ARS' => $p['ponderado'], 'USD' => $p['ponderado_usd'] ?? 0]) ?></td>
+                    <td data-label="Perdido" class="num prio-3"><?= montos_por_moneda(['ARS' => $p['perdido'], 'USD' => $p['perdido_usd'] ?? 0]) ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
@@ -65,14 +71,14 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
 
 <div class="rep-grid">
     <div class="card">
-        <div class="card-head"><h2>De dónde vienen los negocios ganados</h2></div>
+        <div class="card-head"><h2>De dónde vienen los negocios ganados en <?= e($periodo) ?></h2></div>
         <?php if (!$fuentes): ?>
-            <p class="muted small">Todavía no hay negocios ganados.</p>
+            <p class="muted small">No se ganó ningún negocio en este período.</p>
         <?php else: foreach ($fuentes as $f): ?>
             <div class="bar-row">
                 <span class="bar-label"><?= e($f['fuente']) ?> <span class="muted">(<?= (int)$f['n'] ?>)</span></span>
-                <span class="bar-track"><i class="bar-fill alt" style="width:<?= $pct((float)$f['total'], $maxFuente) ?>%"></i></span>
-                <span class="bar-val"><?= money((float)$f['total']) ?></span>
+                <span class="bar-track"><i class="bar-fill alt" style="width:<?= $pct((int)$f['n'], $maxFuente) ?>%"></i></span>
+                <span class="bar-val"><?= e(money_por_moneda($f['totales'])) ?></span>
             </div>
         <?php endforeach; endif; ?>
     </div>
@@ -92,9 +98,9 @@ $pct = fn($v, $max) => $max > 0 ? max(1, round(100 * $v / $max)) : 0;
 </div>
 
 <div class="card">
-    <div class="card-head"><h2>Rendimiento de las campañas</h2></div>
+    <div class="card-head"><h2>Rendimiento de las campañas</h2><span class="small muted">Las que enviaron en <?= e($periodo) ?> · totales de cada campaña</span></div>
     <?php if (!$campanas): ?>
-        <p class="muted small">Todavía no se envió ninguna campaña.</p>
+        <p class="muted small">Ninguna campaña envió correos en este período.</p>
     <?php else: ?>
         <div class="table-scroll">
             <table class="grid">

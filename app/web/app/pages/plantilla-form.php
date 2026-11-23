@@ -2,6 +2,20 @@
 declare(strict_types=1);
 require_login();
 
+// ============================================================
+//  Ruta: /plantilla-form[?id=N][&desde=<preajuste>]  (con sesión; módulo
+//  «campanas»). El editor visual de plantillas.
+//    · GET sin id: plantilla nueva, vacía o copiada de un preajuste
+//      (plantillas_preajustes(), en preajustes.php).
+//    · POST: valida nombre y asunto, guarda con plantilla_guardar() (que
+//      genera el HTML desde los bloques; un `tipo=html` que llegue se
+//      ignora) y vuelve al mismo formulario.
+//  Además arma una primera vista previa y el control de entregabilidad con
+//  datos de ejemplo; después el editor (assets/js/editor.js) los actualiza
+//  pidiéndoselos a plantilla-vista.
+//  Cualquier usuario con sesión puede crear y editar plantillas.
+// ============================================================
+
 $id = (int)($_GET['id'] ?? 0);
 $p  = $id ? plantilla_get($id) : null;
 if ($id && !$p) {
@@ -52,6 +66,8 @@ $datos['ajustes'] = array_merge(bloques_ajustes_defecto(), (array)($datos['ajust
 
 // Vista previa y verificación con datos de ejemplo, para que se vea como lo va
 // a recibir una persona de verdad y no con las variables sin reemplazar.
+// Se arma siempre desde los bloques, aunque la plantilla guardada sea de tipo
+// 'html': en ese caso esta pantalla no muestra su HTML real.
 $ctx     = contexto_marca();
 $html    = bloques_render($datos['bloques'], $datos['ajustes'], $ctx);
 $texto   = bloques_texto($datos['bloques'], $ctx);
@@ -62,7 +78,7 @@ $ejemplo = [
     'empresa_web' => $ctx['empresa_web'],
     'agenda' => url_abs('r/ejemplo/demo'), 'baja' => url_abs('baja?t=ejemplo'),
 ];
-$vista  = render_plantilla($html, $ejemplo);
+$vista  = render_plantilla($html, $ejemplo, true);
 $asunto = render_plantilla((string)($p['asunto'] ?? ''), $ejemplo);
 $chequeo = bloques_verificar($datos['bloques'], (string)($p['asunto'] ?? ''), $vista,
                              render_plantilla($texto, $ejemplo), contexto_marca());

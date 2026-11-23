@@ -1,4 +1,16 @@
 <?php /** @var array $r @var array $tipo @var bool $movida */
+// ============================================================
+//  Página pública «quedó agendada» / «cambiamos el horario» (sin login).
+//  La dibujan pages/reservar.php (reserva nueva) y pages/r.php (/r/mover,
+//  con $movida = true).
+//
+//  Recibe: $r (la reserva vigente, ya completada con agenda_reserva_completar()
+//  cuando es nueva: puede traer meet_url), $tipo (con quien la atiende) y
+//  $movida (opcional).
+//
+//  La hora se muestra en la zona del tipo. Los enlaces de mover y cancelar
+//  llevan el token de la reserva: quien ve esta página es quien la reservó.
+// ============================================================
 $movida = !empty($movida);
 $local  = agenda_local(strtotime((string)$r['inicia_el']), $tipo);
 ?>
@@ -26,6 +38,7 @@ $local  = agenda_local(strtotime((string)$r['inicia_el']), $tipo);
                 <div><div class="k">Duración</div><div class="v"><?= (int)$tipo['duracion_min'] ?> minutos</div></div>
             </div>
 
+            <?php // Tres casos: hay Meet; el tipo pide Meet pero no se creó; el tipo no usa Meet. ?>
             <?php if (!empty($r['meet_url'])): ?>
                 <p class="mt-6">
                     <a class="btn btn-primary btn-block" href="<?= e($r['meet_url']) ?>" target="_blank" rel="noopener">

@@ -1,10 +1,24 @@
+<?php
+// ============================================================
+//  Vista interna «Mover la reunión» (la arma pages/reserva-mover.php).
+//
+//  Recibe: $r (la reserva confirmada), $tipo (con quien la atiende), $huecos
+//  (fecha Y-m-d => inicios en segundos Unix) y $motivo ('sin_calendario',
+//  'sin_horario' o null).
+//
+//  Cada horario es un formulario propio con CSRF que manda a
+//  `reserva-accion` (accion=reprogramar, inicio=<segundos>), con confirmación
+//  antes de mandar. Todo (la hora actual, los botones y el texto de la
+//  confirmación) va en la zona del tipo de reunión.
+// ============================================================
+?>
 <?php /** @var array $r @var array $tipo @var array $huecos @var ?string $motivo */ ?>
 <div class="page-head">
     <div>
         <h1>Mover la reunión</h1>
         <p class="muted">
             <?= e($tipo['nombre']) ?> con <?= e($r['invitado_nombre']) ?>
-            · hoy está el <?= fecha_hora($r['inicia_el']) ?>
+            · hoy está el <?= e(fecha_hora(agenda_local(strtotime((string)$r['inicia_el']), $tipo))) ?>
         </p>
     </div>
     <div class="head-actions">
@@ -64,7 +78,7 @@
                         <input type="hidden" name="inicio" value="<?= (int)$ts ?>">
                         <button class="slot" type="submit"
                                 data-confirmar-titulo="Mover la reunión"
-                                data-confirmar="La reunión con <?= e($r['invitado_nombre']) ?> pasa al <?= e(fecha_hora(date('Y-m-d H:i:s', $ts))) ?>. Le avisamos por correo."
+                                data-confirmar="La reunión con <?= e($r['invitado_nombre']) ?> pasa al <?= e(fecha_hora(agenda_local($ts, $tipo))) ?>. Le avisamos por correo."
                                 data-confirmar-ok="Mover"><?= e(agenda_local($ts, $tipo, 'H:i')) ?></button>
                     </form>
                 <?php endforeach; ?>

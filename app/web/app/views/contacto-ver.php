@@ -1,4 +1,27 @@
 <?php
+// ============================================================
+//  Vista: ficha de un contacto.
+//
+//  La dibuja pages/contacto-ver.php. Columna izquierda: datos, ubicación,
+//  notas del registro (el campo `descripcion`), negocios y campañas
+//  recibidas. Columna derecha: etiquetas, adjuntos, notas, actividades e
+//  historial.
+//
+//  Variables que recibe:
+//    $c            array  la ficha de contacto_get() (trae `cuenta` y `propietario`)
+//    $notas        array  notas_de('contacto', id)
+//    $actividades  array  actividades_de('contacto_id', id), vacía si el módulo está apagado
+//    $negocios     array  negocios del contacto con su etapa
+//    $envios       array  últimos 20 envíos de campañas
+//    $linea        array  timeline('contacto', id): sólo auditoría
+//    $verNegocios, $verActividades, $verCampanas, $verAdjuntos  bool
+//                         qué módulos están encendidos (modulos.php)
+//
+//  Los parciales _etiquetas, _adjuntos, _notas y _actividades_panel toman
+//  sus datos del ámbito de esta vista (variables $etqEntidad, $adjEntidad,
+//  $notas, $actividades...).
+//  Todo dato del registro sale escapado con e() o con dato().
+// ============================================================
 /** @var array $c @var array $notas @var array $actividades @var array $negocios
  *  @var bool $verNegocios @var bool $verActividades @var bool $verCampanas @var bool $verAdjuntos
  *  @var array $envios @var array $linea */
@@ -20,6 +43,7 @@
         </div>
     </div>
     <div class="head-actions">
+        <?php // El botón lo ve sólo un admin; la página igual vuelve a exigir require_admin() al recibir el POST. ?>
         <?php if ($c['no_email'] && auth_is_admin()): ?>
             <form class="inline-form" method="post">
                 <?= csrf_field() ?>
@@ -95,6 +119,7 @@
                         <?php foreach ($negocios as $n): ?>
                             <tr>
                                 <td data-label="Negocio"><a href="<?= e(url('negocio-ver?id=' . (int)$n['id'])) ?>"><?= e($n['nombre']) ?></a></td>
+                                <?php // El color de la etapa es un hexadecimal; se le suma «1f» de opacidad para el fondo del chip. ?>
                                 <td data-label="Etapa"><span class="chip" style="background:<?= e($n['color']) ?>1f;color:<?= e($n['color']) ?>"><?= e($n['etapa']) ?></span></td>
                                 <td data-label="Importe" class="num"><?= money((float)$n['importe'], $n['moneda']) ?></td>
                                 <td data-label="Cierre"><?= fecha_corta($n['fecha_cierre']) ?></td>

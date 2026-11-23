@@ -1,5 +1,12 @@
 <?php /** @var string $entidad @var array $defs @var array $rows @var array $conteos
- *  @var int $dias @var array $motivos */ ?>
+ *  @var int $dias @var array $motivos
+ *
+ *  Vista de la papelera, desde pages/papelera.php. Una solapa por tipo de
+ *  registro (con su contador) y la tabla de la solapa elegida. Cada fila
+ *  ofrece restaurar por POST a registro-eliminar (o a adjunto-subir, en la
+ *  solapa Archivos), que vuelve acá.
+ *  «Por qué» distingue el archivado automático por rebote de un borrado
+ *  hecho por una persona, con el motivo que se leyó de la auditoría. */ ?>
 <div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Papelera</h1>
@@ -56,7 +63,8 @@
                         </span>
                     </td>
                     <td class="acts" data-label="Acciones">
-                        <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
+                        <?php // Los archivos se restauran por su propia ruta (adjunto-subir). ?>
+                        <form class="inline-form" method="post" action="<?= e(url($entidad === 'adjunto' ? 'adjunto-subir' : 'registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="<?= e($entidad) ?>">
                             <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">

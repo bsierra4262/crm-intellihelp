@@ -1,4 +1,7 @@
 <?php /** @var string $q @var array $r */
+// Resultados de la búsqueda global, desde pages/buscar.php: $q es el texto
+// buscado y $r trae hasta 15 filas de contactos, cuentas, posibles y negocios.
+// Cada bloque vacío no se dibuja.
 $total = count($r['contactos']) + count($r['cuentas']) + count($r['posibles']) + count($r['negocios']);
 ?>
 <div class="page-head">

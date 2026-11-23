@@ -1,4 +1,28 @@
 <?php /** @var array $f @var array $data @var array $usuarios */
+// ============================================================
+//  Vista: listado de actividades.
+//
+//  La dibuja pages/actividades.php. Pestañas de vistas rápidas, filtros
+//  (GET), tabla paginada y, por fila, completar o reabrir (POST a
+//  `actividad-completar`), editar y mandar a la papelera (POST a
+//  `registro-eliminar`).
+//
+//  Variables que recibe:
+//    $f         array  filtros (q, tipo, estado, propietario_id, vista,
+//                      vencidas, page)
+//    $data      array  actividades_listar(): rows (con propietario, contacto
+//                      y cuenta), total y paginación
+//    $usuarios  array  usuarios activos, para el filtro de responsable
+//
+//  «Relacionado con» muestra el contacto o, si no hay, la empresa; una
+//  actividad vinculada sólo a un negocio o a un posible cliente sale con «—».
+//  El formulario de filtros conserva la vista actual: `vencidas=1` (el enlace
+//  del contador) viaja como vista=vencidas.
+//  El enlace de Meet sólo sale si es https://.
+//  La papelera de cada fila sólo la ve el responsable o un administrador.
+// ============================================================
+
+// `vencidas=1` (el enlace del contador) equivale a la pestaña «Vencidas».
 $vistaActual = ($f['vencidas'] ?? '') === '1' ? 'vencidas' : ($f['vista'] ?: 'pendientes');
 $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta semana',
            'vencidas' => 'Vencidas', 'completadas' => 'Completadas'];
@@ -14,6 +38,7 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
 </div>
 
 <div class="seg mb-4">
+    <?php // Cada pestaña conserva los filtros y vuelve a la página 1; «Pendientes» es la vista sin parámetro. ?>
     <?php foreach ($vistas as $k => $etiqueta): ?>
         <a class="seg-item <?= $vistaActual === $k ? 'active' : '' ?>"
            href="<?= e(url('actividades' . query_con(['vista' => $k === 'pendientes' ? null : $k, 'vencidas' => null, 'page' => null]))) ?>"><?= e($etiqueta) ?></a>
@@ -21,7 +46,7 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
 </div>
 
 <form class="filters card" method="get" action="<?= e(url('actividades')) ?>">
-    <input type="hidden" name="vista" value="<?= e($f['vista']) ?>">
+    <input type="hidden" name="vista" value="<?= e($vistaActual === 'pendientes' ? '' : $vistaActual) ?>">
     <div class="filter-grid">
         <label><span>Buscar</span><input type="search" name="q" value="<?= e($f['q']) ?>" placeholder="Asunto o detalle…"></label>
         <label><span>Tipo</span>
@@ -77,7 +102,8 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
                 <tr>
                     <td data-label="Asunto">
                         <a href="<?= e(url('actividad-form?id=' . (int)$a['id'])) ?>"><strong><?= e($a['asunto']) ?></strong></a>
-                        <?php if ($a['meet_url']): ?>
+                        <?php // `meet_url` lo escribe la integración con Google Calendar; sólo se enlaza si es https://. ?>
+                        <?php if ($a['meet_url'] && preg_match('#^https://#i', (string)$a['meet_url'])): ?>
                             <a href="<?= e($a['meet_url']) ?>" target="_blank" rel="noopener" class="chip"><?= icon('video', 12) ?>Meet</a>
                         <?php endif; ?>
                     </td>
@@ -110,6 +136,8 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
                             </form>
                         <?php endif; ?>
                         <a class="act" href="<?= e(url('actividad-form?id=' . (int)$a['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
+                        <?php // Sólo el propietario o un administrador (puedo_mandar_papelera(), registros.php). ?>
+                        <?php if (puedo_mandar_papelera('actividad', $a)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="actividad">
@@ -120,6 +148,7 @@ $vistas = ['pendientes' => 'Pendientes', 'hoy' => 'Hoy', 'semana' => 'Esta seman
                                     data-confirmar="«<?= e($a['asunto']) ?>» se va a la papelera."
                                     data-confirmar-ok="Eliminar"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>

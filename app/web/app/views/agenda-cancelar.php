@@ -1,4 +1,20 @@
-<?php /** @var ?array $r @var ?array $tipo @var bool $ok @var ?string $error @var string $formToken */
+<?php /** @var ?array $r @var ?array $tipo @var bool $ok @var bool $avisado @var ?string $error @var string $formToken */
+// ============================================================
+//  Página pública /r/cancelar?t=<token> (sin login; la dibuja pages/r.php).
+//
+//  Recibe:
+//    · $r ......... la reserva vigente de la cadena del token, o null si el token no existe
+//    · $tipo ...... su tipo con quien la atiende (null si el tipo se borró)
+//    · $ok ........ true si se acaba de cancelar en este pedido
+//    · $avisado ... true si en este pedido salió el correo de la cancelación
+//    · $error ..... aviso del token de formulario o del límite de intentos
+//    · $formToken . token firmado de un solo uso para el POST ('cancelar')
+//
+//  Abrir el enlace (GET) no cancela nada: hace falta confirmar con el botón,
+//  así un antivirus o un programa que abre los enlaces del correo no da de
+//  baja la reunión. El formulario se manda a la misma URL (con el token).
+//  Si $tipo es null, la hora se muestra en la zona por defecto.
+// ============================================================
 $tipoZona = $tipo ?? [];
 ?>
 <div class="pub-wrap angosta">
@@ -10,8 +26,11 @@ $tipoZona = $tipo ?? [];
         <div class="pub-pad">
             <?php if (!$r): ?>
                 <div class="flash flash-error">El enlace no es válido.</div>
-            <?php elseif ($ok || $r['estado'] === 'cancelada'): ?>
-                <div class="flash flash-success">La reunión quedó cancelada. Te mandamos la confirmación por correo.</div>
+            <?php // El correo sólo se promete si salió en este pedido. ?>
+            <?php elseif ($ok): ?>
+                <div class="flash flash-success">La reunión quedó cancelada.<?= !empty($avisado) ? ' Te mandamos la confirmación por correo.' : '' ?></div>
+            <?php elseif ($r['estado'] === 'cancelada'): ?>
+                <div class="flash flash-info">Esta reunión ya estaba cancelada. No tenés que hacer nada más.</div>
             <?php elseif ($r['estado'] !== 'confirmada'): ?>
                 <div class="flash flash-info">Esta reunión ya no está activa.</div>
             <?php else: $local = agenda_local(strtotime((string)$r['inicia_el']), $tipoZona); ?>

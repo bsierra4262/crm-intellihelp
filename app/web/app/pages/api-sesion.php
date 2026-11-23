@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+// Ruta: /api-sesion (requiere sesión). Responde JSON.
+
 /**
  * Latido de sesión. Lo llama idle.js ante actividad real, como mucho una vez
  * por minuto, para que la sesión no venza mientras se trabaja en una pantalla
@@ -12,6 +14,9 @@ declare(strict_types=1);
  */
 header('Content-Type: application/json; charset=utf-8');
 
+// Sin sesión no se llega acá: index.php contesta 440 a los api-* sin sesión
+// (antes redirigía al login con 302) y una sesión vencida la corta
+// bootstrap.php con 440. Esto queda de resguardo, con la misma respuesta.
 $uid = current_user_id();
 if (!$uid) {
     http_response_code(440);
@@ -22,6 +27,14 @@ if (!$uid) {
 $ahora   = time();
 $idleTtl = (int)($GLOBALS['CONFIG']['app']['idle_ttl'] ?? 600);
 $absTtl  = (int)($GLOBALS['CONFIG']['app']['abs_ttl']  ?? 28800);
+// `abs_resto`: segundos que le quedan a la sesión antes del tope absoluto.
 $resto   = max(0, $absTtl - ($ahora - (int)($_SESSION['login_en'] ?? $ahora)));
+// `idle_resto`: segundos hasta el corte por inactividad. idle.js consulta con
+// `__vivo=1` antes de cerrar (bootstrap no lo cuenta como actividad), así que
+// refleja la última actividad real de cualquier pestaña. null si el corte por
+// inactividad está desactivado (idle_ttl = 0).
+$idleResto = $idleTtl > 0
+    ? max(0, $idleTtl - ($ahora - (int)($_SESSION['ultima_actividad'] ?? $ahora)))
+    : null;
 
-echo json_encode(['ok' => true, 'idle' => $idleTtl, 'abs_resto' => $resto]);
+echo json_encode(['ok' => true, 'idle' => $idleTtl, 'abs_resto' => $resto, 'idle_resto' => $idleResto]);

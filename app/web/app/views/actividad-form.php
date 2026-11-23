@@ -1,6 +1,40 @@
 <?php
+// ============================================================
+//  Vista: formulario de alta y edición de una actividad (tarea, llamada o
+//  reunión).
+//
+//  La dibuja pages/actividad-form.php. Módulo: `actividades`.
+//
+//  Variables que recibe:
+//    $a          array  la actividad (actividad_get) o los valores iniciales
+//                       del alta (con el vínculo que vino en la dirección)
+//    $id         int    0 en un alta
+//    $errores    array  campo => mensaje
+//    $usuarios   array  usuarios activos, para el responsable
+//    $contactos  array  sólo el contacto vinculado (cero o una fila
+//                       {id, nombre, detalle}); el resto se busca al escribir
+//    $cuentas    array  ídem, la empresa vinculada
+//    $negocios   array  ídem, el negocio vinculado
+//    $reserva    ?array la reserva confirmada de la agenda (id, usuario_id) si
+//                       la reunión vino de ahí: tipo y horario quedan fijos
+//    $volver     string ruta interna a la que volver al guardar ('' = listado)
+//
+//  El script del final oculta los campos que no aplican al tipo (atributo
+//  `data-solo`). Ocultos igual viajan en el POST; actividad_guardar() es la
+//  que descarta lo que no corresponde (por ejemplo, `inicia_el` en una tarea).
+//
+//  Contacto, empresa y negocio llevan data-buscar: buscador.js los convierte
+//  en campos que buscan al escribir, y como el desplegable siempre trae el
+//  valor vinculado, guardar sin tocarlos no lo pierde.
+//  El posible cliente viaja en un campo oculto, sin selector.
+//  Con $reserva, tipo e inicio/fin se muestran deshabilitados (no viajan; la
+//  página igual los repone) y se ofrece mover la reunión desde la agenda.
+// ============================================================
 /** @var ?array $a @var int $id @var array $errores @var array $usuarios
- *  @var array $contactos @var array $cuentas @var array $negocios */
+ *  @var array $contactos @var array $cuentas @var array $negocios @var ?array $reserva @var string $volver */
+$bloq = !empty($reserva) ? ' disabled' : '';
+$cancelar = url(($volver ?? '') !== '' ? $volver : 'actividades');
+// Atajo: el valor del campo ya escapado para HTML, con un valor por defecto.
 $v = fn(string $k, $def = '') => e($a[$k] ?? $def);
 // Los datetime-local necesitan "Y-m-dTH:i".
 $dt = function (?string $f) {
@@ -12,8 +46,20 @@ $tipo = $a['tipo'] ?? 'tarea';
 ?>
 <div class="page-head">
     <div><h1><?= $id ? 'Editar actividad' : 'Nueva actividad' ?></h1></div>
-    <div class="head-actions"><a class="btn btn-ghost" href="<?= e(url('actividades')) ?>">Cancelar</a></div>
+    <div class="head-actions"><a class="btn btn-ghost" href="<?= e($cancelar) ?>">Cancelar</a></div>
 </div>
+
+<?php if (!empty($reserva)): ?>
+    <div class="flash flash-info">
+        Esta reunión la reservaron desde la agenda: el día y la hora no se cambian acá, porque quedarían
+        distintos de la reserva, del evento de Google y de la invitación que recibió el cliente.
+        <?php if (ruta_habilitada('reserva-mover')): ?>
+            <a href="<?= e(url('reserva-mover?id=' . (int)$reserva['id'])) ?>">Mover la reunión a otro horario</a>.
+        <?php else: ?>
+            Para cambiarla hay que moverla desde la agenda de reuniones.
+        <?php endif; ?>
+    </div>
+<?php endif; ?>
 
 <?php if ($errores): ?>
     <div class="flash flash-error">Revisá los campos marcados: <?= e(implode(' ', $errores)) ?></div>
@@ -21,12 +67,13 @@ $tipo = $a['tipo'] ?? 'tarea';
 
 <form method="post" class="form-wrap">
     <?= csrf_field() ?>
+    <input type="hidden" name="volver" value="<?= e($volver ?? '') ?>">
 
     <div class="card form-card">
         <h2 class="sec">Qué hay que hacer</h2>
         <div class="grid-fields">
             <label class="fld"><span>Tipo</span>
-                <select name="tipo" id="tipoActividad">
+                <select name="tipo" id="tipoActividad"<?= $bloq ?>>
                     <?php foreach (tipos_actividad() as $k => $et): ?>
                         <option value="<?= e($k) ?>" <?= $tipo === $k ? 'selected' : '' ?>><?= e($et) ?></option>
                     <?php endforeach; ?>
@@ -37,6 +84,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                 <input name="asunto" value="<?= $v('asunto') ?>" maxlength="200" required autofocus placeholder="Llamar para confirmar la propuesta">
                 <?php if (isset($errores['asunto'])): ?><i class="hint bad"><?= e($errores['asunto']) ?></i><?php endif; ?>
             </label>
+            <?php // Sin opción vacía: una actividad siempre tiene responsable (por defecto, quien la carga). ?>
             <label class="fld"><span>Responsable</span>
                 <select name="propietario_id">
                     <?php foreach ($usuarios as $u): ?>
@@ -48,12 +96,15 @@ $tipo = $a['tipo'] ?? 'tarea';
 
             <label class="fld" data-solo="tarea"><span>Vence el</span>
                 <input type="datetime-local" name="vence_el" value="<?= e($dt($a['vence_el'] ?? null)) ?>">
+                <?php if (isset($errores['vence_el'])): ?><i class="hint bad"><?= e($errores['vence_el']) ?></i><?php endif; ?>
             </label>
             <label class="fld" data-solo="llamada reunion"><span>Empieza</span>
-                <input type="datetime-local" name="inicia_el" value="<?= e($dt($a['inicia_el'] ?? null)) ?>">
+                <input type="datetime-local" name="inicia_el" value="<?= e($dt($a['inicia_el'] ?? null)) ?>"<?= $bloq ?>>
+                <?php if (isset($errores['inicia_el'])): ?><i class="hint bad"><?= e($errores['inicia_el']) ?></i><?php endif; ?>
             </label>
             <label class="fld" data-solo="reunion"><span>Termina</span>
-                <input type="datetime-local" name="termina_el" value="<?= e($dt($a['termina_el'] ?? null)) ?>">
+                <input type="datetime-local" name="termina_el" value="<?= e($dt($a['termina_el'] ?? null)) ?>"<?= $bloq ?>>
+                <?php if (isset($errores['termina_el'])): ?><i class="hint bad"><?= e($errores['termina_el']) ?></i><?php endif; ?>
                 <i class="hint">Si lo dejás vacío se toman 30 minutos.</i>
             </label>
             <label class="fld" data-solo="reunion"><span>Lugar</span>
@@ -78,6 +129,7 @@ $tipo = $a['tipo'] ?? 'tarea';
                 <input type="number" name="duracion_min" value="<?= $v('duracion_min') ?>" min="1" step="1">
             </label>
 
+            <?php // «Completada» acá pone `completada_en` en actividad_guardar(); cualquier otro estado lo limpia. ?>
             <label class="fld"><span>Estado</span>
                 <select name="estado">
                     <?php foreach (estados_actividad() as $x): ?>
@@ -105,32 +157,33 @@ $tipo = $a['tipo'] ?? 'tarea';
         <h2 class="sec">Con quién</h2>
         <div class="grid-fields">
             <label class="fld wide"><span>Contacto</span>
-                <select name="contacto_id">
+                <select name="contacto_id" data-buscar="contacto" data-nativo="1" data-placeholder="Escribí el nombre o el correo…">
                     <option value="">— Ninguno —</option>
                     <?php foreach ($contactos as $c): ?>
-                        <option value="<?= (int)$c['id'] ?>" <?= (string)($a['contacto_id'] ?? '') === (string)$c['id'] ? 'selected' : '' ?>><?= e($c['nombre_completo']) ?></option>
+                        <option value="<?= (int)$c['id'] ?>" selected><?= e($c['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Con quién es. Al elegirlo, la actividad aparece en la ficha de esa persona.</i>
             </label>
             <label class="fld wide"><span>Empresa</span>
-                <select name="cuenta_id">
+                <select name="cuenta_id" data-buscar="cuenta" data-nativo="1" data-placeholder="Escribí el nombre de la empresa…">
                     <option value="">— Ninguna —</option>
                     <?php foreach ($cuentas as $c): ?>
-                        <option value="<?= (int)$c['id'] ?>" <?= (string)($a['cuenta_id'] ?? '') === (string)$c['id'] ? 'selected' : '' ?>><?= e($c['nombre']) ?></option>
+                        <option value="<?= (int)$c['id'] ?>" selected><?= e($c['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">La empresa, si la actividad no es con una persona en particular.</i>
             </label>
             <label class="fld wide"><span>Negocio</span>
-                <select name="negocio_id">
+                <select name="negocio_id" data-buscar="negocio" data-nativo="1" data-placeholder="Escribí el nombre del negocio…">
                     <option value="">— Ninguno —</option>
                     <?php foreach ($negocios as $n): ?>
-                        <option value="<?= (int)$n['id'] ?>" <?= (string)($a['negocio_id'] ?? '') === (string)$n['id'] ? 'selected' : '' ?>><?= e($n['nombre']) ?></option>
+                        <option value="<?= (int)$n['id'] ?>" selected><?= e($n['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">El negocio al que empuja esta actividad, si aplica.</i>
             </label>
+            <?php // Sin selector: se conserva el posible cliente que traía la actividad o que vino en la dirección. ?>
             <input type="hidden" name="posible_cliente_id" value="<?= $v('posible_cliente_id') ?>">
             <label class="fld full"><span>Detalle</span>
                 <textarea name="descripcion" rows="4" placeholder="Repasar el alcance y los tiempos de entrega."><?= $v('descripcion') ?></textarea>
@@ -141,13 +194,14 @@ $tipo = $a['tipo'] ?? 'tarea';
 
     <div class="form-actions">
         <button class="btn btn-primary"><?= icon('ok', 16) ?><?= $id ? 'Guardar cambios' : 'Crear actividad' ?></button>
-        <a class="btn btn-ghost" href="<?= e(url('actividades')) ?>">Cancelar</a>
+        <a class="btn btn-ghost" href="<?= e($cancelar) ?>">Cancelar</a>
     </div>
 </form>
 
 <script>
 // Mostrar sólo los campos que aplican al tipo elegido: una tarea no tiene
 // duración ni resultado, y una llamada no tiene fecha de fin.
+<?php // `data-solo` lista, separados por espacio, los tipos en los que el campo se ve. ?>
 (function () {
     var sel = document.getElementById('tipoActividad');
     function aplicar() {

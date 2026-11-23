@@ -1,4 +1,19 @@
 <?php
+// ============================================================
+//  Vista de la pantalla de feriados (pages/feriados.php, administradores).
+//
+//  Variables que recibe:
+//    · $anio           año que se muestra (flechas al anterior y al siguiente);
+//    · $filas          TODAS las filas de feriados del año, con `autor`;
+//    · $afectadas      reuniones confirmadas futuras que caen en un feriado que rige;
+//    · $jurisdiccion   la que rige además de los nacionales;
+//    · $activo         si la agenda respeta los feriados;
+//    · $sinTabla       la base falló al leer (se asume que falta la migración 009);
+//    · $sincronizadoEn / $ultimoError  estado de la sincronización automática.
+//
+//  Todos los formularios postean a la misma pantalla con el año en la
+//  dirección, para volver a la misma página después de la acción.
+// ============================================================
 /** @var int $anio @var array $filas @var array $afectadas @var string $jurisdiccion @var bool $activo
  *  @var bool $sinTabla @var string $sincronizadoEn @var string $ultimoError */
 $dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -47,6 +62,8 @@ $hoy  = date('Y-m-d');
             <?php if (!$filas): ?>
                 <tr><td colspan="6" class="empty">Todavía no hay feriados cargados para <?= (int)$anio ?>. Si el calendario oficial ya está publicado, se traen solos con «Actualizar ahora».</td></tr>
             <?php else: foreach ($filas as $f):
+                // $rige: si quita turnos (nacional o de la jurisdicción configurada).
+                // Un feriado pasado se muestra en gris aunque rija.
                 $t      = strtotime((string)$f['fecha']);
                 $rige   = $f['jurisdiccion'] === 'nacional' || $f['jurisdiccion'] === $jurisdiccion;
                 $pasado = (string)$f['fecha'] < $hoy;
@@ -89,6 +106,7 @@ $hoy  = date('Y-m-d');
                         <?php endif; ?>
                     </td>
                     <td class="acts" data-label="Acciones">
+                        <?php // Un solo botón según el caso: ignorado → restituir; oficial → «se trabaja» (queda marcado); manual → eliminar (se borra la fila). ?>
                         <form class="inline-form" method="post" action="<?= e(url('feriados?anio=' . $anio)) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="id" value="<?= (int)$f['id'] ?>">
@@ -141,6 +159,7 @@ $hoy  = date('Y-m-d');
             <?= csrf_field() ?>
             <input type="hidden" name="accion" value="ajustes">
             <label class="switch bloque mb-3">
+                <?php // Destildado no viaja en el POST: la página lo lee como «apagado». ?>
                 <input type="checkbox" name="activo" value="1" <?= $activo ? 'checked' : '' ?>>
                 <span class="track"></span><span>La agenda no ofrece horarios en los feriados</span>
             </label>
@@ -167,6 +186,7 @@ $hoy  = date('Y-m-d');
         <input type="hidden" name="accion" value="agregar">
         <div class="grid-fields">
             <label class="fld"><span>Fecha <i class="req">*</i></span>
+                <?php // Fecha propuesta: hoy si se mira el año en curso; si no, el 1 de enero de ese año. ?>
                 <input type="date" name="fecha" required value="<?= e($anio === (int)date('Y') ? $hoy : $anio . '-01-01') ?>">
                 <i class="hint">Ese día la agenda no ofrece horarios.</i>
             </label>

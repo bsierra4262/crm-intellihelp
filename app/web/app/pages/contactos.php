@@ -1,5 +1,23 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Página `contactos`: el listado de contactos con filtros, paginación,
+//  exportación a CSV y aprobación masiva de fichas pendientes.
+//
+//  GET   dibuja views/contactos.php con contactos_listar() (crm.php).
+//  GET ?exportar=1  baja la misma consulta, sin paginar, como CSV.
+//  POST  aprueba (o devuelve a pendientes) las fichas marcadas con
+//        aprobar_registros() y vuelve al listado con los mismos filtros.
+//
+//  Tablas: lee `contactos`, `cuentas`, `usuarios`; el POST escribe
+//  `contactos.aprobado_en/aprobado_por`.
+//  Módulo: núcleo (Contactos).
+//  Permisos: cualquier usuario con sesión aprueba en masa; exportar a CSV es
+//  sólo de administradores (la vista esconde el botón y acá se corta igual).
+//  El botón de papelera de cada fila sólo sale al propietario o a un admin.
+// ============================================================
+
 require_login();
 
 // Aprobar varias de una. Es lo que vuelve manejable normalizar una base
@@ -17,9 +35,14 @@ if (is_post()) {
     } else {
         flash('No marcaste ninguna ficha.', 'info');
     }
+    // El formulario se manda a la misma dirección, con los filtros en la query:
+    // query_con([]) la reconstruye para volver exactamente a la misma vista.
     redirect('contactos' . query_con([]));
 }
 
+// Filtros tal como vienen en la dirección. contactos_where() los convierte en
+// condiciones con parámetros (nada se concatena en el SQL) y `orden` se
+// resuelve con una lista cerrada en contactos_listar().
 $f = [
     'q'              => trim((string)($_GET['q'] ?? '')),
     'cuenta_id'      => $_GET['cuenta_id'] ?? '',
@@ -35,7 +58,10 @@ $f = [
 ];
 
 // Exportación: la misma consulta, sin paginar, servida como CSV.
+// Sin límite de filas: con la base entera (más de 13.000 contactos) todo se
+// arma en memoria con fetchAll(). exportar_csv() termina la ejecución.
 if (($_GET['exportar'] ?? '') === '1') {
+    require_admin();
     [$where, $p] = contactos_where($f);
     $rows = q("SELECT ct.*, cu.nombre AS cuenta, u.nombre AS propietario
                FROM contactos ct

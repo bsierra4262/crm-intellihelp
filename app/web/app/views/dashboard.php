@@ -1,8 +1,11 @@
 <?php
-/** @var array $m @var array $emb @var float $ganadoMes @var array $hoy
+/** @var array $m @var array $emb @var array $ganadoMes (moneda => importe) @var array $hoy
  *  @var int $vencidas @var array $campanas @var bool $mio
  *  @var bool $verPosibles @var bool $verNegocios @var bool $verActividades @var bool $verCampanas
  *  @var bool $separado */
+// Vista del panel, desde pages/dashboard.php (ver ahí qué es cada variable).
+// Las zonas con data-vivo las vuelve a pedir vivo.js cada pocos segundos.
+// Las tarjetas de módulos apagados no se dibujan.
 $u = auth_user();
 
 // Lo que falta terminar de cargar, en un solo número. Es lo más accionable que
@@ -25,10 +28,15 @@ $pendientes = (int)($m['cont_pend'] ?? 0) + (int)($m['cta_pend'] ?? 0);
         </div>
         <?php /* Cada uno arma su panel: separado muestra una tarjeta por cosa,
                  unificado junta los totales. Queda guardado por usuario. */ ?>
-        <a class="btn btn-ghost" title="<?= $separado ? 'Juntar contactos y empresas en menos tarjetas' : 'Una tarjeta por cada cosa' ?>"
-           href="<?= e(url('dashboard?vista=' . ($separado ? 'unificado' : 'separado') . ($mio ? '&ambito=mio' : ''))) ?>">
-            <?= icon($separado ? 'menu' : 'panel', 16) ?><?= $separado ? 'Ver unificado' : 'Ver separado' ?>
-        </a>
+        <?php /* Va por POST: guarda una preferencia, y un GET no debe escribir. */ ?>
+        <form class="inline-form" method="post" action="<?= e(url('dashboard')) ?>">
+            <?= csrf_field() ?>
+            <input type="hidden" name="vista" value="<?= $separado ? 'unificado' : 'separado' ?>">
+            <?php if ($mio): ?><input type="hidden" name="ambito" value="mio"><?php endif; ?>
+            <button class="btn btn-ghost" type="submit" title="<?= $separado ? 'Juntar contactos y empresas en menos tarjetas' : 'Una tarjeta por cada cosa' ?>">
+                <?= icon($separado ? 'menu' : 'panel', 16) ?><?= $separado ? 'Ver unificado' : 'Ver separado' ?>
+            </button>
+        </form>
         <?php /* El botón principal depende de los módulos activos: con Posibles
                  clientes apagado, ofrece «Nuevo contacto». */ ?>
         <?php if ($verPosibles): ?>
@@ -92,13 +100,15 @@ $pendientes = (int)($m['cont_pend'] ?? 0) + (int)($m['cta_pend'] ?? 0);
     <?php if ($verNegocios): ?>
         <a class="card stat stat-link" href="<?= e(url('embudo')) ?>">
             <span class="stat-label">Embudo abierto</span>
-            <span class="stat-value"><?= money((float)($emb['total'] ?? 0)) ?></span>
-            <span class="stat-foot"><?= (int)($emb['n'] ?? 0) ?> negocios · <?= money((float)($emb['ponderado'] ?? 0)) ?> ponderado</span>
+            <?php /* Por moneda, sin convertir: pesos y dólares por separado. */ ?>
+            <span class="stat-value"><?= e(money_por_moneda((array)($emb['total'] ?? []))) ?></span>
+            <span class="stat-foot"><?= (int)($emb['n'] ?? 0) ?> negocios · <?= e(money_por_moneda((array)($emb['ponderado'] ?? []))) ?> ponderado</span>
         </a>
         <div class="card stat">
             <span class="stat-label">Ganado este mes</span>
-            <span class="stat-value accent"><?= money($ganadoMes) ?></span>
-            <span class="stat-foot">desde el <?= date('d/m') ?></span>
+            <span class="stat-value accent"><?= e(money_por_moneda($ganadoMes)) ?></span>
+            <?php // La consulta suma desde el 1.º del mes: eso es lo que se muestra. ?>
+            <span class="stat-foot">desde el <?= date('01/m') ?></span>
         </div>
     <?php endif; ?>
     <?php if ($verActividades): ?>

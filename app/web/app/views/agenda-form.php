@@ -1,5 +1,22 @@
 <?php
 /** @var array $duenioU @var bool $conectado @var array $candidatos @var ?array $t @var int $id @var array $errores @var array $porDia */
+// ============================================================
+//  Formulario de alta y edición de un tipo de reunión (lo arma
+//  pages/agenda-form.php y se manda a la misma ruta por POST).
+//
+//  Recibe:
+//    · $t .......... el tipo (o los valores por defecto, o lo que se mandó si hubo errores)
+//    · $id ......... 0 si es nuevo
+//    · $errores .... campo => mensaje; se muestran todos juntos arriba
+//    · $porDia ..... dia (0 = domingo) => ['H:i', 'H:i'] de los días marcados
+//    · $duenioU .... id, nombre y correo del dueño del calendario
+//    · $conectado .. si ese dueño tiene Google conectado
+//    · $candidatos . usuarios activos (sólo para un administrador; vacío para el resto)
+//
+//  Una sola franja por día: el horario partido (9 a 13 y 14 a 18) no se
+//  puede cargar desde acá.
+// ============================================================
+// Atajo para escribir un valor del tipo ya escapado.
 $v = fn(string $k, $def = '') => e($t[$k] ?? $def);
 $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
                5 => 'Viernes', 6 => 'Sábado', 0 => 'Domingo'];
@@ -45,6 +62,7 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
                 <i class="hint">Cuánto dura. Es lo que define el tamaño de cada hueco que se ofrece.</i>
             </label>
             <label class="fld wide"><span>Calendario donde se crean las reuniones <i class="req">*</i></span>
+                <?php // Administrador: elige el calendario. Resto: sólo lo ve; el servidor ignora el usuario_id oculto y usa el propio. ?>
                 <?php if ($candidatos): ?>
                     <select name="usuario_id">
                         <?php foreach ($candidatos as $cand): ?>
@@ -62,10 +80,10 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
                         La reunión se crea en <strong>este</strong> calendario de Google, con el Meet, y
                         esta cuenta queda como organizadora: le llega la invitación igual que al cliente.
                     <?php else: ?>
-                        <strong>Esta cuenta no tiene Google conectado.</strong> Las reservas se van a
-                        seguir tomando, pero la reunión <strong>no va a aparecer en ningún calendario</strong>
-                        ni va a generar el enlace de Meet: el cliente se queda con su confirmación y del
-                        lado nuestro no se entera nadie.
+                        <strong>Esta cuenta no tiene Google conectado.</strong> Sin ver su calendario
+                        la agenda no sabe qué está ocupado, así que <strong>no ofrece ningún horario</strong>:
+                        ni la página pública ni la web toman reservas. Lo que agende el equipo desde el CRM
+                        se guarda, pero sin evento en el calendario ni enlace de Meet.
                         <a href="<?= e(url('google-login?conectar=1')) ?>">Conectar Google</a>.
                     <?php endif; ?>
                 </i>
@@ -96,6 +114,7 @@ $nombresDia = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves',
         </div>
 
         <h3 class="mt-6 mb-3">Horario laboral</h3>
+        <?php // Una fila por día (de lunes a domingo); sólo cuentan los días con la casilla marcada. ?>
         <?php foreach ($nombresDia as $dia => $etiqueta): $act = isset($porDia[$dia]); ?>
             <div class="urow row-sep">
                 <label class="switch w-dia">

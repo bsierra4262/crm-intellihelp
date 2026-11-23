@@ -1,12 +1,33 @@
 <?php
+// ============================================================
+//  Vista: la pantalla de una campaña. La pinta pages/campana-ver.php.
+//  Variables:
+//    $c          campana_get(): la campaña con plantilla y cifras.
+//    $envios     la página actual de la cola (50 por página).
+//    $data       paginación + total; $f los filtros (estado, q, page).
+//    $vista      campana_armar_mensaje() con el primer destinatario, o null
+//                si la cola está vacía.
+//    $testing    modo prueba; $motivos omitidos agrupados por motivo.
+//    $aperturas  cuántos abrieron (píxel).
+//    $puedeGestionar  si el usuario puede iniciar o cancelar (creador,
+//                responsable o admin); si no, esos botones no se muestran.
+//  Llama a campana_pasos() y campana_lista_para_enviar() para la lista de
+//  pasos. Los botones postean a campana-accion; las cifras con data-vivo-*
+//  se refrescan desde api-campana.
+// ============================================================
 /** @var int $aperturas @var array $c @var array $envios @var array $data @var array $f @var ?array $vista
- *  @var bool $testing @var array $motivos */
+ *  @var bool $testing @var array $motivos @var bool $puedeGestionar */
 // Son dos cifras distintas: «entregados» es cuántos llegaron,
 // y el AVANCE es cuántos ya se resolvieron —entregados más rebotados—. Con 3
 // entregados y 3 rebotados, entregados son 3 pero el avance es 6 de 6: no queda
 // nada por hacer.
 $hechos = (int)($c['procesados'] ?? $c['enviados']);
 $pct    = $c['total'] > 0 ? min(100, (int)round(100 * $hechos / $c['total'])) : 0;
+/**
+ * Imprime un botón de acción como formulario POST a campana-accion, con CSRF.
+ * Con $confirmar (titulo, texto, ok, peligro) el botón pide confirmación con
+ * el diálogo propio de app.js antes de enviar.
+ */
 $boton = function (string $accion, string $etiqueta, string $ic, string $clase = 'btn-ghost', array $confirmar = []) use ($c) {
     echo '<form class="inline-form" method="post" action="' . e(url('campana-accion')) . '">' . csrf_field()
        . '<input type="hidden" name="id" value="' . (int)$c['id'] . '">'
@@ -27,16 +48,20 @@ $boton = function (string $accion, string $etiqueta, string $ic, string $clase =
         </p>
     </div>
     <div class="head-actions">
-        <?php $boton('preparar', 'Preparar cola', 'refrescar'); ?>
-        <?php if (in_array($c['estado'], ['borrador', 'pausada', 'programada'], true)): ?>
+        <?php // Cada botón sólo aparece en los estados en que campana_transicion_valida() lo acepta. ?>
+        <?php if (campana_transicion_valida((string)$c['estado'], 'preparar')): ?>
+            <?php $boton('preparar', 'Preparar cola', 'refrescar'); ?>
+        <?php endif; ?>
+        <?php if ($puedeGestionar && campana_transicion_valida((string)$c['estado'], 'iniciar')): ?>
             <?php $boton('iniciar', 'Iniciar envío', 'campanas', 'btn-accent', [
                 'titulo' => 'Iniciar la campaña',
                 'texto'  => 'Se van a empezar a mandar los correos de a uno, con la pausa configurada. Podés pausarla cuando quieras.',
                 'ok'     => 'Iniciar']); ?>
-        <?php elseif ($c['estado'] === 'enviando'): ?>
+        <?php endif; ?>
+        <?php if (campana_transicion_valida((string)$c['estado'], 'pausar')): ?>
             <?php $boton('pausar', 'Pausar', 'reloj', 'btn-ghost'); ?>
         <?php endif; ?>
-        <?php if (in_array($c['estado'], ['enviando', 'pausada', 'programada'], true)): ?>
+        <?php if ($puedeGestionar && in_array($c['estado'], ['enviando', 'pausada', 'programada'], true)): ?>
             <?php /* Cancelar es la única forma de detener del todo una campaña
                      arrancada por error: pausar la deja pendiente. */ ?>
             <?php $boton('cancelar', 'Cancelar campaña', 'x', 'btn-ghost', [
@@ -95,7 +120,7 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
 </div>
 
 <?php if ($testing && in_array($c['estado'], ['enviando', 'programada'], true)): ?>
-    <div class="flash flash-info"><strong>Modo prueba:</strong> los correos salen de verdad, igual que en producción. Lo de prueba son los datos.</div>
+    <div class="flash flash-info"><strong>Modo prueba:</strong> sólo salen correos a la lista blanca (los usuarios del CRM y el ajuste «testing_lista_blanca»). El resto queda omitido.</div>
 <?php endif; ?>
 
 <?php /* data-vivo enciende la actualización sola: el script pregunta cada seis
@@ -161,7 +186,11 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
     <div class="card-head"><h2>Vista previa</h2><span class="small muted">Como lo va a recibir <?= e($vista['para']) ?></span></div>
     <p class="mb-3 m-0"><strong>Asunto:</strong> <?= e($vista['asunto']) ?></p>
     <div class="correo-vista">
-        <?= $vista['html'] ?>
+        <?php // El correo va en un iframe con sandbox vacío: sin scripts y con un origen propio. Así ni su ?>
+        <?php // estilo (la media query con .btn y .px) se mezcla con la pantalla, ni lo que traiga una ?>
+        <?php // plantilla vieja puede correr con la sesión del CRM. ?>
+        <iframe class="correo-marco" title="Vista previa del correo" sandbox="" loading="lazy"
+                srcdoc="<?= e($vista['html']) ?>"></iframe>
     </div>
 </div>
 <?php endif; ?>

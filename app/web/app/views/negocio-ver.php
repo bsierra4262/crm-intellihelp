@@ -1,4 +1,18 @@
 <?php
+// ============================================================
+//  Vista de la ficha de un negocio.
+//
+//  La dibuja pages/negocio-ver.php. Recibe:
+//    $n            el negocio con los nombres de etapa, embudo, cuenta,
+//                  contacto, propietario y campaña (negocio_get)
+//    $etapas       las etapas activas del embudo del negocio, más la actual
+//                  aunque esté desactivada ('inactiva')
+//    $historial    tramos de negocio_etapas, del más viejo al más nuevo
+//    $notas, $actividades, $linea  para los paneles de la derecha
+//
+//  Los colores de etapa se pegan en atributos style; se escapan con e() y,
+//  además, pages/embudos.php sólo acepta colores #rrggbb.
+// ============================================================
 /** @var array $n @var array $etapas @var array $historial @var array $notas
  *  @var array $actividades @var array $linea */
 ?>
@@ -44,16 +58,18 @@
 
 <div class="card mb-4">
     <div class="card-head"><h2>Mover de etapa</h2></div>
+    <?php // Postea a negocio-etapa. La etapa actual siempre está en la lista y queda marcada: «Mover» sin elegir otra no cambia nada. ?>
     <form method="post" action="<?= e(url('negocio-etapa')) ?>" class="urow">
         <?= csrf_field() ?>
         <input type="hidden" name="id" value="<?= (int)$n['id'] ?>">
         <select name="etapa_id" class="w-lg">
             <?php foreach ($etapas as $et): ?>
                 <option value="<?= (int)$et['id'] ?>" <?= (int)$n['etapa_id'] === (int)$et['id'] ? 'selected' : '' ?>>
-                    <?= e($et['nombre']) ?> (<?= (int)$et['probabilidad'] ?> %)
+                    <?= e($et['nombre']) ?> (<?= (int)$et['probabilidad'] ?> %)<?= !empty($et['inactiva']) ? ' · desactivada' : '' ?>
                 </option>
             <?php endforeach; ?>
         </select>
+        <?php // El motivo se guarda sólo al mover a una etapa perdida (vacío, se conserva el que había); a cualquier otra etapa se borra. ?>
         <input name="motivo_perdida" placeholder="Motivo (si se pierde)" maxlength="200" class="w-lg">
         <button class="btn btn-primary btn-sm"><?= icon('convertir', 15) ?>Mover</button>
     </form>
@@ -88,6 +104,7 @@
                 <p class="muted small">Sin movimientos de etapa.</p>
             <?php else: ?>
                 <div class="timeline">
+                    <?php // Del tramo más nuevo al más viejo. Los días se calculan con la hora del servidor de PHP contra las fechas que puso MySQL (NOW()). ?>
                     <?php foreach (array_reverse($historial) as $h):
                         $dias = $h['hasta']
                             ? round((strtotime((string)$h['hasta']) - strtotime((string)$h['desde'])) / 86400, 1)
@@ -106,6 +123,7 @@
 
     <div class="col-stack">
 
+<?php // Los parciales leen variables sueltas: _etiquetas.php $etqEntidad/$etqId, _adjuntos.php $adjEntidad/$adjId, _notas.php $notas y _actividades_panel.php $actividades. ?>
 <?php $etqEntidad = 'negocio'; $etqId = (int)$n['id'];
       include APP . '/views/_etiquetas.php'; ?>
         <?php $adjEntidad = 'negocio'; $adjId = (int)$n['id'];

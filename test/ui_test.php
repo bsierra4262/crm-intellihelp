@@ -8,13 +8,33 @@ declare(strict_types=1);
 //  concretos que ya aparecieron una vez. No prueba lógica: prueba que la
 //  interfaz siga cumpliendo las reglas del proyecto.
 //
-//  Uso:  php test/ui_test.php
+//  Cómo trabaja: NO ejecuta nada. Lee como texto app.css, los .js de
+//  assets/js, las vistas de app/views, varios módulos de app/ y páginas de
+//  app/pages, más cron.php, reinicio.php, migrar.php y las migraciones de
+//  app/db (las busca al lado de app/web/, como en el repositorio, o adentro
+//  del webroot, como queda desplegado), y comprueba con str_contains y
+//  expresiones regulares que cada arreglo siga en su lugar. Por eso es
+//  frágil a propósito: un cambio de redacción en el código fuente (otro
+//  nombre de variable, otra comilla) puede hacer fallar una comprobación
+//  aunque el comportamiento siga bien; en ese caso se ajusta la búsqueda.
+//
+//  Contra qué base: ninguna. No toca la base ni la red.
+//
+//  Uso:  php test/ui_test.php                         (desde el repo)
 //        CRM_SRC=/ruta/al/app/web php test/ui_test.php
+//  OJO: acá CRM_SRC apunta a la carpeta web (la que tiene index.php y
+//  assets/), no a web/app como en run_tests.php. En el servidor lo corre
+//  `python bin/deploy.py test` con CRM_SRC=<webroot>.
+//  No necesita extensiones especiales. Salida: 0 todo bien, 1 alguna falla
+//  (también 1 si no encuentra app.css).
 // ============================================================
 
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
 
+// ---- Fuentes que se revisan ----
+// $CSS y $JS: hoja de estilos y script principal. $html: todas las vistas
+// concatenadas, cada una precedida por su nombre. $layout: el marco común.
 $WEB = getenv('CRM_SRC') ?: (__DIR__ . '/../app/web');
 $CSS = @file_get_contents($WEB . '/assets/css/app.css');
 $JS  = @file_get_contents($WEB . '/assets/js/app.js');
@@ -30,7 +50,12 @@ foreach ($vistas as $v) {
 }
 $layout = (string) @file_get_contents($WEB . '/app/views/layout.php');
 
+// Contadores globales: $T total, $F fallidas, $fallos nombres para el resumen.
 $T = 0; $F = 0; $fallos = [];
+/**
+ * Registra una comprobación e imprime [OK] o [XX]; si falla, imprime al lado
+ * el $detalle (qué se encontró o por qué importa).
+ */
 function ok(string $nombre, bool $cond, string $detalle = ''): void {
     global $T, $F, $fallos;
     $T++;
@@ -38,7 +63,13 @@ function ok(string $nombre, bool $cond, string $detalle = ''): void {
     else { $F++; $fallos[] = $nombre; echo "  [XX] $nombre" . ($detalle !== '' ? "  $detalle" : '') . "\n"; }
 }
 
-/** Extrae el cuerpo de una regla CSS por selector exacto. */
+/**
+ * Extrae el cuerpo de una regla CSS por selector exacto.
+ *
+ * Sólo encuentra el selector cuando está al principio de la regla o después
+ * de una coma o una llave; si aparece varias veces, junta todos los cuerpos.
+ * Devuelve '' si no existe. No entiende @media: busca en toda la hoja.
+ */
 function regla(string $css, string $selector): string
 {
     $out = '';
@@ -47,6 +78,20 @@ function regla(string $css, string $selector): string
         $out = implode(' ', $m[2]);
     }
     return $out;
+}
+
+/**
+ * true si $antes y $despues aparecen los dos en $src y $antes va primero.
+ *
+ * Reemplaza a `strpos(A) < strpos(B)`: si A no estaba, strpos da false y
+ * «false < número» es true en PHP, así que la comprobación pasaba aunque
+ * se hubiera borrado justamente la llamada que se quería vigilar.
+ */
+function en_orden(string $src, string $antes, string $despues): bool
+{
+    $a = strpos($src, $antes);
+    $b = strpos($src, $despues);
+    return $a !== false && $b !== false && $a < $b;
 }
 
 echo "== Tarjetas de estadística (regresión: rótulo y número en una línea) ==\n";
@@ -108,8 +153,21 @@ $archivosSueltos = preg_match_all('/<input[^>]*type=["\']file["\'][^>]*>/i', $ht
 $dentroDeCampo   = preg_match_all('/class="[^"]*\bfilefield\b[^"]*"[\s\S]{0,200}?type=["\']file["\']/i', $html);
 ok('todo campo de archivo usa el componente propio', $archivosSueltos === $dentroDeCampo,
    "→ $archivosSueltos campos, $dentroDeCampo con componente");
-ok('los on/off usan el toggle propio', !preg_match('/type=["\']checkbox["\'][^>]*>(?![\s\S]{0,80}class="track")/', $html)
-   || substr_count($html, 'class="track"') > 0);
+// Cada checkbox se mira por separado: o es de selección (marcar filas, el
+// consentimiento de la agenda pública), o lleva su <span class="track"> antes
+// del próximo <input>. Antes alcanzaba con un solo class="track" en cualquier
+// vista para que la comprobación pasara.
+$crudos = [];
+preg_match_all('/<input\b[^<]*?type=["\']checkbox["\']/i', $html, $mcb, PREG_OFFSET_CAPTURE);
+foreach ($mcb[0] as [$tag, $pos]) {
+    $resto = substr($html, $pos, 400);
+    if (preg_match('/^[^>]*(data-marcar-todo|name="ids\[\]"|name="acepto")/', $resto)) { continue; }
+    $sig = strpos($resto, '<input', 6);
+    if (str_contains($sig === false ? $resto : substr($resto, 0, $sig), 'class="track"')) { continue; }
+    $crudos[] = trim(substr($resto, 0, 70));
+}
+ok('los on/off usan el toggle propio', $crudos === [] && $mcb[0] !== [],
+   '→ ' . count($crudos) . ' crudos: ' . implode(' | ', array_slice($crudos, 0, 3)));
 ok('no hay estilos en línea en selects ni fechas',
    !preg_match('/<(select|input[^>]*type=["\'](date|month|time)["\'])[^>]*\sstyle=/i', $html));
 
@@ -118,14 +176,14 @@ echo "== El atributo hidden ==\n";
 // veía siempre, ofreciendo aprobar «0 marcadas». Un elemento marcado como
 // escondido tiene que estar escondido, lo diga quien lo diga.
 ok('hidden gana sobre cualquier display', str_contains($CSS, '[hidden]{display:none!important}'));
-$conDisplay = [];
+// Con la regla general alcanza: ninguna clase vuelve a escribir su propio
+// «[hidden]» (el parche viejo era .alertas-n[hidden]).
+$parches = [];
 foreach (['.barra-sel', '.alertas-n', '.avisos'] as $sel) {
-    $r = regla($CSS, $sel);
-    if ($r !== '' && !str_contains($r, 'display')) { continue; }
-    $conDisplay[] = $sel;
+    if (str_contains($CSS, $sel . '[hidden]')) { $parches[] = $sel . '[hidden]'; }
 }
 ok('y las clases que declaran display no necesitan su propio parche',
-   !str_contains($CSS, '.alertas-n[hidden]'), '→ ' . implode(', ', $conDisplay));
+   $parches === [], '→ ' . implode(', ', $parches));
 
 echo "== Badges siempre con variante ==\n";
 // Un `.badge` pelado sale transparente: siempre lleva su variante.
@@ -157,17 +215,13 @@ ok('los formularios bajan a una columna en el celular',
    preg_match('/@media \(max-width:520px\)[\s\S]{0,400}grid-fields\{grid-template-columns:1fr/', $CSS) === 1);
 
 echo "== Coherencia visual ==\n";
-foreach ($vistas as $v) {
-    $c = (string) file_get_contents($v);
-    $base = basename($v);
-    if (str_starts_with($base, '_') || in_array($base, ['layout.php', 'error.php'], true)) { continue; }
-}
-$hex = preg_match_all('/(?<![\w#-])#[0-9a-fA-F]{3,6}\b/', $CSS);
 ok('la hoja de estilos define su paleta en :root', str_contains($CSS, ':root{'));
 ok('los listados usan la misma estructura de encabezado',
    substr_count($html, 'class="page-head"') >= 8);
 ok('los filtros usan la misma estructura', substr_count($html, 'class="filters card"') >= 6);
 
+// ASSETS_V se calcula en bootstrap.php con filemtime de los assets; así
+// el navegador baja la hoja nueva en cuanto cambia.
 echo "== Cache-busting ==\n";
 ok('los assets van versionados', str_contains($layout, 'ASSETS_V'));
 // La versión de los assets sale de la fecha de los archivos: un número a mano
@@ -176,8 +230,8 @@ $bootAssets = (string) @file_get_contents($WEB . '/app/bootstrap.php');
 ok('la versión sale sola de los archivos, no de un número a mano',
    str_contains($bootAssets, 'filemtime') && preg_match("/define\('ASSETS_V',\s*'\d+'\)/", $bootAssets) !== 1,
    '→ un paso manual que hay que recordar se olvida');
-ok('la hoja de estilos entra en el cálculo', str_contains($bootAssets, 'css/app.css'));
-ok('el aviso de sesión entra en el cálculo', str_contains($bootAssets, 'js/idle.js'));
+ok('la hoja de estilos entra en el cálculo', str_contains($bootAssets, "css/*.css"));
+ok('todos los scripts entran en el cálculo (no una lista fija)', str_contains($bootAssets, "js/*.js"));
 
 // ============================================================
 //  Estilos en línea y clases del sistema de diseño
@@ -275,6 +329,8 @@ ok('el login explica por qué se cerró', str_contains($entrar, 'inactividad'));
 //  Regresiones
 //  Cada una es un defecto que estuvo de verdad en el código.
 // ============================================================
+// Fuentes de los módulos que revisan los grupos siguientes. cron.php vive en
+// app/ en el repo y dentro del webroot al desplegar: se prueban las dos.
 $campanas  = (string) @file_get_contents($WEB . '/app/campanas.php');
 $bloques   = (string) @file_get_contents($WEB . '/app/bloques.php');
 $agendaPhp = (string) @file_get_contents($WEB . '/app/agenda.php');
@@ -322,11 +378,13 @@ ok('la baja de campañas sólo se toca si viene en los datos',
 ok('la importación ya no manda esa clave', !preg_match("/'no_email'\s*=>\s*0/", $importa));
 // El puntero de la casilla avanzaba antes de leer: un rebote ilegible se daba
 // por procesado y no se volvía a mirar nunca.
+// La marca avanza mensaje por mensaje, y sólo después de ver que se pudo leer.
 ok('el lector de la casilla no da por leído lo que no pudo leer',
-   strpos($imapPhp, "\$maxUid = max(\$maxUid, \$uid);") > strpos($imapPhp, "if (!\$h['ok'])"));
+   en_orden($imapPhp, "if (!empty(\$p['reintentar']))", "imap_guardar_uid(\$etiquetaBuzon, \$uid);"));
 // Dos corridas solapadas mandaban el mismo correo dos veces.
-ok('el cron no se pisa consigo mismo', str_contains($cronPhp, "GET_LOCK('crm_cron'"));
-ok('y suelta el bloqueo al terminar', str_contains($cronPhp, "RELEASE_LOCK('crm_cron'"));
+// El nombre lleva la base adelante: producción y pruebas comparten servidor.
+ok('el cron no se pisa consigo mismo', str_contains($cronPhp, "GET_LOCK(CONCAT(DATABASE(), ':cron'), 0)"));
+ok('y suelta el bloqueo al terminar', str_contains($cronPhp, "RELEASE_LOCK(CONCAT(DATABASE(), ':cron'))"));
 
 echo "== Lo que la pantalla promete, se puede hacer ==\n";
 // La pantalla de baja promete el alta de nuevo y no había forma de darla.
@@ -401,6 +459,8 @@ ok('los archivos no quedan dentro del sitio',
    str_contains($reg, "rtrim(STORAGE, '/') . '/adjuntos'"),
    '→ dentro del web root cualquiera los bajaría sin sesión');
 
+// Teléfonos: formato al mostrar, pattern en el navegador y validación en el
+// servidor.
 echo "== Datos y formatos ==\n";
 ok('los teléfonos se muestran legibles', str_contains($hlp, 'function telefono_formato'));
 $vistas2 = '';
@@ -419,6 +479,9 @@ ok('y los listados lo usan', substr_count($vistas2, 'telefono_formato(') >= 4);
 // (El ejemplo no se escribe acá: la marca de cierre de PHP dentro de un
 // comentario de una línea saca al intérprete del modo código, y a partir de
 // ahí el archivo se imprime como texto en vez de ejecutarse. Pasó.)
+// Recorre cada <input ...> respetando los bloques PHP de adentro: $prof
+// cuenta cuántos bloques están abiertos y sólo un «>» fuera de ellos cierra
+// la etiqueta.
 $telSinPatron = 0;
 foreach (glob($WEB . '/app/views/*.php') ?: [] as $arch) {
     $src = (string) file_get_contents($arch);
@@ -610,8 +673,12 @@ ok('el .htaccess no fija la configuración de una instalación',
    !preg_match('/^\s*SetEnv\s+CRM_CONFIG/mi', $hta),
    'el mismo archivo va en las dos: fijarla ahí conecta pruebas a la base real');
 ok('ni el almacenamiento', !preg_match('/^\s*SetEnv\s+CRM_STORAGE/mi', $hta));
+// La carpeta crm_config/ ya no lleva escrito el usuario del hosting: sale de
+// la ruta de la instalación (o de CRM_CONFIG_DIR).
 ok('la busca el arranque, por el nombre de la carpeta',
-   str_contains($bootAssets, "'/home/u566451014/crm_config/' . \$carpeta . '.php'"));
+   str_contains($bootAssets, "\$d . '/' . \$carpeta . '.php'")
+   && str_contains($bootAssets, "'#^(/home/[^/]+)/#'")
+   && !str_contains($bootAssets, 'u566451014'));
 // Mandar todo a /crm sacaría a pruebas de su propia instalación en el medio
 // del ingreso con Google, que es como se descubrió.
 ok('la redirección a la dirección oficial no arrastra a la de pruebas',
@@ -702,11 +769,11 @@ ok('el aviso se borra solo si la cuenta se reconectó después de la falla',
    && str_contains($gcalSrc, "str_contains(mb_strtolower((string)(\$d['mensaje'] ?? '')), 'no tiene su cuenta')"));
 ok('y al reconectar se borra en el acto, sin esperar a nada',
    str_contains((string) @file_get_contents($WEB . '/app/pages/google-callback.php'),
-                'gcal_recordar_falla((int)$usuario[\'id\'], 0, \'\')'));
+                'gcal_limpiar_falla((int)$usuario[\'id\'])'));
 // Que se limpie sola no puede convertirse en tapar un problema real: sólo
 // aplica a la falla por cuenta desconectada, no a la API apagada.
 ok('sólo se limpia ese caso, no cualquier falla',
-   preg_match("/no tiene su cuenta.*?setting_set\('gcal_falla', ''\)/s", $gcalSrc) === 1);
+   preg_match("/no tiene su cuenta.*?setting_set\(\(string\)\\\$d\['clave'\], ''\)/s", $gcalSrc) === 1);
 
 echo "== Los campos se ven como campos en TODAS las pantallas ==\n";
 // Las reglas arrancaban en `.fld`, `.filters` o `.urow`, así que un campo puesto
@@ -842,7 +909,7 @@ $msg     = (string) @file_get_contents($WEB . '/app/mensajes.php');
 $imapSrc = (string) @file_get_contents($WEB . '/app/imap.php');
 ok('el correo que entra se guarda entero, no sólo la marca de que respondió',
    $msg !== '' && str_contains($msg, 'function mensaje_entrante(')
-   && str_contains($imapSrc, 'mensaje_entrante(['));
+   && str_contains($imapSrc, 'mensaje_entrante($d)'));
 ok('se puede contestar desde adentro', str_contains($msg, 'function mensaje_responder('));
 ok('la respuesta sale por la misma casilla que recibió el original',
    str_contains($msg, 'cuenta_correo_id'), 'contestar desde otra dirección rompe el hilo y la siguiente respuesta ya no se detecta');
@@ -905,9 +972,11 @@ echo "== Lo que pasa mientras la campaña manda se ve mientras pasa ==\n";
 // aparecía junto mucho después, cuando ya no sirve para reaccionar.
 // En el repositorio cron.php vive al lado de `web/`; desplegado queda adentro
 // del propio webroot. Se buscan los dos, si no la comprobación pasa en vacío.
+// La comprobación de orden usa en_orden(), que exige que las dos llamadas
+// estén (con strpos a secas, borrar imap_quizas_revisar del cron pasaba).
 ok('se encontró el archivo del cron para poder revisarlo', $cronPhp !== '');
 ok('el cron lee la casilla ANTES de ponerse a despachar',
-   $cronPhp !== '' && strpos($cronPhp, 'imap_quizas_revisar') < strpos($cronPhp, 'campanas_despachar'),
+   en_orden($cronPhp, 'imap_quizas_revisar', 'campanas_despachar'),
    'leyendo al final, los rebotes y las respuestas aparecen cuatro minutos tarde');
 ok('y la mira seguido cuando hay una campaña en curso',
    str_contains($cronPhp, "\$activas > 0 ? 60 : 900"));
@@ -952,8 +1021,9 @@ echo "== El avance mide lo resuelto, no sólo lo entregado ==\n";
 // Una campaña que entregó 3 y rebotó 3 terminó su trabajo con los 6: no queda
 // nada en la cola. Mostrar «3 de 6» hacía parecer que se había quedado a mitad
 // de camino. «Entregados» sigue siendo 3, que es lo que de verdad llegó.
+// El listado los cuenta en una sola consulta agrupada (campanas_cifras).
 ok('la consulta cuenta los resueltos',
-   str_contains($campanas, "e.estado NOT IN ('pendiente','enviando','omitido')) AS procesados"));
+   str_contains($campanas, "WHEN estado NOT IN ('pendiente','enviando','omitido') THEN 1 ELSE 0 END) AS procesados"));
 ok('la ficha también', substr_count($campanas, 'AS procesados') >= 2);
 $campF2 = (string) @file_get_contents($WEB . '/app/views/campanas.php');
 ok('el listado muestra el avance con los resueltos', str_contains($campF2, '$hechos'));
@@ -1013,7 +1083,8 @@ ok('el avance se actualiza después de cada correo',
 // guardadas: si el proceso se corta a mitad esas columnas quedan viejas y la
 // pantalla miente. La cola no puede mentir.
 ok('el listado cuenta sobre la cola, no sobre un contador guardado',
-   str_contains($campanas, "AND e.estado = 'enviado') AS enviados"));
+   str_contains($campanas, "WHEN estado = 'enviado' THEN 1 ELSE 0 END) AS enviados")
+   && str_contains($campanas, 'FROM envios WHERE campana_id IN ($ph) GROUP BY campana_id'));
 ok('la ficha de la campaña también',
    str_contains($campanas, 'AND e.estado = "enviado") AS enviados'));
 // Con la cola vacía la campaña tiene que cerrarse en la misma corrida, no en la
@@ -1044,7 +1115,7 @@ ok('y los deja listos para volver a probar',
    str_contains($rein, 'eliminado_en = NULL, no_email = 0, email_rebotado = 0'));
 // Borrar la fila de la base no saca la reunión del calendario de Google.
 ok('el reinicio limpia también Google Calendar',
-   str_contains($rein, "'/calendars/primary/events/'") && str_contains($rein, 'sendUpdates=none'),
+   str_contains($rein, "gcal_borrar_evento((int)\$r['usuario_id'], (string)\$r['gcal_event_id'], 'primary', 'none')"),
    '→ si no, quedan reuniones fantasma avisando de algo que ya no existe');
 
 echo "== Hora del sistema ==\n";
@@ -1143,6 +1214,9 @@ ok('y el tablero cuenta con la misma regla',
    '→ si el tablero contara distinto, el número del panel y el del filtro no coincidirían');
 
 
+// ---- Integración con la web (API v1) y agenda pública ----
+// Comprobaciones estáticas de lo pedido en md/INTEGRACION-WEB.md; los §4 #N
+// remiten a los puntos de esa sección. Lo dinámico lo prueba api_test.php.
 echo "== Entradas desde la web y agenda (md/INTEGRACION-WEB.md) ==\n";
 $leer = static fn(string $rel): string => (string) @file_get_contents($WEB . '/' . $rel);
 /** El cuerpo de una función de PHP, hasta la llave que la cierra en la columna 0. */
@@ -1186,12 +1260,13 @@ ok('el permiso «Escritura (web)» se puede elegir al crear una clave',
 ok('el secreto se guarda cifrado y sale de random_bytes',
    str_contains($leer('app/pages/api-keys.php'), 'cifrar($secreto)') && str_contains($leer('app/pages/api-keys.php'), 'random_bytes(32)'));
 
+// Las comprobaciones de orden dentro de $cuerpoFn usan en_orden(): exigen
+// que las dos llamadas estén, no sólo que una vaya antes que la otra.
 // Agenda (§4).
 ok('el calendario del vendedor se bloquea con el nombre de la base (§4 #2)',
    str_contains($agendaSrc, "GET_LOCK(CONCAT(DATABASE(), ':agenda:', ?)"));
 ok('reservar valida el hueco con el calendario bloqueado (§4 #1)',
-   str_contains($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_hueco_libre(')
-   && strpos($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_bloquear(') < strpos($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_hueco_libre('));
+   en_orden($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_bloquear(', 'agenda_hueco_libre('));
 ok('la reunión guarda la empresa (§4 #7)', str_contains($cuerpoFn($agendaSrc, 'agenda_reservar'), "'cuenta_id'      => \$cuentaId"));
 $completar = $cuerpoFn($agendaSrc, 'agenda_reserva_completar');
 ok('el evento de Google NO lleva el comentario del cliente (§4 #5)',
@@ -1229,9 +1304,19 @@ foreach (['agenda-mover.php', 'entradas-web.php', 'agenda-publica.php', 'agenda-
 }
 
 // Migración y reinicio.
-$mig = (string) @file_get_contents(dirname($WEB) . '/db/migracion-008-entradas-web.sql');
-if ($mig !== '') {
-    ok('la migración 008 es repetible', substr_count($mig, 'IF NOT EXISTS') >= 10 && str_contains($mig, 'ON DUPLICATE KEY UPDATE'));
+// Las migraciones viven en app/db, al lado de app/web: en el repo están, pero
+// `deploy.py app` no sube esa carpeta, así que en el servidor no hay nada que
+// leer. Si la carpeta está, el archivo TIENE que estar (que falte es una
+// falla); si la carpeta no está, se avisa que se saltean en vez de darlas
+// por buenas en silencio.
+$dirDb = is_dir(dirname($WEB) . '/db') ? dirname($WEB) . '/db' : (is_dir($WEB . '/db') ? $WEB . '/db' : '');
+if ($dirDb === '') {
+    echo "  (migraciones 008 y 009 salteadas: este despliegue no tiene la carpeta db/)\n";
+}
+$mig = $dirDb !== '' ? (string) @file_get_contents($dirDb . '/migracion-008-entradas-web.sql') : '';
+if ($dirDb !== '') {
+    ok('la migración 008 es repetible', substr_count($mig, 'IF NOT EXISTS') >= 10 && str_contains($mig, 'ON DUPLICATE KEY UPDATE'),
+       $mig === '' ? '→ no se encontró migracion-008-entradas-web.sql' : '');
 }
 $migrar = (string) @file_get_contents(dirname($WEB) . '/migrar.php') . (string) @file_get_contents($WEB . '/migrar.php');
 ok('migrar.php no corre por HTTP', str_contains($migrar, "PHP_SAPI !== 'cli'") && str_contains($migrar, 'http_response_code(404)'));
@@ -1239,6 +1324,7 @@ $reinicio = (string) @file_get_contents(dirname($WEB) . '/reinicio.php') . (stri
 ok('el reinicio vacía las entradas de la web y los contadores',
    str_contains($reinicio, "'entradas_web'") && str_contains($reinicio, "'api_limites'"));
 ok('y siembra el tipo «diagnostico» que usa la landing', str_contains($reinicio, "'slug'         => 'diagnostico'"));
+// ---- Feriados (feriados.php, migración 009, pantalla y cron) ----
 echo "== Feriados en la agenda ==\n";
 $feriadosSrc = $leer('app/feriados.php');
 $cronSrc     = (string) @file_get_contents(dirname($WEB) . '/cron.php') . (string) @file_get_contents($WEB . '/cron.php');
@@ -1248,11 +1334,11 @@ ok('está en el menú «Más» y se apaga con el módulo Agenda',
    str_contains($layout, "'feriados'") && str_contains($leer('app/modulos.php'), "'google-desconectar', 'feriados'"));
 ok('y tiene su controlador y su vista', is_file($WEB . '/app/pages/feriados.php') && is_file($WEB . '/app/views/feriados.php'));
 ok('el cálculo de horarios saca los feriados antes de consultar a Google',
-   strpos($cuerpoFn($agendaSrc, 'agenda_huecos_rango'), 'feriados_del_rango(') < strpos($cuerpoFn($agendaSrc, 'agenda_huecos_rango'), 'gcal_ocupado('));
+   en_orden($cuerpoFn($agendaSrc, 'agenda_huecos_rango'), 'feriados_del_rango(', 'gcal_ocupado('));
 ok('la verificación final de un horario rechaza los feriados', str_contains($cuerpoFn($agendaSrc, 'agenda_hueco_libre'), "'feriado'"));
 ok('reservar en un feriado se rechaza por cualquier camino (antes de bloquear el calendario)',
-   strpos($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_feriado_de_inicio(') < strpos($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_bloquear('));
-ok('mover una reunión a un feriado también', str_contains($cuerpoFn($agendaSrc, 'agenda_reprogramar'), 'agenda_feriado_de_inicio('));
+   en_orden($cuerpoFn($agendaSrc, 'agenda_reservar'), 'agenda_feriado_de_inicio(', 'agenda_bloquear('));
+ok('mover una reunión a un feriado también', str_contains($cuerpoFn($agendaSrc, 'agenda_reprogramar_reserva'), 'agenda_feriado_de_inicio('));
 ok('la API de reserva responde 409 «feriado» con la fecha y el nombre',
    str_contains($leer('app/pages/api/v1/reserva.php'), "'feriado'                            => [409, 'feriado']")
    && str_contains($leer('app/pages/api/v1/reserva.php'), '+ $e->datos'));
@@ -1262,9 +1348,30 @@ ok('la fuente tiene un tiempo de espera', str_contains($cuerpoFn($feriadosSrc, '
 ok('un calendario incompleto no borra nada', str_contains($cuerpoFn($feriadosSrc, 'feriados_sincronizar'), 'FERIADOS_MINIMO_ANIO'));
 ok('el cron sincroniza los feriados una vez por día', str_contains($cronSrc, 'feriados_asegurar(true)'));
 ok('las reuniones agendadas en un feriado se marcan en la lista', str_contains($leer('app/views/reservas.php'), '>Feriado</span>'));
-ok('la migración 009 crea la tabla y los ajustes',
-   str_contains((string) @file_get_contents(dirname($WEB) . '/db/migracion-009-feriados.sql'), 'CREATE TABLE IF NOT EXISTS `feriados`')
-   || !is_dir(dirname($WEB) . '/db'));
+// Sólo si hay carpeta db/ (ver la migración 008 más arriba).
+if ($dirDb !== '') {
+    ok('la migración 009 crea la tabla y los ajustes',
+       str_contains((string) @file_get_contents($dirDb . '/migracion-009-feriados.sql'), 'CREATE TABLE IF NOT EXISTS `feriados`'));
+}
+// ---- Permisos y CSRF (lo trivial de comprobar sin ejecutar) ----
+echo "== Permisos y token de seguridad ==\n";
+ok('index.php consulta los módulos antes de cada controlador', str_contains($indexSrc, 'ruta_habilitada($rutaBase)'));
+ok('el token se compara en tiempo constante', str_contains($cuerpoFn($leer('app/helpers.php'), 'verify_csrf'), 'hash_equals('));
+// Toda pantalla con sesión que procesa un POST verifica el token. Las
+// públicas (baja de campañas, enlaces cortos, agenda pública) no tienen
+// sesión y se protegen de otra forma; la API firma sus pedidos.
+$sinCsrf = [];
+foreach (glob($WEB . '/app/pages/*.php') ?: [] as $pg) {
+    if (in_array(basename($pg), ['baja.php', 'r.php', 'reservar.php'], true)) { continue; }
+    $src = (string) file_get_contents($pg);
+    if (preg_match('/REQUEST_METHOD|is_post\(\)|\$_POST/', $src) && !str_contains($src, 'verify_csrf(')) {
+        $sinCsrf[] = basename($pg);
+    }
+}
+ok('toda pantalla con sesión que recibe un POST verifica el token', $sinCsrf === [],
+   '→ ' . implode(', ', $sinCsrf));
+
+// ---- Resumen y código de salida (0 = todo bien, 1 = alguna falla) ----
 echo "\n" . str_repeat('=', 60) . "\n";
 printf("  %d comprobaciones de interfaz · %d correctas · %d fallidas\n", $T, $T - $F, $F);
 if ($fallos) {

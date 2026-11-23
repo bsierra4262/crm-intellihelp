@@ -4,6 +4,17 @@
 --
 --  Es idempotente: se puede correr varias veces sin romper nada.
 --    mysql -u USUARIO -p BASE < app/db/migracion-002-campanas.sql
+--  o, en el servidor, con la config de cada instalacion:
+--    python bin/deploy.py migrar app/db/migracion-002-campanas.sql --pruebas|--produccion
+--
+--  schema.sql ya incluye esto: una instalacion nueva no
+--  necesita correrla (si se corre igual, no cambia nada).
+--  Es la unica migracion que agrega columnas consultando information_schema
+--  y armando el ALTER con PREPARE (funciona en MySQL y en MariaDB); de la 005
+--  en adelante se usa ADD COLUMN IF NOT EXISTS, que es solo de MariaDB.
+--
+--  Ninguna de las columnas nuevas que apuntan a otra tabla (categoria_id,
+--  cuenta_correo_id) tiene clave foranea; los indices los agrega la 018.
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -14,6 +25,16 @@ SET NAMES utf8mb4;
 --  Antes habia UNA sola cuenta en los ajustes. Con varias se pueden
 --  correr campanas en paralelo (una por vendedor, o una por rubro) sin
 --  que se pisen el limite diario ni la reputacion entre ellas.
+--
+--  La escribe la pantalla de Casillas (cuentas_correo.php); la leen el
+--  despachador (para mandar) y el lector IMAP (para leer rebotes y
+--  respuestas). `smtp_pass`/`imap_pass` son las contrasenas «de aplicacion»
+--  de Google, guardadas cifradas con el secreto de la instalacion (cifrar()),
+--  y no se pueden volver a leer de ningun lado: por eso app/reinicio.php
+--  conserva esta tabla.
+--  `ultimo_error`/`verificada_en` los deja la prueba de conexion.
+--  `imap_ultimo_uid` quedo sin uso: la marca de lectura vive en
+--  `imap_estado`.
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `cuentas_correo` (
   `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -44,6 +65,9 @@ CREATE TABLE IF NOT EXISTS `cuentas_correo` (
   `actualizado_en` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `eliminado_en`   DATETIME     DEFAULT NULL,
   PRIMARY KEY (`id`),
+  -- Una casilla por direccion. Ojo con el borrado logico: una casilla
+  -- «eliminada» sigue ocupando su direccion y no se puede volver a crear
+  -- otra con la misma hasta que se borre la fila.
   UNIQUE KEY `uq_cuenta_remitente` (`remitente`),
   KEY `ix_cc_activo` (`activo`, `eliminado_en`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -53,6 +77,9 @@ CREATE TABLE IF NOT EXISTS `cuentas_correo` (
 --
 --  Para separar por rubro (RRHH, petroleras, bancos...) y poder armar
 --  campanas distintas sobre segmentos distintos.
+--
+--  No hay pantalla para crearlas: salen de este INSERT. Por eso
+--  app/reinicio.php conserva la tabla.
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `categorias` (
   `id`     INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -77,6 +104,12 @@ ON DUPLICATE KEY UPDATE `color` = VALUES(`color`);
 -- ------------------------------------------------------------
 --  3. Columnas nuevas
 --  (se agregan sólo si faltan: el bloque de abajo lo resuelve)
+--
+--  Cada bloque cuenta en information_schema si la columna ya existe y arma en
+--  @sql el ALTER o un 'SELECT 1' inofensivo; PREPARE/EXECUTE lo corre. Asi la
+--  migracion se puede repetir sin el error de «columna duplicada».
+--  app/migrar.php corre cada sentencia por separado en la misma conexion, asi
+--  que @sql y el PREPARE sobreviven de una sentencia a la siguiente.
 -- ------------------------------------------------------------
 
 -- listas.categoria_id
@@ -138,6 +171,9 @@ PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 --  Se guardan en el servidor y se sirven por URL publica: incrustarlas
 --  en el correo como adjunto engorda el mensaje y Gmail recorta a los
 --  102 KB de HTML.
+--
+--  `archivo` es el nombre con que se guardo en disco (unico); `nombre` es el
+--  original que subio la persona. La fila la crea la biblioteca de imagenes.
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `imagenes` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -155,6 +191,9 @@ CREATE TABLE IF NOT EXISTS `imagenes` (
 
 -- ------------------------------------------------------------
 --  5. Datos de la empresa para las plantillas
+--
+--  Los usan las variables y los bloques de contacto de las plantillas. El
+--  ON DUPLICATE KEY no pisa lo que ya se haya cargado en Ajustes.
 -- ------------------------------------------------------------
 INSERT INTO `app_settings` (`clave`, `valor`) VALUES
   ('empresa_nombre',   'INTELLIHELP'),

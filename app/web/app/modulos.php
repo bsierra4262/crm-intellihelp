@@ -16,10 +16,30 @@ declare(strict_types=1);
 //  El núcleo no se puede apagar. Sin Contactos, Empresas o Ajustes no queda
 //  sistema, y dejar la opción de apagarlos sólo sirve para que alguien se
 //  encierre afuera.
+//
+//  Dónde se usa:
+//    · index.php llama a ruta_habilitada() antes de cada controlador: una
+//      ruta de un módulo apagado responde 404 «todavía no está en marcha»;
+//    · layout.php esconde del menú lo que no está habilitado;
+//    · el panel y otras pantallas no consultan lo que está apagado.
+//  El estado de cada módulo es el ajuste `modulo_<clave>` ('1' encendido) de
+//  la tabla `app_settings`, que se cambia desde Ajustes → Qué está en marcha.
+//
+//  Al crear una pantalla nueva hay que decidir a qué módulo pertenece y
+//  agregar su ruta acá; si no figura en ningún módulo, queda en el núcleo y
+//  siempre habilitada.
+//
+//  Las rutas compartidas del núcleo (registro-eliminar, nota-guardar,
+//  etiquetas-guardar, adjunto, buscar) no están atadas a ningún módulo:
+//  controlan adentro el módulo del registro sobre el que actúan
+//  (entidad_habilitada() en registros.php, ruta_habilitada() en buscar).
 // ============================================================
 
 /**
  * Los módulos que se pueden encender y apagar.
+ *
+ * @return array<string,array{nombre:string,ayuda:string,rutas:string[]}>
+ *         clave del módulo => nombre y ayuda para Ajustes, y sus rutas
  *
  * Cada uno lista TODAS sus rutas, incluidas las hijas: si se apaga Campañas y
  * la ruta de Plantillas queda abierta, alcanza con escribir la dirección para
@@ -80,6 +100,10 @@ function modulos(): array
 /**
  * ¿Está en marcha este módulo?
  *
+ * Una clave que no está en modulos() se considera núcleo: siempre encendida.
+ * En producción, un módulo que nunca se configuró está apagado (valor por
+ * defecto '0').
+ *
  * En prueba está todo encendido siempre: es el lugar donde se termina lo que
  * falta, y tener que ir a habilitarlo para poder probarlo no tendría sentido.
  */
@@ -101,6 +125,8 @@ function modulo_de_ruta(string $ruta): ?string
 
 /**
  * ¿Se puede entrar a esta ruta?
+ *
+ * @param string $ruta la ruta base (la clave de $rutas en index.php)
  *
  * Se comprueba en el enrutador y no sólo escondiendo la solapa: esconder un
  * enlace no impide entrar escribiendo la dirección, y quien lo haga llegaría a

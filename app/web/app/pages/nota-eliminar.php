@@ -2,13 +2,23 @@
 declare(strict_types=1);
 require_login();
 
-// Borra una nota desde la ficha del registro (usa la función de registros.php).
+// ============================================================
+//  Ruta: POST /nota-eliminar (requiere sesión + CSRF).
+//
+//  Borra una nota desde la ficha del registro (usa la función de
+//  registros.php). Es un borrado lógico (eliminado_en): la nota deja de verse
+//  en la ficha y queda en la base y en la auditoría. Las notas no figuran en
+//  la papelera.
+//  Sólo el autor o un administrador pueden borrarla.
+//  Vuelve a la ficha del registro de la nota (no a la cabecera Referer, que
+//  la escribe el navegador).
+// ============================================================
 
 if (!is_post()) { redirect('dashboard'); }
 verify_csrf();
 
 $id = (int)($_POST['id'] ?? 0);
-$n  = $id ? q1('SELECT * FROM notas WHERE id = ?', [$id]) : null;
+$n  = $id ? q1('SELECT * FROM notas WHERE id = ? AND eliminado_en IS NULL', [$id]) : null;
 
 if (!$n) {
     flash('Esa nota ya no existe.', 'info');
@@ -20,6 +30,5 @@ if (!$n) {
     flash('Nota borrada.', 'success');
 }
 
-$volver = (string)($_SERVER['HTTP_REFERER'] ?? '');
-header('Location: ' . ($volver !== '' ? $volver : url('dashboard')));
+header('Location: ' . ($n ? url_registro((string)$n['entidad'], (int)$n['entidad_id']) : url('dashboard')));
 exit;

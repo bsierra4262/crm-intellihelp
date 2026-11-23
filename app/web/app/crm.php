@@ -4,6 +4,40 @@ declare(strict_types=1);
 // ============================================================
 //  Núcleo CRM: cuentas (empresas), contactos y posibles clientes.
 //  Acá vive la lógica; las páginas sólo orquestan y las vistas pintan.
+//
+//  Qué hay en este archivo, en el orden en que aparece:
+//    · listas de valores fijas (provincias, fuentes, estados, sectores…);
+//    · qué le falta a una ficha y la aprobación de fichas incompletas;
+//    · normalización de provincia, país, localidad y teléfono;
+//    · cuentas (empresas), contactos y posibles clientes: lectura, filtros,
+//      listado paginado y alta/edición;
+//    · la conversión de un posible cliente en cuenta + contacto (+ negocio);
+//    · borrado lógico y papelera;
+//    · las entradas desde la web (formulario y reservas que llegan por la
+//      API v1): empresa y contacto sin duplicar, límites de pedidos, la fila
+//      de `entradas_web` y la pantalla «Entradas desde la web».
+//
+//  Tablas que lee y escribe: cuentas, contactos, posibles_clientes, negocios,
+//  negocio_etapas, notas, actividades, adjuntos, entradas_web, api_limites,
+//  agenda_reservas, agenda_tipos, usuarios (y las de la papelera).
+//
+//  Depende de: db.php (q, q1, qv, last_id, db, setting_get), helpers.php
+//  (normalizar_email, email_valido, normalizar_cuit, paginar, token32),
+//  google.php (crm_secret), auth.php (current_user_id), actividad.php
+//  (log_app) y notificaciones.php (notificar). La sección web usa además
+//  nota_crear() de registros.php y actividad_guardar() de actividades.php.
+//  Lo carga bootstrap.php en todos los pedidos: es núcleo y no se apaga desde
+//  modulos.php.
+//
+//  Convenciones que se repiten en todo el archivo:
+//    · nada se borra de verdad: `eliminado_en` marca la papelera y todas las
+//      lecturas filtran `eliminado_en IS NULL`;
+//    · las funciones *_where() devuelven [cláusula WHERE, parámetros] y los
+//      valores del usuario van siempre como parámetros (?), nunca pegados;
+//    · las funciones *_guardar() reciben el array crudo del formulario (o de
+//      la importación), normalizan, y devuelven el id; con $id editan;
+//    · la intercalación de la base es utf8mb4_unicode_ci: `nombre = ?` ya no
+//      distingue mayúsculas ni acentos.
 // ============================================================
 
 // ------------------------------------------------------------
@@ -21,6 +55,7 @@ function provincias_ar(): array
     ];
 }
 
+/** Canales de origen de un contacto o posible cliente (campo `fuente`). */
 function fuentes(): array
 {
     return ['Campaña de correo', 'Sitio web', 'Referido de empleado', 'Referido externo',
@@ -28,17 +63,23 @@ function fuentes(): array
             'Base comprada', 'Otro'];
 }
 
+/** Estados de trabajo de un posible cliente, en el orden en que se ofrecen. */
 function estados_posible_cliente(): array
 {
     return ['Sin contactar', 'Contactado', 'Intentamos contactar', 'Contactar más adelante',
             'Precalificado', 'No calificado', 'Basura'];
 }
 
+/** Temperatura comercial de un posible cliente. */
 function calificaciones(): array
 {
     return ['Caliente', 'Tibio', 'Frío'];
 }
 
+/**
+ * Tipos de empresa. Salen de las claves de sectores_por_tipo() para que no
+ * pueda existir un tipo sin su lista de sectores.
+ */
 function tipos_cuenta(): array
 {
     return array_keys(sectores_por_tipo());
@@ -95,6 +136,8 @@ function contacto_falta(array $d): array
     if (trim((string)($d['nombre'] ?? ''))   === '') { $falta[] = 'nombre'; }
     if (trim((string)($d['apellido'] ?? '')) === '') { $falta[] = 'apellido'; }
     if (trim((string)($d['email'] ?? ''))    === '') { $falta[] = 'correo principal'; }
+    // La empresa se mira por id y no por nombre: un nombre escrito sin crear la
+    // cuenta no cuenta como empresa.
     if (empty($d['cuenta_id']))                      { $falta[] = 'empresa'; }
     return $falta;
 }
@@ -117,11 +160,15 @@ function contacto_falta(array $d): array
  */
 function aprobar_registros(string $tabla, array $ids, bool $aprobar = true): int
 {
+    // Lista blanca: el nombre de la tabla va pegado en el SQL (no se puede pasar
+    // como parámetro), así que sólo se aceptan estas dos.
     if (!in_array($tabla, ['contactos', 'cuentas'], true)) { return 0; }
     $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
     if (!$ids) { return 0; }
 
     $marcas = implode(',', array_fill(0, count($ids), '?'));
+    // Las condiciones sobre aprobado_en hacen que rowCount() cuente sólo las que
+    // cambiaron de verdad: aprobar una ya aprobada no suma.
     $n = $aprobar
         ? q("UPDATE `$tabla` SET aprobado_en = NOW(), aprobado_por = ?
              WHERE id IN ($marcas) AND eliminado_en IS NULL AND aprobado_en IS NULL",
@@ -151,6 +198,7 @@ function aprobar_registros(string $tabla, array $ids, bool $aprobar = true): int
  */
 function contar_pendientes(): array
 {
+    // Caché por pedido: la barra lateral puede pedirlo más de una vez.
     static $cache = null;
     if ($cache !== null) { return $cache; }
 
@@ -165,6 +213,18 @@ function contar_pendientes(): array
     ];
 }
 
+/**
+ * ¿Esta fila (contacto o empresa) sigue pendiente de aprobar? Le falta algo
+ * (`pendiente_norm`) y nadie la aprobó igual (`aprobado_en`). Es la misma
+ * regla del filtro «Pendientes de aprobar» y del contador de la barra: los
+ * listados la usan para que «Estado» no siga diciendo «Pendiente» después de
+ * «Aprobar las marcadas».
+ */
+function ficha_pendiente(array $r): bool
+{
+    return !empty($r['pendiente_norm']) && empty($r['aprobado_en']);
+}
+
 /** Lo mismo para una empresa: sin CUIT no se puede facturar. */
 function cuenta_falta(array $d): array
 {
@@ -176,11 +236,13 @@ function cuenta_falta(array $d): array
     return $falta;
 }
 
+/** Estados de una actividad (tarea, llamada, reunión). */
 function estados_actividad(): array
 {
     return ['No iniciada', 'En curso', 'Esperando a alguien', 'Aplazada', 'Completada'];
 }
 
+/** Prioridades de una actividad, de mayor a menor. */
 function prioridades(): array
 {
     return ['Muy alta', 'Alta', 'Normal', 'Baja', 'Muy baja'];
@@ -194,6 +256,8 @@ function prioridades(): array
 // ------------------------------------------------------------
 
 /** Quita acentos y pasa a minúsculas, para comparar sin sorpresas. */
+// Lista cerrada de caracteres y no iconv/Normalizer: no depende de que el
+// hosting tenga instalada la extensión intl ni del locale del servidor.
 function plano(string $s): string
 {
     $s = mb_strtolower(trim($s));
@@ -209,6 +273,8 @@ function normalizar_provincia(?string $v): ?string
     if ($v === '') { return null; }
     $p = plano($v);
     // Alias reales encontrados en la exportación de Zoho.
+    // La comparación es contra el texto plano (sin acentos, en minúsculas): por
+    // eso las claves del alias van así escritas.
     $alias = [
         'caba' => 'Ciudad de Buenos Aires', 'c.a.b.a.' => 'Ciudad de Buenos Aires',
         'capital federal' => 'Ciudad de Buenos Aires', 'ciudad autonoma de buenos aires' => 'Ciudad de Buenos Aires',
@@ -222,7 +288,12 @@ function normalizar_provincia(?string $v): ?string
     return $v;
 }
 
-/** Lleva un país a su forma canónica. Descarta la basura (URLs, textos sueltos). */
+/**
+ * Lleva un país a su forma canónica. Descarta la basura (URLs, textos sueltos).
+ *
+ * Lo que no está en el mapa se devuelve tal como vino (recortado de espacios):
+ * no se inventa un país, sólo se unifican las grafías conocidas.
+ */
 function normalizar_pais(?string $v): ?string
 {
     $v = trim((string)$v);
@@ -249,6 +320,8 @@ function normalizar_localidad(?string $v): ?string
 {
     $v = trim((string)$v);
     if ($v === '') { return null; }
+    // Más de 60 caracteres o dos comas ya es una dirección o una lista, no una
+    // localidad. Se pierde el dato a propósito: es basura conocida de Zoho.
     if (mb_strlen($v) > 60 || substr_count($v, ',') >= 2) { return null; }
     if (preg_match('#^https?://#i', $v)) { return null; }
     return $v;
@@ -289,6 +362,7 @@ function normalizar_telefono(?string $v): ?string
     $v = trim((string)$v);
     if ($v === '') { return null; }
     if (!telefono_valido($v)) { return null; }
+    // Recorte a 60: es el largo de las columnas de teléfono en la base.
     return mb_substr($v, 0, 60);
 }
 
@@ -296,6 +370,10 @@ function normalizar_telefono(?string $v): ?string
 //  Cuentas (empresas)
 // ------------------------------------------------------------
 
+/**
+ * Una cuenta viva con el nombre de su propietario. Null si no existe o está
+ * en la papelera.
+ */
 function cuenta_get(int $id): ?array
 {
     return q1('SELECT c.*, u.nombre AS propietario
@@ -303,7 +381,15 @@ function cuenta_get(int $id): ?array
                WHERE c.id = ? AND c.eliminado_en IS NULL', [$id]);
 }
 
-/** Busca una cuenta por nombre exacto (sin distinguir mayúsculas ni acentos). */
+/**
+ * Busca una cuenta por nombre exacto (sin distinguir mayúsculas ni acentos).
+ *
+ * Lo de mayúsculas y acentos lo resuelve la intercalación utf8mb4_unicode_ci
+ * de la columna, no el código. No unifica formas societarias ni espacios
+ * dobles: «ACME S.A.» y «Acme SA» son dos empresas distintas para esta
+ * función (para eso está empresa_clave(), que usan la entrada web y el
+ * importador antes de llamar a cuenta_asegurar()).
+ */
 function cuenta_por_nombre(string $nombre): ?array
 {
     $nombre = trim($nombre);
@@ -312,8 +398,45 @@ function cuenta_por_nombre(string $nombre): ?array
 }
 
 /**
+ * Otra empresa viva con el mismo nombre, escrito igual o de otra forma
+ * («ACME S.A.» y «Acme SA»: misma empresa_clave()). Null si no hay.
+ *
+ * Es el control del formulario de empresa. Igual que cuenta_asegurar_web(),
+ * para no traer las nueve mil empresas sólo se comparan las que empiezan con
+ * la primera palabra de la clave.
+ *
+ * @param int $exceptoId la empresa que se está editando (0 en un alta)
+ */
+function cuenta_repetida(string $nombre, int $exceptoId = 0): ?array
+{
+    $nombre = trim($nombre);
+    if ($nombre === '') { return null; }
+    $igual = q1('SELECT id, nombre FROM cuentas WHERE nombre = ? AND eliminado_en IS NULL AND id <> ? LIMIT 1',
+                [$nombre, $exceptoId]);
+    if ($igual) { return $igual; }
+    $clave = empresa_clave($nombre);
+    if ($clave === '') { return null; }
+    $primera = explode(' ', $clave)[0];
+    foreach (q('SELECT id, nombre FROM cuentas WHERE eliminado_en IS NULL AND id <> ? AND nombre LIKE ?
+                ORDER BY id LIMIT 200', [$exceptoId, like_literal($primera) . '%'])->fetchAll() as $c) {
+        if (empresa_clave((string)$c['nombre']) === $clave) { return $c; }
+    }
+    return null;
+}
+
+/**
  * Devuelve el id de la cuenta con ese nombre, creándola si no existe.
  * Es lo que evita que la importación duplique empresas.
+ *
+ * Si ya existe, sólo se completan los campos vacíos con lo que venga en $extra
+ * (nunca se pisa un dato cargado). Si no existe, se crea con pendiente_norm = 1.
+ *
+ * @param string   $nombre    nombre tal como se quiere la empresa
+ * @param array    $extra     sitio_web, telefono, calle, localidad, provincia,
+ *                            codigo_postal, pais, sector, zoho_id, propietario_id
+ * @param int|null $usuarioId quien figura como creador y, si $extra no trae
+ *                            propietario, como dueño; null = el usuario actual
+ * @return int|null id de la cuenta, o null si el nombre vino vacío
  */
 function cuenta_asegurar(string $nombre, array $extra = [], ?int $usuarioId = null): ?int
 {
@@ -324,6 +447,8 @@ function cuenta_asegurar(string $nombre, array $extra = [], ?int $usuarioId = nu
         // Completar los huecos sin pisar lo que ya está cargado.
         $sets = [];
         $vals = [];
+        // Los nombres de columna salen de esta lista fija, por eso se pueden pegar en
+        // el UPDATE sin riesgo.
         foreach (['sitio_web', 'telefono', 'localidad', 'provincia', 'pais', 'codigo_postal', 'calle', 'sector'] as $campo) {
             if (!empty($extra[$campo]) && empty($c[$campo])) {
                 $sets[] = "$campo = ?";
@@ -360,7 +485,12 @@ function cuenta_asegurar(string $nombre, array $extra = [], ?int $usuarioId = nu
     return last_id();
 }
 
-/** WHERE + parámetros de los filtros del listado de cuentas. */
+/**
+ * WHERE + parámetros de los filtros del listado de cuentas.
+ *
+ * @param array $f q, propietario_id, provincia, tipo, sector, pendiente ('1'/'0')
+ * @return array{0:string,1:array} [cláusula WHERE, parámetros]
+ */
 function cuentas_where(array $f): array
 {
     $w = ['c.eliminado_en IS NULL'];
@@ -381,13 +511,20 @@ function cuentas_where(array $f): array
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
+/**
+ * Listado paginado de cuentas con la cantidad de contactos de cada una.
+ *
+ * @return array lo de paginar() más 'rows' y 'total'
+ */
 function cuentas_listar(array $f): array
 {
     [$where, $p] = cuentas_where($f);
     $total = (int) qv("SELECT COUNT(*) FROM cuentas c $where", $p);
     $pg    = paginar($total, $f['page'] ?? 1);
+    // El conteo de contactos va como subconsulta correlacionada: corre una vez por
+    // fila de la página (no por toda la tabla), y usa el índice de cuenta_id.
     $rows  = q("SELECT c.id, c.nombre, c.cuit, c.tipo, c.sector, c.telefono,
-                       c.localidad, c.provincia, c.sitio_web, c.pendiente_norm, c.aprobado_en,
+                       c.localidad, c.provincia, c.sitio_web, c.pendiente_norm, c.aprobado_en, c.propietario_id,
                        u.nombre AS propietario,
                        (SELECT COUNT(*) FROM contactos ct WHERE ct.cuenta_id = c.id AND ct.eliminado_en IS NULL) AS n_contactos
                 FROM cuentas c LEFT JOIN usuarios u ON u.id = c.propietario_id
@@ -395,7 +532,44 @@ function cuentas_listar(array $f): array
     return $pg + ['rows' => $rows, 'total' => $total];
 }
 
-/** Alta o edición de una cuenta. Devuelve el id. */
+/** Largo máximo de cada columna de texto de `cuentas` (schema.sql). */
+const CUENTAS_LARGOS = [
+    'nombre' => 200, 'tipo' => 40, 'sector' => 80, 'sitio_web' => 255, 'telefono' => 60,
+    'email' => 190, 'cuit' => 11, 'condicion_iva' => 40, 'calle' => 250, 'localidad' => 120,
+    'provincia' => 80, 'codigo_postal' => 30, 'pais' => 60, 'linkedin' => 255,
+];
+
+/** Largo máximo de cada columna de texto de `contactos` (schema.sql). */
+const CONTACTOS_LARGOS = [
+    'nombre' => 120, 'apellido' => 120, 'cargo' => 150, 'departamento' => 120, 'email' => 190,
+    'email2' => 190, 'email3' => 190, 'telefono' => 60, 'movil' => 60, 'conmutador' => 60,
+    'fuente' => 60, 'linkedin' => 255, 'sitio_web' => 255, 'calle' => 250, 'localidad' => 120,
+    'provincia' => 80, 'codigo_postal' => 30, 'pais' => 60,
+];
+
+/**
+ * Recorta cada texto de $campos al largo indicado en $largos (en caracteres,
+ * no en bytes). Los null y los campos que no están en $largos no se tocan.
+ */
+function recortar_a_columnas(array $campos, array $largos): array
+{
+    foreach ($largos as $k => $max) {
+        if (isset($campos[$k]) && is_string($campos[$k]) && mb_strlen($campos[$k]) > $max) {
+            $campos[$k] = rtrim(mb_substr($campos[$k], 0, $max));
+        }
+    }
+    return $campos;
+}
+
+/**
+ * Alta o edición de una cuenta. Devuelve el id.
+ *
+ * Normaliza teléfono, correo, CUIT (sólo dígitos), localidad, provincia y
+ * país, y recalcula pendiente_norm. En la edición pisa TODOS los campos con lo
+ * que vino en $d: lo que no venga queda en null, así que hay que mandarle la
+ * ficha completa (lo hace el formulario de empresa).
+ * Efectos: escribe en `cuentas` y deja constancia en el log.
+ */
 function cuenta_guardar(array $d, ?int $id = null): int
 {
     $campos = [
@@ -408,7 +582,8 @@ function cuenta_guardar(array $d, ?int $id = null): int
         'email'          => normalizar_email($d['email'] ?? '') ?: null,
         'cuit'           => ($c = normalizar_cuit($d['cuit'] ?? '')) !== '' ? $c : null,
         'condicion_iva'  => ($d['condicion_iva'] ?? null) ?: null,
-        'empleados'      => $d['empleados'] !== '' ? (int)($d['empleados'] ?? 0) : null,
+        // Sin la clave, o vacía, queda en null (no en 0); la columna no admite negativos.
+        'empleados'      => trim((string)($d['empleados'] ?? '')) !== '' ? max(0, (int)$d['empleados']) : null,
         'calle'          => ($d['calle'] ?? null) ?: null,
         'localidad'      => normalizar_localidad($d['localidad'] ?? null),
         'provincia'      => normalizar_provincia($d['provincia'] ?? null),
@@ -417,6 +592,9 @@ function cuenta_guardar(array $d, ?int $id = null): int
         'linkedin'       => ($d['linkedin'] ?? null) ?: null,
         'descripcion'    => ($d['descripcion'] ?? null) ?: null,
     ];
+    // Cada texto se recorta al largo de su columna: en modo estricto un valor
+    // más largo haría fallar el INSERT/UPDATE entero.
+    $campos = recortar_a_columnas($campos, CUENTAS_LARGOS);
     // Igual que en los contactos: la empresa entra aunque le falte algo, pero
     // queda señalada para poder completarla después. Sin CUIT no se factura y
     // sin sector no se puede segmentar una campaña.
@@ -428,6 +606,7 @@ function cuenta_guardar(array $d, ?int $id = null): int
         log_app('cuenta.editar', ['entidad' => 'cuenta', 'entidad_id' => $id, 'detalle' => $campos['nombre']]);
         return $id;
     }
+    // Quien crea la ficha figura como creador y, si no se eligió otro, como dueño.
     $campos['creado_por'] = current_user_id();
     if (empty($campos['propietario_id'])) { $campos['propietario_id'] = current_user_id(); }
     $cols = implode(', ', array_keys($campos));
@@ -438,10 +617,36 @@ function cuenta_guardar(array $d, ?int $id = null): int
     return $nuevo;
 }
 
+/**
+ * Totales de los negocios de una empresa para las tarjetas de su ficha:
+ * embudo abierto y ganado, cada uno separado por moneda (no se convierte:
+ * un negocio en dólares no se suma a los pesos).
+ *
+ * @param array $negocios filas con importe, moneda y etapa_tipo (abierta/ganada/perdida)
+ * @return array{abierto:array<string,float>, ganado:array<string,float>} moneda => total
+ */
+function cuenta_totales_negocios(array $negocios): array
+{
+    $t = ['abierto' => [], 'ganado' => []];
+    foreach ($negocios as $n) {
+        $clave = ['abierta' => 'abierto', 'ganada' => 'ganado'][$n['etapa_tipo'] ?? ''] ?? null;
+        if (!$clave) { continue; }
+        $mon = strtoupper((string)(($n['moneda'] ?? '') ?: 'ARS'));
+        $t[$clave][$mon] = ($t[$clave][$mon] ?? 0.0) + (float)$n['importe'];
+    }
+    ksort($t['abierto']);
+    ksort($t['ganado']);
+    return $t;
+}
+
 // ------------------------------------------------------------
 //  Contactos
 // ------------------------------------------------------------
 
+/**
+ * Un contacto vivo con el nombre de su empresa y de su propietario. Null si
+ * no existe o está en la papelera.
+ */
 function contacto_get(int $id): ?array
 {
     return q1('SELECT ct.*, cu.nombre AS cuenta, u.nombre AS propietario
@@ -451,6 +656,17 @@ function contacto_get(int $id): ?array
                WHERE ct.id = ? AND ct.eliminado_en IS NULL', [$id]);
 }
 
+/**
+ * WHERE + parámetros de los filtros del listado de contactos.
+ *
+ * La búsqueda libre mira nombre, el correo principal y el secundario, la
+ * empresa, los teléfonos y el cargo. Usa `cu.nombre`, así que la consulta que
+ * lo use tiene que unir `cuentas cu`.
+ *
+ * @param array $f q, cuenta_id, propietario_id, provincia, fuente, con_email,
+ *                 no_email, rebotado, pendiente ('1'/'0')
+ * @return array{0:string,1:array} [cláusula WHERE, parámetros]
+ */
 function contactos_where(array $f): array
 {
     $w = ['ct.eliminado_en IS NULL'];
@@ -476,6 +692,13 @@ function contactos_where(array $f): array
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
+/**
+ * Listado paginado de contactos.
+ *
+ * @param array $f los filtros de contactos_where() más 'page' y 'orden'
+ *                 ('reciente', 'empresa' o por apellido)
+ * @return array lo de paginar() más 'rows' y 'total'
+ */
 function contactos_listar(array $f): array
 {
     [$where, $p] = contactos_where($f);
@@ -484,6 +707,8 @@ function contactos_listar(array $f): array
             LEFT JOIN usuarios u ON u.id = ct.propietario_id $where";
     $total = (int) qv("SELECT COUNT(*) $sql", $p);
     $pg    = paginar($total, $f['page'] ?? 1);
+    // El orden sale de un match con valores fijos: lo que manda el usuario nunca
+    // llega al ORDER BY.
     $orden = match ($f['orden'] ?? '') {
         'reciente' => 'ct.creado_en DESC',
         'empresa'  => 'cu.nombre, ct.apellido',
@@ -495,13 +720,28 @@ function contactos_listar(array $f): array
     // 100 filas por página eso es traer de la base lo que se va a tirar.
     $rows = q("SELECT ct.id, ct.nombre, ct.apellido, ct.nombre_completo, ct.email, ct.cargo,
                       ct.telefono, ct.movil, ct.conmutador, ct.localidad, ct.provincia,
-                      ct.cuenta_id, ct.no_email, ct.email_rebotado, ct.pendiente_norm, ct.aprobado_en,
+                      ct.cuenta_id, ct.propietario_id, ct.no_email, ct.email_rebotado, ct.pendiente_norm, ct.aprobado_en,
                       cu.nombre AS cuenta, u.nombre AS propietario $sql
                ORDER BY $orden LIMIT {$pg['per']} OFFSET {$pg['offset']}", $p)->fetchAll();
     return $pg + ['rows' => $rows, 'total' => $total];
 }
 
-/** Alta o edición de un contacto. Devuelve el id. */
+/**
+ * Alta o edición de un contacto. Devuelve el id.
+ *
+ * Lo usan el formulario de contacto, la importación de Zoho, la conversión de
+ * posibles clientes y la entrada web.
+ *
+ * Claves especiales de $d:
+ *   · `no_email`: sólo se toca si viene (ver más abajo);
+ *   · `_solo_completar`: en la edición, los campos vacíos no pisan lo cargado.
+ *
+ * Sin `_solo_completar`, la edición pisa todos los campos con lo que vino.
+ * Efectos: escribe en `contactos`, alinea las listas de campaña con el correo
+ * nuevo (si el módulo está cargado) y deja constancia en el log.
+ * Los textos se recortan al largo de su columna (CONTACTOS_LARGOS): un cargo
+ * de 200 caracteres entra cortado en vez de hacer fallar la fila.
+ */
 function contacto_guardar(array $d, ?int $id = null): int
 {
     $campos = [
@@ -528,6 +768,8 @@ function contacto_guardar(array $d, ?int $id = null): int
         'descripcion'    => ($d['descripcion'] ?? null) ?: null,
     ];
 
+    $campos = recortar_a_columnas($campos, CONTACTOS_LARGOS);
+
     // «No incluir en campañas» sólo se toca si vino en los datos. Es una
     // decisión de la persona, no un campo más: la importación no manda esta
     // clave, y ponerla en cero por defecto hacía que cada reimportación borrara
@@ -547,6 +789,7 @@ function contacto_guardar(array $d, ?int $id = null): int
         // silencio teléfonos, cargos y direcciones que ya estaban, mientras la
         // pantalla informaba «N actualizados» como si todo hubiera ido bien.
         if (!empty($d['_solo_completar'])) {
+            // Se lee también si está en la papelera: el UPDATE no filtra eliminado_en.
             $antes = q1('SELECT * FROM contactos WHERE id = ?', [$id]) ?: [];
             foreach ($campos as $k => $v) {
                 if (($v === null || $v === '') && isset($antes[$k]) && $antes[$k] !== null && $antes[$k] !== '') {
@@ -554,6 +797,7 @@ function contacto_guardar(array $d, ?int $id = null): int
                 }
             }
         }
+        // Se recalcula: el bloque de arriba pudo completar campos que faltaban.
         $campos['pendiente_norm'] = contacto_falta($campos) ? 1 : 0;
         $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($campos)));
         q("UPDATE contactos SET $sets WHERE id = ?", [...array_values($campos), $id]);
@@ -585,6 +829,10 @@ function contacto_guardar(array $d, ?int $id = null): int
 //  Posibles clientes (leads)
 // ------------------------------------------------------------
 
+/**
+ * Un posible cliente vivo con el nombre de su propietario. Null si no existe
+ * o está en la papelera (los convertidos sí se devuelven).
+ */
 function posible_get(int $id): ?array
 {
     return q1('SELECT pc.*, u.nombre AS propietario
@@ -592,6 +840,13 @@ function posible_get(int $id): ?array
                WHERE pc.id = ? AND pc.eliminado_en IS NULL', [$id]);
 }
 
+/**
+ * WHERE + parámetros de los filtros de la bandeja de posibles clientes.
+ *
+ * @param array $f convertidos ('1' para incluirlos), q, estado, fuente,
+ *                 propietario_id, calificacion
+ * @return array{0:string,1:array} [cláusula WHERE, parámetros]
+ */
 function posibles_where(array $f): array
 {
     $w = ['pc.eliminado_en IS NULL'];
@@ -611,6 +866,11 @@ function posibles_where(array $f): array
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
+/**
+ * Listado paginado de posibles clientes, los de mayor puntaje primero.
+ *
+ * @return array lo de paginar() más 'rows' y 'total'
+ */
 function posibles_listar(array $f): array
 {
     [$where, $p] = posibles_where($f);
@@ -623,6 +883,14 @@ function posibles_listar(array $f): array
     return $pg + ['rows' => $rows, 'total' => $total];
 }
 
+/**
+ * Alta o edición de un posible cliente. Devuelve el id.
+ *
+ * A diferencia de contacto_guardar(), acá `no_email` se escribe siempre (un
+ * formulario que no lo manda lo pone en 0) y no hay modo «sólo completar».
+ * El estado arranca en «Sin contactar» si no se indica otro.
+ * Efectos: escribe en `posibles_clientes` y deja constancia en el log.
+ */
 function posible_guardar(array $d, ?int $id = null): int
 {
     $campos = [
@@ -669,31 +937,211 @@ function posible_guardar(array $d, ?int $id = null): int
 }
 
 /**
+ * Monedas en que se puede cargar el negocio de una conversión. No se
+ * convierte entre ellas: cada importe queda en la suya.
+ */
+function conversion_monedas(): array
+{
+    return ['ARS' => 'Pesos (ARS)', 'USD' => 'Dólares (USD)'];
+}
+
+/**
+ * Lee un importe escrito a mano, con la costumbre argentina o la inglesa.
+ *
+ *   · «1.500.000» → 1500000 (puntos de miles);
+ *   · «1.234,56»  → 1234.56 (miles con punto, decimales con coma);
+ *   · «1,234.56»  → 1234.56 (al revés);
+ *   · «1500,5»    → 1500.5  (una sola coma: decimal);
+ *   · «1.500»     → 1500    (un punto seguido de tres cifras: miles);
+ *   · «1500.50»   → 1500.5.
+ * Vacío vale 0. Acepta el signo $, US$, ARS o USD adelante.
+ *
+ * Antes se cambiaba la coma por punto y se pasaba por (float): «1.234,56»
+ * quedaba «1.234.56» y se guardaba 1.234; «1.500.000» se guardaba 1.5.
+ *
+ * @return float|null null si no es un importe (letras, negativo, dos
+ *                    separadores decimales o más grande que DECIMAL(15,2))
+ */
+function conversion_importe(string $txt): ?float
+{
+    $s = trim($txt);
+    $s = (string) preg_replace('/^(US\$|U\$S|\$|ARS|USD)\s*/i', '', $s);
+    $s = str_replace([' ', "\u{00A0}"], '', $s);
+    if ($s === '') { return 0.0; }
+    if (!preg_match('/^\d[\d.,]*$/', $s)) { return null; }
+
+    $puntos = substr_count($s, '.');
+    $comas  = substr_count($s, ',');
+    if ($puntos && $comas) {
+        // El separador que aparece último es el decimal; el otro, el de miles.
+        $dec = strrpos($s, ',') > strrpos($s, '.') ? ',' : '.';
+        $mil = $dec === ',' ? '.' : ',';
+        if (substr_count($s, $dec) > 1) { return null; }
+        $entero = substr($s, 0, (int) strrpos($s, $dec));
+        if (!preg_match('/^\d{1,3}(' . preg_quote($mil, '/') . '\d{3})*$/', $entero)) { return null; }
+        $s = str_replace($dec, '.', str_replace($mil, '', $s));
+    } elseif ($comas) {
+        if ($comas > 1) {
+            if (!preg_match('/^\d{1,3}(,\d{3})+$/', $s)) { return null; }
+            $s = str_replace(',', '', $s);
+        } else {
+            $s = str_replace(',', '.', $s);
+        }
+    } elseif ($puntos) {
+        if ($puntos > 1 || preg_match('/^\d{1,3}\.\d{3}$/', $s)) {
+            if (!preg_match('/^\d{1,3}(\.\d{3})+$/', $s)) { return null; }
+            $s = str_replace('.', '', $s);
+        }
+    }
+    if (!is_numeric($s)) { return null; }
+    $n = round((float) $s, 2);
+    return $n < 1e13 ? $n : null;
+}
+
+/**
+ * Valida y normaliza las opciones del negocio de una conversión.
+ *
+ * @param array $in crear_negocio, negocio_nombre, negocio_importe (texto o
+ *                  número), negocio_moneda, negocio_cierre (Y-m-d o vacío)
+ * @return array{0:array,1:array} [opciones normalizadas, errores campo => mensaje]
+ */
+function conversion_opciones(array $in): array
+{
+    $op = [
+        'crear_negocio'   => !empty($in['crear_negocio']),
+        'negocio_nombre'  => mb_substr(trim((string)($in['negocio_nombre'] ?? '')), 0, 200),
+        'negocio_importe' => 0.0,
+        'negocio_moneda'  => 'ARS',
+        'negocio_cierre'  => null,
+    ];
+    $err = [];
+    if (!$op['crear_negocio']) { return [$op, $err]; }
+
+    $imp = $in['negocio_importe'] ?? '';
+    $imp = (is_int($imp) || is_float($imp)) ? ($imp >= 0 ? round((float)$imp, 2) : null)
+                                            : conversion_importe((string)$imp);
+    if ($imp === null) {
+        $err['negocio_importe'] = 'El importe no se entiende: escribilo como 1.500.000 o 1500000,50.';
+    } else {
+        $op['negocio_importe'] = $imp;
+    }
+
+    $mon = strtoupper(trim((string)($in['negocio_moneda'] ?? 'ARS')));
+    if (!isset(conversion_monedas()[$mon])) {
+        $err['negocio_moneda'] = 'La moneda tiene que ser pesos (ARS) o dólares (USD).';
+    } else {
+        $op['negocio_moneda'] = $mon;
+    }
+
+    $cierre = trim((string)($in['negocio_cierre'] ?? ''));
+    if ($cierre !== '') {
+        $f = DateTime::createFromFormat('!Y-m-d', $cierre);
+        if (!$f || $f->format('Y-m-d') !== $cierre) {
+            $err['negocio_cierre'] = 'La fecha de cierre no es válida.';
+        } else {
+            $op['negocio_cierre'] = $cierre;
+        }
+    }
+    return [$op, $err];
+}
+
+/**
+ * Primera etapa activa del embudo predeterminado: donde arranca el negocio
+ * de una conversión. Null si no hay embudo predeterminado con etapas activas.
+ */
+function conversion_etapa_inicial(): ?array
+{
+    return q1('SELECT e.id, e.embudo_id, e.probabilidad FROM etapas e
+               JOIN embudos em ON em.id = e.embudo_id AND em.predeterminado = 1
+               WHERE e.activo = 1 ORDER BY e.orden LIMIT 1');
+}
+
+/**
+ * El mensaje de «convertido» según lo que pasó de verdad: empresa creada,
+ * reutilizada o ninguna (posible cliente sin empresa); contacto creado o
+ * reutilizado; negocio creado, o pedido y no creado por falta de embudo.
+ *
+ * @param array $r lo que devuelve posible_convertir()
+ */
+function conversion_mensaje(array $r): string
+{
+    $partes = [];
+    if (empty($r['cuenta_id'])) {
+        $partes[] = 'quedó sin empresa (el posible cliente no tenía una)';
+    } else {
+        $partes[] = !empty($r['cuenta_nueva']) ? 'se creó la empresa' : 'se usó la empresa que ya existía';
+    }
+    $partes[] = !empty($r['contacto_nuevo']) ? 'se creó el contacto' : 'se completó el contacto que ya existía';
+    if (!empty($r['negocio_id'])) { $partes[] = 'se creó el negocio'; }
+    $msg = 'Convertido: ' . implode(', ', $partes) . '.';
+    if (!empty($r['negocio_omitido'])) {
+        $msg .= ' El negocio no se creó porque no hay un embudo predeterminado con etapas activas.';
+    }
+    return $msg;
+}
+
+/**
  * Convierte un posible cliente en Cuenta + Contacto (+ Negocio opcional).
  *
  * Es la operación central del embudo. Reglas:
  *   · La cuenta se reutiliza si ya existe una con ese nombre (no se duplica).
- *   · El contacto se reutiliza si ya existe uno con ese correo.
- *   · Las notas y actividades del posible cliente pasan al contacto.
- *   · El posible cliente no se borra: queda marcado como convertido, con los
- *     ids de lo que generó, para poder auditar de dónde salió cada cliente.
+ *     Una cuenta reutilizada sólo se completa en lo que tenga vacío.
+ *   · El contacto se reutiliza si ya existe uno con ese correo. Se le completa
+ *     lo que tenga vacío (nunca se pisa un dato cargado) y, si no tenía
+ *     empresa, se lo enlaza a ésta; si ya tenía otra, la conserva.
+ *   · Las notas, actividades y adjuntos del posible cliente pasan al
+ *     contacto; las etiquetas se copian. Lo que no tiene lugar en la ficha del
+ *     contacto (calificación, sector o empleados que no entraron en la
+ *     empresa, notas del registro) queda en una nota del contacto.
+ *   · El posible cliente no se borra ni cambia de estado: queda marcado como
+ *     convertido, con los ids de lo que generó.
  *
- * @return array{cuenta_id:int, contacto_id:int, negocio_id:?int}
+ * Doble conversión: lo primero que se hace dentro de la transacción es
+ * marcar `convertido_en` con un UPDATE condicional (WHERE convertido_en IS
+ * NULL). El segundo envío (doble clic, otra pestaña) espera el bloqueo de la
+ * fila, no encuentra nada que actualizar y termina con el código 409.
+ *
+ * @param array $opciones las de conversion_opciones() (se vuelven a validar)
+ * @return array{cuenta_id:?int, contacto_id:int, negocio_id:?int, cuenta_nueva:bool,
+ *               contacto_nuevo:bool, negocio_omitido:bool}
+ * @throws RuntimeException código 404 si no existe, 409 si ya se convirtió
+ * @throws InvalidArgumentException si las opciones del negocio no son válidas
  */
 function posible_convertir(int $id, array $opciones = []): array
 {
     $pc = posible_get($id);
     if (!$pc) {
-        throw new RuntimeException('El posible cliente no existe.');
+        throw new RuntimeException('El posible cliente no existe.', 404);
     }
     if (!empty($pc['convertido_en'])) {
-        throw new RuntimeException('Este posible cliente ya se convirtió.');
+        throw new RuntimeException('Este posible cliente ya se convirtió.', 409);
+    }
+    [$op, $errOp] = conversion_opciones($opciones);
+    if ($errOp) {
+        throw new InvalidArgumentException((string) reset($errOp));
     }
 
     db()->beginTransaction();
     try {
-        // 1) Cuenta
-        $cuentaId = cuenta_asegurar($pc['empresa'], [
+        // 0) Tomar la fila: sólo un envío puede pasar de acá.
+        $tomada = q('UPDATE posibles_clientes SET convertido_en = NOW(), convertido_por = ?
+                     WHERE id = ? AND convertido_en IS NULL AND eliminado_en IS NULL',
+                    [current_user_id(), $id])->rowCount();
+        if ($tomada !== 1) {
+            throw new RuntimeException('Este posible cliente ya se convirtió.', 409);
+        }
+        // Se relee con la fila ya bloqueada: lo de antes pudo cambiar.
+        $pc = q1('SELECT * FROM posibles_clientes WHERE id = ?', [$id]) ?: $pc;
+        $paraNota = [];
+
+        // 1) Cuenta. Sin empresa (la columna admite '') no se crea ninguna y el
+        // contacto queda suelto; el mensaje lo dice.
+        // El sector del posible cliente es texto libre; en la empresa es una
+        // lista cerrada, así que sólo se copia si es uno de la lista.
+        $sectoresValidos = array_unique(array_merge(...array_values(sectores_por_tipo())));
+        $sectorOk = in_array((string)($pc['sector'] ?? ''), $sectoresValidos, true);
+        $cuentaNueva = trim((string)$pc['empresa']) !== '' && !cuenta_por_nombre((string)$pc['empresa']);
+        $cuentaId = cuenta_asegurar((string)$pc['empresa'], [
             'propietario_id' => $pc['propietario_id'],
             'sitio_web'      => $pc['sitio_web'],
             'telefono'       => ($pc['conmutador'] ?? null) ?: $pc['telefono'],
@@ -702,7 +1150,23 @@ function posible_convertir(int $id, array $opciones = []): array
             'provincia'      => $pc['provincia'],
             'codigo_postal'  => $pc['codigo_postal'],
             'pais'           => $pc['pais'],
+            'sector'         => $sectorOk ? $pc['sector'] : null,
         ]);
+        if ($cuentaId) {
+            if (!empty($pc['empleados'])) {
+                q('UPDATE cuentas SET empleados = ? WHERE id = ? AND empleados IS NULL', [(int)$pc['empleados'], $cuentaId]);
+            }
+            $cu = q1('SELECT sector, empleados FROM cuentas WHERE id = ?', [$cuentaId]) ?: [];
+            if (!empty($pc['sector']) && (string)($cu['sector'] ?? '') !== (string)$pc['sector']) {
+                $paraNota[] = 'Sector: ' . $pc['sector'];
+            }
+            if (!empty($pc['empleados']) && (int)($cu['empleados'] ?? 0) !== (int)$pc['empleados']) {
+                $paraNota[] = 'Empleados: ' . (int)$pc['empleados'];
+            }
+        } else {
+            if (!empty($pc['sector']))    { $paraNota[] = 'Sector: ' . $pc['sector']; }
+            if (!empty($pc['empleados'])) { $paraNota[] = 'Empleados: ' . (int)$pc['empleados']; }
+        }
 
         // 2) Contacto (reusar si ya existe uno con ese correo)
         $contactoId = null;
@@ -710,7 +1174,8 @@ function posible_convertir(int $id, array $opciones = []): array
             $ya = q1('SELECT id FROM contactos WHERE email = ? AND eliminado_en IS NULL LIMIT 1', [$pc['email']]);
             if ($ya) { $contactoId = (int)$ya['id']; }
         }
-        if (!$contactoId) {
+        $contactoNuevo = !$contactoId;
+        if ($contactoNuevo) {
             $contactoId = contacto_guardar([
                 'nombre'         => $pc['nombre'],
                 'apellido'       => $pc['apellido'],
@@ -736,36 +1201,63 @@ function posible_convertir(int $id, array $opciones = []): array
                 'departamento'   => '',
             ]);
         } else {
-            q('UPDATE contactos SET cuenta_id = COALESCE(cuenta_id, ?) WHERE id = ?', [$cuentaId, $contactoId]);
+            // Contacto reutilizado: se completa sólo lo vacío. La empresa se pone
+            // si no tenía; si ya tenía otra, se respeta. Una baja de campañas del
+            // posible cliente se suma (nunca se saca una baja).
+            $antes = q1('SELECT * FROM contactos WHERE id = ?', [$contactoId]) ?: [];
+            $nuevos = [];
+            foreach (['nombre', 'cargo', 'email2', 'telefono', 'movil', 'conmutador', 'fuente', 'linkedin',
+                      'sitio_web', 'calle', 'localidad', 'provincia', 'codigo_postal', 'pais', 'descripcion'] as $k) {
+                if (trim((string)($pc[$k] ?? '')) !== '' && trim((string)($antes[$k] ?? '')) === '') {
+                    $nuevos[$k] = $pc[$k];
+                }
+            }
+            if (empty($antes['cuenta_id']) && $cuentaId) { $nuevos['cuenta_id'] = $cuentaId; }
+            if (!empty($pc['no_email']) && empty($antes['no_email'])) { $nuevos['no_email'] = 1; }
+            if (trim((string)($pc['descripcion'] ?? '')) !== '' && !isset($nuevos['descripcion'])
+                && trim((string)$pc['descripcion']) !== trim((string)($antes['descripcion'] ?? ''))) {
+                $paraNota[] = "Notas del posible cliente:\n" . trim((string)$pc['descripcion']);
+            }
+            if ($nuevos) {
+                $nuevos['pendiente_norm'] = contacto_falta(array_merge($antes, $nuevos)) ? 1 : 0;
+                // Las columnas salen de la lista fija de arriba.
+                $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($nuevos)));
+                q("UPDATE contactos SET $sets WHERE id = ?", [...array_values($nuevos), $contactoId]);
+            }
         }
 
-        // 3) Negocio (opcional)
+        // 3) Negocio (opcional). Arranca en la primera etapa activa del embudo
+        // predeterminado, con su probabilidad. Sin embudo no se crea y el
+        // resultado lo avisa (negocio_omitido).
         $negocioId = null;
-        if (!empty($opciones['crear_negocio'])) {
-            $etapa = q1('SELECT e.id, e.embudo_id, e.probabilidad FROM etapas e
-                         JOIN embudos em ON em.id = e.embudo_id AND em.predeterminado = 1
-                         WHERE e.activo = 1 ORDER BY e.orden LIMIT 1');
+        $negocioOmitido = false;
+        if ($op['crear_negocio']) {
+            $etapa = conversion_etapa_inicial();
             if ($etapa) {
                 q('INSERT INTO negocios (nombre, cuenta_id, contacto_id, propietario_id, embudo_id, etapa_id,
                                          importe, moneda, probabilidad, fecha_cierre, fuente, creado_por)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-                    trim((string)($opciones['negocio_nombre'] ?? '')) ?: $pc['empresa'],
+                    $op['negocio_nombre'] !== '' ? $op['negocio_nombre'] : ((string)$pc['empresa'] ?: trim(($pc['nombre'] ?? '') . ' ' . $pc['apellido'])),
                     $cuentaId, $contactoId, $pc['propietario_id'],
                     (int)$etapa['embudo_id'], (int)$etapa['id'],
-                    (float)($opciones['negocio_importe'] ?? 0),
-                    $opciones['negocio_moneda'] ?? 'ARS',
+                    $op['negocio_importe'],
+                    $op['negocio_moneda'],
                     (int)$etapa['probabilidad'],
-                    ($opciones['negocio_cierre'] ?? null) ?: null,
+                    $op['negocio_cierre'],
                     $pc['fuente'],
                     current_user_id(),
                 ]);
                 $negocioId = last_id();
+                // Primer tramo del historial de etapas, igual que negocio_guardar().
                 q('INSERT INTO negocio_etapas (negocio_id, etapa_id, usuario_id) VALUES (?, ?, ?)',
                   [$negocioId, (int)$etapa['id'], current_user_id()]);
+            } else {
+                $negocioOmitido = true;
             }
         }
 
-        // 4) Arrastrar notas y actividades al contacto (y al negocio si se creó)
+        // 4) Arrastrar notas, actividades y adjuntos al contacto (y al negocio si
+        // se creó). Las etiquetas se copian: el posible cliente conserva las suyas.
         q("UPDATE notas SET entidad = 'contacto', entidad_id = ?
            WHERE entidad = 'posible_cliente' AND entidad_id = ?", [$contactoId, $id]);
         q('UPDATE actividades SET contacto_id = ?, cuenta_id = COALESCE(cuenta_id, ?), negocio_id = COALESCE(negocio_id, ?),
@@ -773,13 +1265,22 @@ function posible_convertir(int $id, array $opciones = []): array
            WHERE posible_cliente_id = ?', [$contactoId, $cuentaId, $negocioId, $id]);
         q("UPDATE adjuntos SET entidad = 'contacto', entidad_id = ?
            WHERE entidad = 'posible_cliente' AND entidad_id = ?", [$contactoId, $id]);
+        q("INSERT IGNORE INTO etiqueta_registro (etiqueta_id, entidad, entidad_id)
+           SELECT etiqueta_id, 'contacto', ? FROM etiqueta_registro
+           WHERE entidad = 'posible_cliente' AND entidad_id = ?", [$contactoId, $id]);
 
-        // 5) Marcar el posible cliente
-        q('UPDATE posibles_clientes
-           SET convertido_en = NOW(), convertido_por = ?, cuenta_id = ?, contacto_id = ?, negocio_id = ?,
-               estado = ?
-           WHERE id = ?',
-          [current_user_id(), $cuentaId, $contactoId, $negocioId, 'Precalificado', $id]);
+        // Lo que no entró en ninguna columna queda escrito, para que de verdad
+        // no se pierda nada.
+        if (!empty($pc['calificacion'])) { array_unshift($paraNota, 'Calificación: ' . $pc['calificacion']); }
+        if ($paraNota && function_exists('nota_crear')) {
+            array_unshift($paraNota, 'Estado al convertir: ' . $pc['estado']);
+            nota_crear('contacto', $contactoId, implode("\n", $paraNota), 'Datos del posible cliente');
+        }
+
+        // 5) Completar la marca del posible cliente con lo que generó. El estado
+        // queda como estaba: «convertido» lo dice `convertido_en`.
+        q('UPDATE posibles_clientes SET cuenta_id = ?, contacto_id = ?, negocio_id = ? WHERE id = ?',
+          [$cuentaId, $contactoId, $negocioId, $id]);
 
         db()->commit();
     } catch (\Throwable $e) {
@@ -788,17 +1289,25 @@ function posible_convertir(int $id, array $opciones = []): array
     }
 
     log_app('posible.convertir', ['entidad' => 'posible_cliente', 'entidad_id' => $id,
-        'detalle' => 'Convertido en cuenta #' . $cuentaId . ', contacto #' . $contactoId
-                   . ($negocioId ? ', negocio #' . $negocioId : '')]);
+        'detalle' => 'Convertido en ' . ($cuentaId ? 'cuenta #' . $cuentaId : 'contacto sin empresa')
+                   . ', contacto #' . $contactoId . ($negocioId ? ', negocio #' . $negocioId : '')]);
 
-    return ['cuenta_id' => $cuentaId, 'contacto_id' => $contactoId, 'negocio_id' => $negocioId];
+    return ['cuenta_id' => $cuentaId, 'contacto_id' => $contactoId, 'negocio_id' => $negocioId,
+            'cuenta_nueva' => $cuentaNueva && $cuentaId !== null, 'contacto_nuevo' => $contactoNuevo,
+            'negocio_omitido' => $negocioOmitido];
 }
 
 // ------------------------------------------------------------
 //  Borrado lógico y papelera (vale para los tres módulos)
 // ------------------------------------------------------------
 
-/** Tablas que aceptan borrado lógico desde la UI. */
+/**
+ * Tablas que aceptan borrado lógico desde la UI.
+ *
+ * La clave es el nombre de la entidad que viaja en el formulario
+ * (registro-eliminar); 'tabla' es la tabla real. Funciona como lista blanca:
+ * el nombre de la tabla se pega en el SQL y sólo puede salir de acá.
+ */
 function tablas_papelera(): array
 {
     return [
@@ -816,6 +1325,15 @@ function tablas_papelera(): array
     ];
 }
 
+/**
+ * Manda un registro a la papelera (pone `eliminado_en`).
+ *
+ * No verifica permisos ni que el registro exista: eso le toca a la página que
+ * la llama (registro-eliminar mira puede_mandar_papelera() de registros.php). El borrado
+ * definitivo lo hace el cron a los 60 días.
+ *
+ * @throws InvalidArgumentException si la entidad no está en tablas_papelera()
+ */
 function registro_eliminar(string $entidad, int $id): void
 {
     $def = tablas_papelera()[$entidad] ?? null;
@@ -825,6 +1343,11 @@ function registro_eliminar(string $entidad, int $id): void
         'detalle' => $def['etiqueta'] . ' enviado a la papelera']);
 }
 
+/**
+ * Saca un registro de la papelera (vuelve `eliminado_en` a null).
+ *
+ * @throws InvalidArgumentException si la entidad no está en tablas_papelera()
+ */
 function registro_restaurar(string $entidad, int $id): void
 {
     $def = tablas_papelera()[$entidad] ?? null;
@@ -832,6 +1355,35 @@ function registro_restaurar(string $entidad, int $id): void
     q("UPDATE {$def['tabla']} SET eliminado_en = NULL WHERE id = ?", [$id]);
     log_app($entidad . '.restaurar', ['entidad' => $entidad, 'entidad_id' => $id,
         'detalle' => $def['etiqueta'] . ' restaurado desde la papelera']);
+}
+
+/**
+ * ¿Se puede mandar a la papelera un registro con este propietario?
+ *
+ * Regla del equipo: el administrador siempre; si no, sólo el propietario. Un
+ * registro sin propietario lo puede mandar cualquiera (si no, nadie que no
+ * sea administrador podría limpiar lo que entró suelto).
+ */
+function papelera_permitida(?int $propietarioId, ?int $usuarioId, bool $esAdmin): bool
+{
+    if ($esAdmin || !$propietarioId) { return true; }
+    return $usuarioId !== null && $propietarioId === $usuarioId;
+}
+
+/**
+ * Propietario de un registro de tablas_papelera(), o null si no tiene, si no
+ * existe o si su tabla no tiene propietario (listas y plantillas).
+ */
+function registro_propietario(string $entidad, int $id): ?int
+{
+    $def = tablas_papelera()[$entidad] ?? null;
+    // Las tablas con columna `propietario_id`; el nombre sale de la lista blanca.
+    if (!$def || !in_array($def['tabla'], ['cuentas', 'contactos', 'posibles_clientes', 'negocios',
+                                            'actividades', 'campanas'], true)) {
+        return null;
+    }
+    $p = qv("SELECT propietario_id FROM {$def['tabla']} WHERE id = ?", [$id]);
+    return $p ? (int)$p : null;
 }
 
 // ------------------------------------------------------------
@@ -849,7 +1401,12 @@ function registro_restaurar(string $entidad, int $id): void
 //    · la IP no se guarda nunca en claro (Ley 25.326): sólo su hash.
 // ------------------------------------------------------------
 
-/** Hash de una IP con el secreto de la instalación. Null si no hay IP. */
+/**
+ * Hash de una IP con el secreto de la instalación. Null si no hay IP.
+ *
+ * Es un HMAC y no un sha256 pelado: sin el secreto no se puede recorrer el
+ * espacio de IPv4 (son 4.300 millones) para saber de qué IP salió cada hash.
+ */
 function ip_hash(?string $ip): ?string
 {
     $ip = trim((string)$ip);
@@ -865,6 +1422,10 @@ function ip_hash(?string $ip): ?string
  *
  * Si la tabla todavía no existe (código subido antes de migrar) no bloquea:
  * es preferible dejar pasar un formulario de más que rechazar a un cliente.
+ *
+ * @param string $clave    qué se limita (por ejemplo, token + hash de IP)
+ * @param int    $max      pedidos permitidos por ventana
+ * @param int    $segundos largo de la ventana
  */
 function limite_superado(string $clave, int $max, int $segundos): bool
 {
@@ -872,6 +1433,8 @@ function limite_superado(string $clave, int $max, int $segundos): bool
     $ventana  = intdiv(time(), $segundos);
     $clave    = mb_substr($clave, 0, 120);
     try {
+        // INSERT … ON DUPLICATE KEY suma en una sola sentencia atómica: dos pedidos
+        // juntos no pueden leer el mismo conteo y pasar los dos.
         q('INSERT INTO api_limites (clave, ventana, conteo, vence_en) VALUES (?, ?, 1, ?)
            ON DUPLICATE KEY UPDATE conteo = conteo + 1',
           [$clave, $ventana, date('Y-m-d H:i:s', ($ventana + 1) * $segundos)]);
@@ -884,6 +1447,7 @@ function limite_superado(string $clave, int $max, int $segundos): bool
         }
         return $n > $max;
     } catch (\Throwable $e) {
+        // Cualquier error (tabla faltante, base caída) deja pasar el pedido.
         return false;
     }
 }
@@ -931,6 +1495,11 @@ function empresa_clave(string $nombre): string
  * Dominio del correo si es corporativo; null para las casillas gratuitas
  * (gmail, hotmail, outlook, yahoo, live, icloud…) y las de los proveedores de
  * internet. Con una casilla gratuita el dominio no dice nada de la empresa.
+ *
+ * Las gratuitas se reconocen por la parte registrable del dominio, la que va
+ * antes del sufijo público: «gmail» en gmail.com y en gmail.com.ar. Así un
+ * subdominio corporativo que empiece con una de esas palabras
+ * (mail.empresa.com, me.empresa.com.ar) sigue siendo corporativo.
  */
 function email_dominio_corporativo(string $email): ?string
 {
@@ -939,7 +1508,14 @@ function email_dominio_corporativo(string $email): ?string
     $dominio = substr($email, strrpos($email, '@') + 1);
     if ($dominio === '' || !str_contains($dominio, '.')) { return null; }
 
-    $base = explode('.', $dominio)[0];
+    // La parte registrable: la etiqueta anterior al sufijo público. Los sufijos
+    // de dos niveles más comunes (com.ar, gob.ar, co.uk…) se reconocen por la
+    // forma «com|net|org|gob|gov|edu|co|ac|int|mil|nom» + país de dos letras.
+    $etq = explode('.', $dominio);
+    $n = count($etq);
+    $sufijoDoble = $n >= 3 && strlen($etq[$n - 1]) === 2
+        && in_array($etq[$n - 2], ['com', 'net', 'org', 'gob', 'gov', 'edu', 'co', 'ac', 'int', 'mil', 'nom'], true);
+    $base = $etq[$n - ($sufijoDoble ? 3 : 2)];
     static $gratuitas = ['gmail', 'googlemail', 'hotmail', 'outlook', 'live', 'msn', 'yahoo', 'ymail',
                          'rocketmail', 'icloud', 'me', 'mac', 'aol', 'protonmail', 'proton', 'pm', 'gmx',
                          'yandex', 'mail', 'zoho', 'tutanota', 'hushmail', 'inbox', 'email'];
@@ -960,7 +1536,11 @@ function email_dominio_corporativo(string $email): ?string
     return $dominio;
 }
 
-/** Escapa los comodines de LIKE en un valor que se busca literal. */
+/**
+ * Escapa los comodines de LIKE en un valor que se busca literal.
+ *
+ * Usa la barra invertida, que es el escape por defecto de MySQL en LIKE.
+ */
 function like_literal(string $s): string
 {
     return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $s);
@@ -974,8 +1554,9 @@ function like_literal(string $s): string
  *     una sola, o la que tiene ese dominio en el sitio web o el correo;
  *  4. si no, se crea con cuenta_asegurar().
  *
- * No se cambia cuenta_asegurar() porque la usa el importador, y ahí el criterio
- * es otro: el archivo trae el nombre exacto con el que se quiere la empresa.
+ * No se cambia cuenta_asegurar(): compara por nombre exacto y la usan también
+ * el formulario de contacto y el importador (que antes busca por
+ * empresa_clave() con su propio índice en memoria).
  */
 function cuenta_asegurar_web(string $empresa, string $email, int $propietarioId): ?int
 {
@@ -998,6 +1579,9 @@ function cuenta_asegurar_web(string $empresa, string $email, int $propietarioId)
     }
 
     // 2. El mismo nombre escrito de otra forma: «ACME S.A.» y «Acme SA».
+    // Para no traer todas las cuentas, se buscan sólo las que empiezan con la
+    // primera palabra de la clave y se compara la clave completa en PHP. El tope
+    // de 200 alcanza para cualquier palabra razonable.
     $clave = empresa_clave($empresa);
     if ($clave !== '') {
         $primera = explode(' ', $clave)[0];
@@ -1021,10 +1605,17 @@ function cuenta_asegurar_web(string $empresa, string $email, int $propietarioId)
                AND (ct.email LIKE ? OR ct.email2 LIKE ? OR ct.email3 LIKE ?)
              LIMIT 3', [$arroba, $arroba, $arroba])->fetchAll(), 'cuenta_id'));
         if (count($ids) === 1) { return $ids[0]; }
+        // Ningún contacto con ese dominio: se prueba con el sitio web o el correo de
+        // la empresa misma. El dominio tiene que aparecer entero en el sitio web:
+        // solo, después de «//» o de un punto («www.acme.com»), y seguido del fin o
+        // de una barra. Así acme.com no encuentra notacme.com.
         if (!$ids) {
+            $d = like_literal($dominio);
             $ids = array_map('intval', array_column(q(
-                'SELECT id FROM cuentas WHERE eliminado_en IS NULL AND (sitio_web LIKE ? OR email LIKE ?) LIMIT 3',
-                ['%' . like_literal($dominio) . '%', $arroba])->fetchAll(), 'id'));
+                "SELECT id FROM cuentas WHERE eliminado_en IS NULL AND (
+                    sitio_web = ? OR sitio_web LIKE ? OR sitio_web LIKE ? OR sitio_web LIKE ?
+                    OR sitio_web LIKE ? OR sitio_web LIKE ? OR email LIKE ?) LIMIT 3",
+                [$dominio, $d . '/%', '%//' . $d, '%//' . $d . '/%', '%.' . $d, '%.' . $d . '/%', $arroba])->fetchAll(), 'id'));
             if (count($ids) === 1) { return $ids[0]; }
         }
     }
@@ -1049,6 +1640,8 @@ function cuenta_asegurar_web(string $empresa, string $email, int $propietarioId)
  * indique, y fuera de las campañas salvo que haya pedido recibir novedades:
  * dejó sus datos para que le contestemos, no para recibir publicidad.
  *
+ * Sin correo no hay forma de reconocerlo: se crea siempre uno nuevo.
+ *
  * @param array $d nombre, email, telefono, novedades, pagina
  * @return array{0:int,1:bool} [id, es_nuevo]
  */
@@ -1060,6 +1653,8 @@ function contacto_asegurar_web(array $d, int $propietarioId, ?int $cuentaId): ar
     $pagina   = trim((string)($d['pagina'] ?? ''));
     $detalle  = 'Llegó desde la web' . ($pagina !== '' ? ': ' . $pagina : '');
 
+    // Si el correo aparece en más de un contacto, gana el que lo tiene como
+    // correo principal y, entre ésos, el más antiguo.
     $c = $email === '' ? null : q1(
         'SELECT * FROM contactos
          WHERE (email = ? OR email2 = ? OR email3 = ?) AND eliminado_en IS NULL
@@ -1069,6 +1664,7 @@ function contacto_asegurar_web(array $d, int $propietarioId, ?int $cuentaId): ar
         $id   = (int)$c['id'];
         $sets = [];
         $vals = [];
+        // El teléfono se completa sólo si la ficha no tenía ni fijo ni móvil.
         if ($telefono !== null && trim((string)$c['telefono']) === '' && trim((string)$c['movil']) === '') {
             $sets[] = 'telefono = ?'; $vals[] = $telefono; $c['telefono'] = $telefono;
         }
@@ -1089,6 +1685,8 @@ function contacto_asegurar_web(array $d, int $propietarioId, ?int $cuentaId): ar
     // Nombre y apellido entran en columnas de 120: lo que llega de afuera se
     // recorta acá también, para que un nombre largo nunca termine en un error
     // de la base en lugar de un contacto.
+    // Una sola palabra va al apellido (que es obligatorio en la base); con más,
+    // la primera es el nombre y el resto el apellido.
     $partes = preg_split('/\s+/u', $nombre) ?: [];
     $id = contacto_guardar([
         'nombre'         => count($partes) > 1 ? mb_substr($partes[0], 0, 120) : '',
@@ -1114,10 +1712,13 @@ function contacto_asegurar_web(array $d, int $propietarioId, ?int $cuentaId): ar
  */
 function entrada_web_dueno(): int
 {
+    // Se lee del ajuste `web_dueno_id` y se confirma que siga activo: un usuario
+    // dado de baja no puede quedar recibiendo consultas.
     $elegido = (int) setting_get('web_dueno_id', '');
     if ($elegido > 0 && qv('SELECT 1 FROM usuarios WHERE id = ? AND activo = 1', [$elegido])) {
         return $elegido;
     }
+    // La tabla agenda_tipos puede no existir si la agenda no se migró todavía.
     try {
         $vendedor = (int) qv("SELECT t.usuario_id FROM agenda_tipos t JOIN usuarios u ON u.id = t.usuario_id
                               WHERE t.slug = 'diagnostico' AND t.activo = 1 AND u.activo = 1
@@ -1132,6 +1733,9 @@ function entrada_web_dueno(): int
  * Una línea legible del origen, para las descripciones internas del CRM:
  * «Llegó desde /diagnostico/ · canal Google Ads · campaña diagnostico-it
  * (google / cpc) · segunda visita a la landing».
+ *
+ * @param array $origen pagina u origen_pagina, canal, utm_*, gclid, li_fat_id,
+ *                      referrer, landing, visitas_landing
  */
 function entrada_web_resumen(array $origen): string
 {
@@ -1170,6 +1774,10 @@ function entrada_web_resumen(array $origen): string
 /**
  * Columnas de `entradas_web` que se pueden cargar, con su largo máximo
  * (0 = número o fecha, sin recorte).
+ *
+ * Es también la lista blanca de columnas: entrada_web_valores() descarta
+ * cualquier clave que no esté acá, así un campo extra en el JSON de la web no
+ * puede llegar al SQL.
  */
 function entrada_web_columnas(): array
 {
@@ -1188,7 +1796,17 @@ function entrada_web_columnas(): array
     ];
 }
 
-/** Prepara los valores de una fila: recorta, vacía en null y convierte lo que haga falta. */
+/**
+ * Prepara los valores de una fila: recorta, vacía en null y convierte lo que
+ * haga falta.
+ *
+ * Los arrays se guardan como JSON, los booleanos como 0/1, los textos se
+ * recortan al largo de la columna y los vacíos pasan a null (salvo nombre y
+ * correo, que en la tabla son NOT NULL). Las fechas que llegan como marca de
+ * tiempo (consentimiento_en, inicio_pedido) se pasan a 'Y-m-d H:i:s'.
+ *
+ * @return array<string,mixed> sólo las columnas conocidas que vinieron en $d
+ */
 function entrada_web_valores(array $d): array
 {
     // El origen puede venir anidado (como lo manda la web) o plano.
@@ -1229,6 +1847,8 @@ function entrada_web_guardar(array $d, ?array &$previa = null): int
 {
     $previa = null;
     $v = entrada_web_valores($d);
+    // Valores por defecto que la tabla exige: sin clave de idempotencia se inventa
+    // una (el pedido no se puede reintentar, pero se guarda igual).
     $v += ['estado' => 'procesando', 'nombre' => '', 'email' => ''];
     if (empty($v['idempotencia']))           { $v['idempotencia'] = 'r-' . token32(); }
     if (empty($v['consentimiento_en']))      { $v['consentimiento_en'] = date('Y-m-d H:i:s'); }
@@ -1240,6 +1860,7 @@ function entrada_web_guardar(array $d, ?array &$previa = null): int
         q("INSERT INTO entradas_web ($cols) VALUES ($ph)", array_values($v));
         return last_id();
     } catch (\PDOException $e) {
+        // 1062 = clave duplicada. Cualquier otro error se propaga.
         if ((int)($e->errorInfo[1] ?? 0) !== 1062) { throw $e; }
         $previa = q1('SELECT * FROM entradas_web WHERE token_id <=> ? AND idempotencia = ?',
                      [$v['token_id'] ?? null, $v['idempotencia']]);
@@ -1279,6 +1900,9 @@ function entrada_web_retomar(int $id, array $d): bool
  * cuenta el propio pedido (misma clave e idempotencia) ni las que terminaron
  * con error o descartadas: ésas no generaron nada que se pueda duplicar.
  *
+ * $minutos va pegado en el SQL (INTERVAL no acepta parámetro en todas las
+ * versiones); es seguro porque la firma lo obliga a ser int.
+ *
  * @param array $d email, servicio y mensaje, ya limpios (api_validar_entrada)
  */
 function entrada_web_duplicada(array $d, ?int $tokenId, string $idem, int $minutos = 30): int
@@ -1293,7 +1917,12 @@ function entrada_web_duplicada(array $d, ?int $tokenId, string $idem, int $minut
                      trim((string)($d['mensaje'] ?? '')), $tokenId, $idem]);
 }
 
-/** Actualiza una entrada (estado, error, respuesta y lo que se creó en el CRM). */
+/**
+ * Actualiza una entrada (estado, error, respuesta y lo que se creó en el CRM).
+ *
+ * La clave de idempotencia y el token no se pueden cambiar: son la identidad
+ * del pedido. Con $id <= 0 o sin campos válidos no hace nada.
+ */
 function entrada_web_actualizar(int $id, array $campos): void
 {
     $v = entrada_web_valores($campos);
@@ -1303,14 +1932,48 @@ function entrada_web_actualizar(int $id, array $campos): void
     q("UPDATE entradas_web SET $sets WHERE id = ?", [...array_values($v), $id]);
 }
 
-/** Vencimiento de la tarea de contestar: el próximo día hábil a las 12 h. */
-function entrada_web_vencimiento(?int $ahora = null): string
+/**
+ * Vencimiento de la tarea de contestar: el próximo día hábil a las 12 h.
+ *
+ * «Hábil» es de lunes a viernes y que no sea feriado. Los feriados se leen de
+ * la tabla directamente (entrada_web_feriados), sin sincronizar contra la
+ * fuente oficial: este cálculo corre mientras la web espera la respuesta y no
+ * puede quedar colgado de otra conexión. Sin la tabla, sólo saltea fines de
+ * semana.
+ *
+ * @param int|null   $ahora    marca de tiempo de referencia (para las pruebas)
+ * @param array|null $feriados fechas Y-m-d a saltear; null = las de la tabla
+ */
+function entrada_web_vencimiento(?int $ahora = null, ?array $feriados = null): string
 {
     $t = strtotime('tomorrow 12:00', $ahora ?? time());
-    while ((int) date('N', $t) >= 6) {   // sábado o domingo
+    $feriados ??= entrada_web_feriados(date('Y-m-d', $t), date('Y-m-d', $t + 40 * 86400));
+    $feriados = array_flip($feriados);
+    // Tope de 40 vueltas por si la tabla trae algo absurdo.
+    for ($i = 0; $i < 40 && ((int) date('N', $t) >= 6 || isset($feriados[date('Y-m-d', $t)])); $i++) {
         $t = strtotime('+1 day', $t);
     }
     return date('Y-m-d H:i:s', $t);
+}
+
+/**
+ * Fechas (Y-m-d) de los feriados que rigen entre $desde y $hasta, leídas de
+ * la tabla `feriados` sin sincronizar. Lista vacía si los feriados están
+ * apagados, la tabla no existe o la base falla.
+ */
+function entrada_web_feriados(string $desde, string $hasta): array
+{
+    if (!function_exists('feriados_aplicables')) { return []; }
+    try {
+        if (!feriados_activos()) { return []; }
+        $j = feriados_jurisdiccion();
+        $filas = q("SELECT fecha, nombre, tipo, jurisdiccion, origen, ignorado FROM feriados
+                    WHERE ignorado = 0 AND fecha BETWEEN ? AND ? AND jurisdiccion IN ('nacional', ?)",
+                   [$desde, $hasta, $j])->fetchAll();
+        return array_map('strval', array_keys(feriados_aplicables($filas, $j)));
+    } catch (\Throwable $e) {
+        return [];
+    }
 }
 
 /**
@@ -1324,8 +1987,11 @@ function entrada_web_vencimiento(?int $ahora = null): string
  * Sin posibles clientes ni negocios: una consulta todavía no es una
  * oportunidad. El negocio lo abre quien la califique.
  *
+ * @param int   $entradaId la fila de entradas_web creada con entrada_web_guardar()
  * @param array $d los datos limpios de api_validar_entrada()
  * @return array{contacto_id:int, cuenta_id:?int, actividad_id:int, nota_id:int}
+ * @throws RuntimeException si no hay ningún usuario activo; cualquier error de
+ *                          base se propaga después del rollback
  */
 function entrada_web_consulta(int $entradaId, array $d): array
 {
@@ -1401,6 +2067,12 @@ function entrada_web_consulta(int $entradaId, array $d): array
  *
  * Se conservan el canal, la página y las fechas: son los números que mira la
  * consultora cada mes, y sin la persona ya no dicen nada de nadie.
+ *
+ * contacto_id queda en null solo cuando el contacto se borra de verdad: la
+ * clave foránea de entradas_web es ON DELETE SET NULL.
+ *
+ * @param int $dias antigüedad mínima de la entrada
+ * @return int cuántas filas se anonimizaron
  */
 function entradas_web_anonimizar(int $dias = 60): int
 {
@@ -1429,7 +2101,14 @@ function entradas_web_disponible(): bool
     }
 }
 
-/** WHERE + parámetros de los filtros del listado. */
+/**
+ * WHERE + parámetros de los filtros del listado.
+ *
+ * @param array $f    q, tipo, estado, canal ('-' = sin canal), pagina, desde,
+ *                    hasta (AAAA-MM-DD; lo que no tiene ese formato se ignora)
+ * @param bool  $conCanal false para no filtrar por canal (las tarjetas por
+ *                    canal comparan justamente eso)
+ */
 function entradas_web_where(array $f, bool $conCanal = true): array
 {
     $w = ['1 = 1'];
@@ -1457,7 +2136,12 @@ function entradas_web_where(array $f, bool $conCanal = true): array
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
-/** El listado y el CSV comparten el FROM. */
+/**
+ * El listado y el CSV comparten el FROM.
+ *
+ * Todo LEFT JOIN: una entrada con error no creó contacto ni reserva y tiene
+ * que aparecer igual.
+ */
 function entradas_web_from(): string
 {
     return 'FROM entradas_web e
@@ -1467,6 +2151,7 @@ function entradas_web_from(): string
             LEFT JOIN usuarios u        ON u.id = e.propietario_id';
 }
 
+/** ORDER BY del listado según la opción elegida; lo desconocido va por fecha. */
 function entradas_web_orden(string $orden): string
 {
     return match ($orden) {
@@ -1477,6 +2162,12 @@ function entradas_web_orden(string $orden): string
     };
 }
 
+/**
+ * Listado paginado de entradas web con el contacto, la cuenta, la reserva y
+ * el responsable de cada una.
+ *
+ * @return array lo de paginar() más 'rows' y 'total'
+ */
 function entradas_web_listar(array $f): array
 {
     [$where, $p] = entradas_web_where($f);
@@ -1489,7 +2180,11 @@ function entradas_web_listar(array $f): array
     return $pg + ['rows' => $rows, 'total' => $total];
 }
 
-/** Valores distintos de una columna, para los filtros (canal o página). */
+/**
+ * Valores distintos de una columna, para los filtros (canal o página).
+ *
+ * La columna se pega en el SQL, por eso se acepta sólo de esta lista.
+ */
 function entradas_web_opciones(string $columna): array
 {
     if (!in_array($columna, ['canal', 'origen_pagina'], true)) { return []; }
@@ -1509,6 +2204,8 @@ function entradas_web_opciones(string $columna): array
 function entradas_web_reservas_vigentes(array $ids): array
 {
     $siguiente = [];
+    // Se trae el mapa completo de reprogramaciones (son pocas) y se recorre en
+    // memoria, en lugar de una consulta por cada eslabón.
     foreach (q('SELECT id, reprogramada_de FROM agenda_reservas WHERE reprogramada_de IS NOT NULL')->fetchAll() as $r) {
         $siguiente[(int)$r['reprogramada_de']] = (int)$r['id'];
     }
@@ -1534,6 +2231,8 @@ function entradas_web_por_canal(array $f): array
     $g = $f;
     unset($g['tipo'], $g['estado']);
     [$where, $p] = entradas_web_where($g, false);
+    // Sólo cuentan las entradas que terminaron bien: una con error no generó ni
+    // consulta ni reunión.
     $filas = q("SELECT COALESCE(NULLIF(e.canal, ''), 'Sin dato') AS canal, e.tipo, e.reserva_id
                 FROM entradas_web e $where AND e.estado = 'ok'", $p)->fetchAll();
 
@@ -1556,6 +2255,8 @@ function entradas_web_por_canal(array $f): array
         $canales[$c] ??= ['canal' => $c, 'consultas' => 0, 'agendadas' => 0, 'realizadas' => 0, 'canceladas' => 0];
         if ($e['tipo'] === 'consulta') { $canales[$c]['consultas']++; continue; }
         $canales[$c]['agendadas']++;
+        // Se mira el estado de la reserva VIGENTE, no el de la original: la original
+        // de una reunión reprogramada queda como «reprogramada» para siempre.
         $r = $estado[$vigente[(int)$e['reserva_id']] ?? 0] ?? null;
         if (!$r) { continue; }
         if ($r['estado'] === 'cancelada')    { $canales[$c]['canceladas']++; }
@@ -1563,4 +2264,104 @@ function entradas_web_por_canal(array $f): array
     }
     usort($canales, fn($a, $b) => ($b['agendadas'] + $b['consultas']) <=> ($a['agendadas'] + $a['consultas']));
     return $canales;
+}
+
+// ------------------------------------------------------------
+//  Buscador de registros para los desplegables grandes
+// ------------------------------------------------------------
+//
+//  Producción tiene más de 25.000 contactos y 9.000 empresas: un <select> con
+//  todas las filas pesa megas y, recortado, pierde el valor vinculado cuando
+//  queda fuera del corte (y al guardar sin tocar nada se borraba el vínculo).
+//  Por eso los formularios de negocio, actividad y contacto dibujan el
+//  desplegable sólo con el valor ya vinculado (buscar_opcion_actual) y
+//  assets/js/buscador.js lo convierte en un campo que busca al escribir
+//  contra la ruta api-buscar, que usa buscar_registros().
+
+/**
+ * Qué se puede buscar: tabla, columna con el nombre visible y columnas en las
+ * que se busca. Las columnas salen de esta lista fija, nunca del pedido.
+ */
+function buscar_tipos(): array
+{
+    return [
+        'cuenta'   => ['tabla' => 'cuentas c', 'id' => 'c.id', 'nombre' => 'c.nombre',
+                       'detalle' => "TRIM(CONCAT(COALESCE(c.localidad, ''), ' ', COALESCE(c.provincia, '')))",
+                       'join' => '', 'vivo' => 'c.eliminado_en IS NULL',
+                       'buscar' => ['c.nombre', 'c.cuit', 'c.sitio_web'], 'orden' => 'c.nombre'],
+        'contacto' => ['tabla' => 'contactos ct', 'id' => 'ct.id', 'nombre' => 'ct.nombre_completo',
+                       'detalle' => "TRIM(CONCAT(COALESCE(cu.nombre, ''), CASE WHEN ct.email IS NULL OR ct.email = '' THEN '' ELSE CONCAT(' · ', ct.email) END))",
+                       'join' => 'LEFT JOIN cuentas cu ON cu.id = ct.cuenta_id', 'vivo' => 'ct.eliminado_en IS NULL',
+                       'buscar' => ['ct.nombre_completo', 'ct.email', 'cu.nombre'], 'orden' => 'ct.apellido, ct.nombre'],
+        'negocio'  => ['tabla' => 'negocios n', 'id' => 'n.id', 'nombre' => 'n.nombre',
+                       'detalle' => "COALESCE(cu.nombre, '')",
+                       'join' => 'LEFT JOIN cuentas cu ON cu.id = n.cuenta_id', 'vivo' => 'n.eliminado_en IS NULL',
+                       'buscar' => ['n.nombre', 'cu.nombre'], 'orden' => 'n.creado_en DESC'],
+        'campana'  => ['tabla' => 'campanas ca', 'id' => 'ca.id', 'nombre' => 'ca.nombre',
+                       'detalle' => "COALESCE(ca.estado, '')",
+                       'join' => '', 'vivo' => 'ca.eliminado_en IS NULL',
+                       'buscar' => ['ca.nombre'], 'orden' => 'ca.creado_en DESC'],
+    ];
+}
+
+/**
+ * Busca registros vivos por texto. Cada palabra tiene que aparecer en alguna
+ * de las columnas de búsqueda («juan pérez» encuentra «Pérez, Juan Carlos»).
+ * Los que empiezan con el texto van primero.
+ *
+ * @param string $tipo   cuenta | contacto | negocio | campana
+ * @param string $texto  lo que se escribió (menos de 2 caracteres no busca)
+ * @param int    $limite máximo de resultados (1 a 50)
+ * @return array<int,array{id:int,nombre:string,detalle:string}>
+ */
+function buscar_registros(string $tipo, string $texto, int $limite = 20): array
+{
+    $def = buscar_tipos()[$tipo] ?? null;
+    $texto = trim((string) preg_replace('/\s+/u', ' ', $texto));
+    if (!$def || mb_strlen($texto) < 2) { return []; }
+    $limite = max(1, min(50, $limite));
+
+    $w = [$def['vivo']];
+    $p = [];
+    foreach (array_slice(explode(' ', $texto), 0, 5) as $palabra) {
+        $like = '%' . like_literal($palabra) . '%';
+        $w[] = '(' . implode(' OR ', array_map(fn($c) => "$c LIKE ?", $def['buscar'])) . ')';
+        foreach ($def['buscar'] as $_) { $p[] = $like; }
+    }
+    $p[] = like_literal($texto) . '%';
+    $filas = q("SELECT {$def['id']} AS id, {$def['nombre']} AS nombre, {$def['detalle']} AS detalle
+                FROM {$def['tabla']} {$def['join']}
+                WHERE " . implode(' AND ', $w) . "
+                ORDER BY CASE WHEN {$def['nombre']} LIKE ? THEN 0 ELSE 1 END, {$def['orden']}
+                LIMIT $limite", $p)->fetchAll();
+    return array_map(static fn($f) => ['id' => (int)$f['id'], 'nombre' => (string)$f['nombre'],
+                                       'detalle' => trim((string)$f['detalle'])], $filas);
+}
+
+/**
+ * La opción del valor ya vinculado, para dibujarla en el desplegable aunque
+ * el resto de la lista se busque al escribir. Si el registro está en la
+ * papelera igual se devuelve (marcado), para que guardar sin tocar nada no
+ * borre el vínculo.
+ *
+ * @param string          $tipo cuenta | contacto | negocio | campana
+ * @param int|string|null $id   el id vinculado (vacío o 0 = ninguno)
+ * @return array<int,array{id:int,nombre:string,detalle:string}> cero o una fila
+ */
+function buscar_opcion_actual(string $tipo, $id): array
+{
+    $def = buscar_tipos()[$tipo] ?? null;
+    $id = (int)$id;
+    if (!$def || $id <= 0) { return []; }
+    try {
+        $f = q1("SELECT {$def['id']} AS id, {$def['nombre']} AS nombre, {$def['detalle']} AS detalle,
+                        CASE WHEN {$def['vivo']} THEN 1 ELSE 0 END AS vivo
+                 FROM {$def['tabla']} {$def['join']} WHERE {$def['id']} = ?", [$id]);
+    } catch (\Throwable $e) {
+        return [];
+    }
+    if (!$f) { return []; }
+    return [['id' => (int)$f['id'],
+             'nombre' => (string)$f['nombre'] . ((int)$f['vivo'] ? '' : ' (en la papelera)'),
+             'detalle' => trim((string)$f['detalle'])]];
 }

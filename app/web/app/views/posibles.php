@@ -1,4 +1,22 @@
 <?php /** @var array $f @var array $data @var array $usuarios */
+// ============================================================
+//  Vista: listado de posibles clientes.
+//
+//  La dibuja pages/posibles.php. Filtros (GET), tabla paginada con accesos a
+//  convertir y editar, y borrado por fila (POST a `registro-eliminar`).
+//
+//  Variables que recibe:
+//    $f         array  filtros (q, estado, fuente, calificacion,
+//                      propietario_id, convertidos, page)
+//    $data      array  posibles_listar(): rows (pc.* con `propietario`),
+//                      total y paginación
+//    $usuarios  array  usuarios activos, para el filtro de propietario
+//
+//  Dentro del bucle, `$p` es cada fila del listado.
+// ============================================================
+
+// Clase del distintivo para cada estado de estados_posible_cliente(). Un
+// estado que no figure acá sale en gris.
 $colorEstado = [
     'Sin contactar'          => 'badge-neutral',
     'Contactado'             => 'badge-info',
@@ -15,7 +33,10 @@ $colorEstado = [
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> <?= $f['convertidos'] === '1' ? 'registros (incluye convertidos)' : 'sin convertir' ?></p>
     </div>
     <div class="head-actions">
-        <a class="btn btn-ghost" href="<?= e(url('posibles' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
+        <?php // Exportar a CSV es sólo de administradores (la página lo corta igual). ?>
+        <?php if (auth_is_admin()): ?>
+            <a class="btn btn-ghost" href="<?= e(url('posibles' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
+        <?php endif; ?>
         <a class="btn btn-primary" href="<?= e(url('posible-form')) ?>"><?= icon('mas', 16) ?>Nuevo posible cliente</a>
     </div>
 </div>
@@ -85,7 +106,7 @@ $colorEstado = [
             </thead>
             <tbody>
             <?php if (!$data['rows']): ?>
-                <tr><td colspan="8" class="empty">No hay posibles clientes que coincidan con el filtro.</td></tr>
+                <tr><td colspan="7" class="empty">No hay posibles clientes que coincidan con el filtro.</td></tr>
             <?php else: foreach ($data['rows'] as $p):
                 $nombre = trim(($p['nombre'] ?? '') . ' ' . $p['apellido']);
             ?>
@@ -111,10 +132,13 @@ $colorEstado = [
                     <td data-label="Fuente" class="prio-4"><?= e($p['fuente'] ?: '—') ?></td>
                     <td data-label="Propietario" class="prio-4"><?= e($p['propietario'] ?: '—') ?></td>
                     <td class="acts" data-label="Acciones">
+                        <?php // Convertir lleva a la pantalla de confirmación, no convierte directo. ?>
                         <?php if (!$p['convertido_en']): ?>
                             <a class="act" href="<?= e(url('posible-convertir?id=' . (int)$p['id'])) ?>" title="Convertir en cliente"><?= icon('convertir', 16) ?></a>
                         <?php endif; ?>
                         <a class="act" href="<?= e(url('posible-form?id=' . (int)$p['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
+                        <?php // Sólo el propietario o un administrador (puedo_mandar_papelera(), registros.php). ?>
+                        <?php if (puedo_mandar_papelera('posible_cliente', $p)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="posible_cliente">
@@ -125,6 +149,7 @@ $colorEstado = [
                                     data-confirmar="«<?= e($nombre) ?>» se va a la papelera."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>

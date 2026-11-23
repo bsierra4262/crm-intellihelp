@@ -1,4 +1,22 @@
-<?php /** @var array $l @var array $data @var array $f @var array $usuarios */ ?>
+<?php
+// ============================================================
+//  Detalle de una lista de destinatarios (la renderiza pages/lista-ver.php).
+//
+//  Recibe:
+//    · $l        la lista (listas);
+//    · $data     lista_miembros(): rows, total y datos de paginación; cada
+//                fila trae el correo/nombre/empresa vivos del contacto (o la
+//                copia guardada si es un correo suelto) y las marcas
+//                dado_de_baja, email_rebotado y no_email;
+//    · $f        filtro actual (q, page);
+//    · $usuarios users_activos(), para el filtro por propietario.
+//
+//  Bloques: carga desde el filtro del CRM, carga de correos sueltos,
+//  buscador, tabla de miembros con su estado y el paginador compartido.
+//  Los tres formularios postean a la misma URL con un `accion` distinto.
+// ============================================================
+/** @var array $l @var array $data @var array $f @var array $usuarios */
+?>
 <div class="page-head" data-vivo="cabecera">
     <div>
         <h1><?= e($l['nombre']) ?></h1>
@@ -12,6 +30,7 @@
 
 <div class="card mb-4">
     <div class="card-head"><h2>Cargar contactos desde el CRM</h2></div>
+    <?php // «Dados de baja» acá son los marcados no_email (desuscribir() los marca así); los rebotados por email_rebotado. ?>
     <p class="muted small card-intro">
         Se agregan los contactos que cumplan el filtro y tengan correo cargado.
         Los que ya están en la lista, los dados de baja y los que rebotaron se saltean solos.
@@ -73,6 +92,7 @@
     </form>
 </div>
 
+<?php // El buscador va por GET y repite el id de la lista en un campo oculto. ?>
 <form class="filters card" method="get" action="<?= e(url('lista-ver')) ?>">
     <input type="hidden" name="id" value="<?= (int)$l['id'] ?>">
     <div class="filter-grid">
@@ -133,4 +153,5 @@
     </div>
 </div>
 
+<?php // El paginador compartido lee $data (page, paginas, total) del ámbito de esta vista. ?>
 <?php include APP . '/views/_pager.php'; ?>

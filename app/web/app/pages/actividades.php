@@ -1,7 +1,24 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Página `actividades`: el listado de tareas, llamadas y reuniones.
+//
+//  GET dibuja views/actividades.php con actividades_listar()
+//  (actividades.php). Vistas rápidas con `vista`: (vacía) pendientes, hoy,
+//  semana, vencidas, completadas. `vencidas=1` es el atajo del contador del
+//  panel.
+//
+//  Tablas: lee `actividades`, `usuarios`, `contactos`, `cuentas`.
+//  Módulo: `actividades`. Permisos: cualquier usuario con sesión ve las de
+//  todos cambiando el filtro de responsable.
+// ============================================================
+
 require_login();
 
+// Por defecto se ven las de quien entra: si el parámetro no vino, el filtro
+// de responsable es el usuario actual. `propietario_id=` vacío (la opción
+// «Todos») sí muestra las de todo el equipo.
 $f = [
     'q'              => trim((string)($_GET['q'] ?? '')),
     'tipo'           => $_GET['tipo'] ?? '',

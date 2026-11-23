@@ -2,6 +2,12 @@
 /**
  * Etiquetas de un registro: se ven y se editan en la misma ficha.
  *
+ * Se incluye desde las fichas, que definen $etqEntidad y $etqId antes del
+ * include. Consulta la base: etiquetas_de() y etiquetas_todas() (para las
+ * sugerencias del datalist). El formulario va a etiquetas-guardar.
+ * El color de la etiqueta se imprime dentro de un style; viene de la base y
+ * hoy no hay pantalla que lo cargue (sin color, violeta).
+ *
  * El subsistema estaba construido entero —tablas, funciones para asignar y
  * leer— y no había una sola pantalla que lo usara: no se podía etiquetar nada.
  *

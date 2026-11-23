@@ -1,9 +1,32 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Ruta: GET /papelera?entidad=... (sólo administrador). La papelera.
+//
+//  Lista lo que tiene `eliminado_en` en una de las tablas de
+//  tablas_papelera() (crm.php): contactos, cuentas, posibles, negocios,
+//  actividades, campañas, listas y plantillas, más los archivos adjuntos;
+//  hasta 300 filas. Restaurar se hace por POST a registro-eliminar
+//  (accion=restaurar), o a adjunto-subir para los archivos. El borrado definitivo
+//  lo hace el cron con purgar_papelera() (campanas.php) pasado el plazo de
+//  dias_papelera() (ajuste `papelera_dias`, 60 por defecto).
+//
+//  El nombre de tabla y el campo visible se interpolan en el SQL, pero los dos
+//  salen de listas fijas del código (la entidad pedida se valida contra
+//  tablas_papelera()). Vista: views/papelera.php.
+// ============================================================
 require_admin();
 
 $entidad = (string)($_GET['entidad'] ?? 'contacto');
+// Los adjuntos tienen su propia solapa: el borrado es lógico como el resto,
+// pero se restauran por adjunto-subir y los purga adjuntos_purgar() (que
+// además borra el archivo del disco), no purgar_papelera(). Por eso no están
+// en tablas_papelera(). Sólo con el módulo Adjuntos encendido.
 $defs    = tablas_papelera();
+if (ruta_habilitada('adjunto-subir')) {
+    $defs['adjunto'] = ['tabla' => 'adjuntos', 'etiqueta' => 'Archivo'];
+}
 if (!isset($defs[$entidad])) { $entidad = 'contacto'; }
 $tabla = $defs[$entidad]['tabla'];
 
@@ -42,6 +65,7 @@ if ($rows) {
     }
 }
 
+// Un contador por solapa: una consulta por tabla (son ocho, chicas).
 $conteos = [];
 foreach ($defs as $k => $d) {
     $conteos[$k] = (int) qv("SELECT COUNT(*) FROM {$d['tabla']} WHERE eliminado_en IS NOT NULL");

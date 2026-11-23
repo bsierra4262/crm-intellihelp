@@ -1,6 +1,24 @@
 <?php
+// ============================================================
+//  Parcial: panel lateral de actividades de un registro.
+//
+//  Lo incluyen las fichas (contacto-ver, cuenta-ver, posible-ver,
+//  negocio-ver) con `include`, así que ve las variables de la vista que lo
+//  incluye. Espera $actividades (de actividades_de(): las pendientes
+//  primero, hasta 20).
+//
+//  A qué registro pertenece no se pasa: se deduce de la ruta actual y del
+//  `id` de la dirección, igual que en _notas.php. Incluido desde otra ruta,
+//  el botón «Agendar» no aparece.
+//
+//  Cada fila pendiente tiene su botón de completar (POST a
+//  `actividad-completar`, que vuelve a la ficha por el Referer). Las
+//  completadas no tienen botón de reabrir acá; eso se hace en el listado.
+// ============================================================
 /** Panel lateral de actividades de un registro. Espera $actividades. */
 /** @var array $actividades */
+// Columna de `actividades` que corresponde a la ficha actual; también es el
+// parámetro con el que actividad-form precarga el vínculo.
 $param = match (current_route()) {
     'contacto-ver' => 'contacto_id',
     'cuenta-ver'   => 'cuenta_id',
@@ -23,6 +41,7 @@ $entId = (int)($_GET['id'] ?? 0);
         <?php foreach ($actividades as $a): [$txt, $cls] = actividad_vencimiento($a); ?>
             <div class="act-row">
                 <span class="ic">
+                    <?php // Ícono según el tipo; un tipo desconocido usa el de tareas. ?>
                     <?= icon(['tarea' => 'tareas', 'llamada' => 'llamadas', 'reunion' => 'agenda'][$a['tipo']] ?? 'tareas', 16) ?>
                 </span>
                 <div class="grow">

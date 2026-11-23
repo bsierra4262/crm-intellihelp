@@ -1,5 +1,22 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Pantalla «Reuniones reservadas» (ruta `reservas`, módulo 'agenda', con
+//  login).
+//
+//  Lista paginada (25 por página) de agenda_reservas con su tipo y quien la
+//  atiende, por defecto sólo las confirmadas de quien entró. Filtros por GET:
+//    · estado: confirmada | cancelada | reprogramada | vacío (todas)
+//    · q: busca en nombre, correo y empresa del invitado
+//    · todos=1: las de todo el equipo. Lo puede marcar cualquier usuario,
+//      no sólo un administrador (el CRM no reparte la información por dueño).
+//
+//  Además arma, por reserva, por dónde llegó (entradas_web) y si cae en un
+//  feriado. No escribe nada; las acciones de cada fila van a
+//  `reserva-mover` y `reserva-accion`. Vista: views/reservas.php.
+// ============================================================
+
 require_login();
 
 $f = [
@@ -34,15 +51,28 @@ $rows  = q("SELECT r.*, t.nombre AS tipo, u.nombre AS usuario
 // con lo que dice la propia reserva.
 $llego = [];
 try {
-    $raiz = [];
+    // raiz: id de la reserva => id de la primera de su cadena. Se sube un
+    // salto por vuelta para todas las filas de la página juntas: una consulta
+    // por nivel de reprogramación (hasta 20), no una por fila y salto.
+    $raiz  = [];
+    $prev  = [];
     foreach ($rows as $r) {
-        $id   = (int)$r['id'];
-        $prev = (int)($r['reprogramada_de'] ?? 0);
-        for ($i = 0; $prev > 0 && $i < 20; $i++) {
-            $id   = $prev;
-            $prev = (int) qv('SELECT reprogramada_de FROM agenda_reservas WHERE id = ?', [$prev]);
+        $raiz[(int)$r['id']] = (int)$r['id'];
+        $prev[(int)$r['id']] = (int)($r['reprogramada_de'] ?? 0);
+    }
+    for ($i = 0; $i < 20; $i++) {
+        $buscar = array_values(array_unique(array_filter($prev)));
+        if (!$buscar) { break; }
+        $ph = implode(', ', array_fill(0, count($buscar), '?'));
+        $padres = [];
+        foreach (q("SELECT id, reprogramada_de FROM agenda_reservas WHERE id IN ($ph)", $buscar)->fetchAll() as $f) {
+            $padres[(int)$f['id']] = (int)($f['reprogramada_de'] ?? 0);
         }
-        $raiz[(int)$r['id']] = $id;
+        foreach ($prev as $rid => $p) {
+            if ($p <= 0) { continue; }
+            $raiz[$rid] = $p;
+            $prev[$rid] = $padres[$p] ?? 0;
+        }
     }
     if ($raiz) {
         $ids = array_values(array_unique($raiz));
@@ -62,6 +92,7 @@ try {
 
 // Las reuniones que caen en un feriado (porque se tomaron antes de que se
 // declarara) se marcan, para que quien la atiende coordine con el invitado.
+// La fecha es la de la instalación (los primeros 10 caracteres de inicia_el).
 $feriados = [];
 if ($rows) {
     $fechas   = array_map(static fn(array $r): string => substr((string)$r['inicia_el'], 0, 10), $rows);

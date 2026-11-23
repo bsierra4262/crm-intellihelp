@@ -1,6 +1,25 @@
 <?php
+// ============================================================
+//  Vista: editor visual de plantillas. La pinta pages/plantilla-form.php.
+//  Variables:
+//    $p            la plantilla (o los valores iniciales si es nueva).
+//    $id           id; 0 si es nueva.
+//    $errores      campo => mensaje.
+//    $datos        {bloques, ajustes}: el estado del editor.
+//    $asuntoVista  el asunto con los datos de ejemplo.
+//    $chequeo      bloques_verificar() de la versión inicial.
+//    $preajustes   diseños prearmados; $imagenes las últimas 60 subidas.
+//  El editor lo maneja assets/js/editor.js: lee window.__editor, dibuja los
+//  bloques, guarda el JSON en el campo oculto `bloques` y pide la vista
+//  previa a plantilla-vista (que se muestra en un iframe con srcdoc y
+//  sandbox vacío: sin scripts y con un origen propio, aislado del CRM).
+//  El formulario manda siempre tipo=visual.
+//  Los comentarios HTML de las secciones (Paleta, Lienzo…) ya estaban y
+//  llegan al navegador; no se agregan más de ese tipo.
+// ============================================================
 /** @var ?array $p @var int $id @var array $errores @var array $datos
  *  @var string $asuntoVista @var array $chequeo @var array $preajustes @var array $imagenes */
+// Atajo: valor del campo ya escapado para meterlo en un atributo.
 $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
 ?>
 <div class="page-head">
@@ -22,7 +41,7 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
     <?= csrf_field() ?>
     <input type="hidden" name="tipo" value="visual">
     <input type="hidden" name="preajuste" value="<?= $v('preajuste') ?>">
-    <input type="hidden" name="bloques" id="campoBloques" value="<?= e(json_encode($datos, JSON_UNESCAPED_UNICODE)) ?>">
+    <input type="hidden" name="bloques" id="campoBloques" value="<?= e(json_encode($datos, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP)) ?>">
 
     <div class="card form-card">
         <div class="grid-fields">
@@ -101,7 +120,7 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
             <strong>Asunto:</strong> <span id="vistaAsunto"><?= e($asuntoVista) ?></span>
         </p>
         <div class="ed-preview" id="preview">
-            <iframe id="previewFrame" title="Vista previa del correo"></iframe>
+            <iframe id="previewFrame" title="Vista previa del correo" sandbox=""></iframe>
         </div>
         <p class="small muted mt-3 m-0">
             Se ve con datos de ejemplo (Juan Pérez, de ACME S.A.). En el envío real se reemplazan
@@ -122,16 +141,19 @@ $v = fn(string $k, $def = '') => e($p[$k] ?? $def);
     </div>
 </div>
 
+<?php // Datos para editor.js. Todo va con JSON_HEX_TAG y JSON_HEX_AMP: un «</script>» escrito ?>
+<?php // en un bloque (o en el nombre de una imagen) sale escapado (u003C) y no puede cortar este script. ?>
+<?php $jsonSeguro = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT; ?>
 <script>
 window.__editor = {
-    datos: <?= json_encode($datos, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>,
-    tipos: <?= json_encode(bloques_tipos(), JSON_UNESCAPED_UNICODE) ?>,
+    datos: <?= json_encode($datos, $jsonSeguro) ?>,
+    tipos: <?= json_encode(bloques_tipos(), $jsonSeguro) ?>,
     imagenes: <?= json_encode(array_map(fn($i) => [
-        'url' => url_abs('img?a=' . $i['archivo']), 'nombre' => $i['nombre']], $imagenes), JSON_UNESCAPED_SLASHES) ?>,
-    urlVista: <?= json_encode(url('plantilla-vista')) ?>,
-    urlImagenes: <?= json_encode(url('imagenes')) ?>,
-    csrf: <?= json_encode(csrf_token()) ?>,
-    chequeo: <?= json_encode($chequeo, JSON_UNESCAPED_UNICODE) ?>
+        'url' => url_abs('img?a=' . $i['archivo']), 'nombre' => $i['nombre']], $imagenes), $jsonSeguro) ?>,
+    urlVista: <?= json_encode(url('plantilla-vista'), $jsonSeguro) ?>,
+    urlImagenes: <?= json_encode(url('imagenes'), $jsonSeguro) ?>,
+    csrf: <?= json_encode(csrf_token(), $jsonSeguro) ?>,
+    chequeo: <?= json_encode($chequeo, $jsonSeguro) ?>
 };
 </script>
 <script defer src="<?= e(url('assets/js/editor.js')) ?>?v=<?= ASSETS_V ?>"></script>

@@ -2,6 +2,11 @@
 /**
  * Paginador reutilizable. Espera $data con page/paginas/total.
  * Mantiene los filtros actuales en la URL (query_con).
+ *
+ * Se incluye con include desde las vistas de listados (contactos, cuentas,
+ * cron, etc.), así que ve las variables de esa vista. $data es el resultado
+ * de paginar() más `total`. El selector de filas por página cambia `por`,
+ * que filas_por_pagina() recuerda en la sesión.
  */
 /** @var array $data */
 $page = (int)($data['page'] ?? 1);

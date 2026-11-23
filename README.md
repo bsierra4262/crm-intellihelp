@@ -172,14 +172,17 @@ La barra lateral se guarda y sale como cajón; las tablas pasan a tarjetas, una 
 ## Características
 
 - **Base comercial completa.** Empresas, contactos y posibles clientes con búsqueda global,
-  filtros, orden, paginación, exportación a CSV y ficha con listas relacionadas, notas,
-  actividades e historial.
+  filtros, orden, paginación, exportación a CSV (sólo administradores) y ficha con listas
+  relacionadas, notas, adjuntos, actividades e historial.
+- **Buscador con autocompletado** en los desplegables grandes (empresa, contacto, negocio,
+  campaña): se escribe y aparecen los registros que coinciden, sin listas cortadas. El valor
+  actual se conserva siempre, así que editar una ficha nunca borra un vínculo en silencio.
 - **Conversión de posible cliente.** Un clic convierte el contacto crudo en Empresa +
   Contacto + Negocio. Si la empresa o la persona ya existen, **las reutiliza en vez de
-  duplicarlas**, y arrastra notas, adjuntos y actividades.
+  duplicarlas**, y arrastra notas, adjuntos, actividades y etiquetas sin pisar lo que ya había.
 - **Embudo de ventas.** Etapas configurables con probabilidad, vista **Kanban**, ingreso
   ponderado calculado en la base, historial de cuánto tardó cada negocio en cada etapa y
-  motivo de pérdida.
+  motivo de pérdida. Los montos en pesos y en dólares se muestran siempre por separado.
 - **Pronóstico.** Objetivo del período contra lo ganado y contra el embudo ponderado, por
   vendedor.
 - **Actividades unificadas.** Tareas, llamadas y reuniones en una sola línea de tiempo, con
@@ -198,8 +201,10 @@ La barra lateral se guarda y sale como cajón; las tablas pasan a tarjetas, una 
 - **Migración desde Zoho sin duplicar.** Ver [Migración](#migración-desde-zoho-crm).
 - **Auditoría total.** Cada acción, acceso y error —del servidor y del navegador— queda
   registrado y es consultable.
-- **Nada se borra de golpe.** Todo borrado es lógico: el registro va a la papelera, se puede
-  restaurar durante **60 días** y recién después el sistema lo elimina de verdad.
+- **Nada se borra de golpe.** Todo borrado es lógico, también el de los adjuntos: el registro va
+  a la papelera, un administrador lo puede restaurar durante **60 días** (configurable) y recién
+  después el sistema lo elimina de verdad. Mandar a la papelera puede el propietario o un
+  administrador.
 - **Diseño profesional y responsive.** Sin scroll horizontal en ningún ancho, iconos SVG en
   línea y ventanas emergentes propias.
 
@@ -250,34 +255,44 @@ flowchart TD
     B -->|sí| OM
     B -->|no| S[Enviar por SMTP]
     S -->|enviado| OK[Enviado + Message-ID guardado]
-    S -->|5xx del servidor| RE[Rechazado · se marca el rebote]
+    S -->|5xx al destinatario| RE[Rechazado · se marca el rebote]
+    S -->|5xx del remitente o respuesta perdida| DU[Fallido o dudoso · sin reintento]
     S -->|error temporal| RT[Reintento con espera creciente]
-    OK --> PA[Pausa aleatoria 25–45 s]
+    OK --> PA[Pausa aleatoria · 25–45 s por defecto]
     PA --> CRON
-    IMAP[[Lectura IMAP cada 15 min]] --> RB[Rebotes y respuestas]
+    IMAP[[Lectura IMAP cada minuto con campañas en curso]] --> RB[Rebotes y respuestas]
     RB --> CT[(Contactos actualizados)]
 ```
 
 **Por qué así:**
 
-- **Pausa aleatoria de 25 a 45 segundos.** Por debajo, el ritmo se vuelve robótico y el
-  proveedor empieza a marcar spam; por encima, la campaña se hace eterna. Ese rango da unos
-  80–100 correos por hora, dentro de lo que un humano podría escribir.
-- **Un correo por campaña y por corrida del cron.** El ritmo lo marca el reloj del servidor,
-  no un bucle que podría cortarse a la mitad.
-- **`Message-ID` propio y guardado.** Es lo único que después permite cruzar un rebote o una
-  respuesta con el envío exacto que lo originó.
+- **Pausa aleatoria de 25 a 45 segundos** por defecto (configurable por campaña, desde 5 s).
+  Por debajo, el ritmo se vuelve robótico y el proveedor empieza a marcar spam; por encima, la
+  campaña se hace eterna. Ese rango da unos 80–100 correos por hora, dentro de lo que un humano
+  podría escribir.
+- **Varios correos por corrida del cron.** Cada corrida trabaja en vueltas de un minuto durante
+  unos 280 segundos y manda los que entren respetando la pausa; el tope diario y el cupo de la
+  casilla se miran antes de cada correo.
+- **Nunca un duplicado por un corte.** Justo antes de entregar el mensaje el envío queda marcado:
+  si el proceso se cae después, no se reenvía solo, queda como «dudoso» para revisar.
+- **`Message-ID` propio y guardado.** Las respuestas se cruzan por `In-Reply-To` /
+  `References` con el envío exacto que las originó (con un respaldo por dirección de 45 días), y
+  los rebotes por el `Message-ID` de la copia del original.
 - **Texto plano + HTML siempre.** Un correo sólo-HTML es una señal clásica de spam.
 - **Baja obligatoria.** Enlace propio en el cuerpo y cabecera `List-Unsubscribe` con soporte
   de un clic. Si la plantilla se olvida de incluirlo, el sistema lo agrega igual.
 - **Modo prueba real.** Mientras el sistema está en pruebas, ningún correo puede salir a un
-  destinatario que no esté en la lista blanca interna.
+  destinatario que no esté en la lista blanca: los usuarios activos del CRM más las direcciones
+  del ajuste `testing_lista_blanca`. El resto queda omitido con su motivo.
+- **Plantillas seguras.** Los datos de cada destinatario se escapan al armar el HTML y las vistas
+  previas corren aisladas del CRM; los correos entrantes se sanean con una lista blanca.
 
 La detección de rebotes reusa la lógica ya probada de Pulsemail: remitentes `mailer-daemon`,
 `postmaster` y `mail-daemon`, más una heurística por asunto para los servidores que no firman
 como daemon pero sí ponen «Delivery Status Notification» o «Correo no entregado». La dirección
-que falló se extrae del DSN (`Final-Recipient`) y **sólo cuenta si pertenece a una de nuestras
-campañas**: así los rebotes personales de la misma casilla no ensucian el CRM.
+que falló se toma del `Message-ID` del envío que viene en la copia del original o, si no, del
+DSN (`Final-Recipient`), y **sólo cuenta si pertenece a una de nuestras campañas**: así los
+rebotes personales de la misma casilla no ensucian el CRM.
 
 ### Limpieza automática de la base
 
@@ -465,6 +480,8 @@ SHA-256 del token y la clave completa se muestra una única vez.
 curl -H "X-API-Key: crm_..." https://intellihelp.tech/crm/api/estado
 ```
 
+Acepta claves de lectura (o la root), sólo `GET` y como mucho 60 pedidos por minuto por IP.
+
 Devuelve contactos, empresas, posibles clientes, negocios abiertos y su importe, actividades
 pendientes y vencidas, campañas activas y correos en cola, reuniones próximas y la última
 corrida del cron.
@@ -495,12 +512,15 @@ flowchart LR
 - **Clave con permiso «Escritura (web)»** y un secreto que se muestra una sola vez y se guarda
   cifrado. Una clave de lectura no escribe.
 - **Cada pedido va firmado**: `X-ITH-Signature = hex(HMAC-SHA256(secreto, ts + "\n" + MÉTODO +
-  "\n" + ruta + "\n" + cuerpo))`, con `X-ITH-Key`, `X-ITH-Timestamp` (±5 minutos) y, en las
+  "\n" + ruta + "\n" + idempotencia + "\n" + hash_ip + "\n" + cuerpo))`, con `X-ITH-Key`,
+  `X-ITH-Timestamp` (±5 minutos) y, en las
   escrituras, `X-ITH-Idempotency` y `X-ITH-Client-IP-Hash`. La ruta incluye la carpeta de la
   instalación: una firma de pruebas no sirve en producción.
 - **Idempotente**: si la web reintenta, la reserva no se duplica; el mismo pedido recibe la
   respuesta original y la misma clave con otro pedido, `409`.
 - **Límites** por clave y por visitante (hash de su IP, nunca la IP), con `429` y `Retry-After`.
+  El cupo de reservas por visitante cuenta sólo las que entran, con un tope aparte de 20 intentos
+  por hora.
 - **Siempre JSON**, también en los errores: `{ "ok": false, "error": "horario_tomado", "mensaje": "…" }`.
   Los errores inesperados devuelven un código `ERR-XXXXXX`, nunca la traza.
 - La pantalla **Entradas desde la web** muestra cada consulta y reserva con la página y el canal
@@ -512,7 +532,7 @@ flowchart LR
 | Capa | Tecnología |
 | --- | --- |
 | Backend | PHP 8.1+ (front controller propio, sin framework ni Composer) |
-| Base de datos | MySQL 8 / MariaDB 10.4+ (`utf8mb4`, columnas generadas) |
+| Base de datos | MariaDB 10.5+ (`utf8mb4`, columnas generadas; el hosting usa 11.8) |
 | Front-end | JavaScript sin build, CSS con variables de tema, fuente Saira |
 | Autenticación | OAuth 2.0 (Google Workspace) · API por token con permisos |
 | Correo | SMTP propio (sin dependencias) · IMAP para rebotes y respuestas |
@@ -531,14 +551,16 @@ app/
 │  │  └─ views/         # plantillas (layout + una por pantalla)
 │  ├─ assets/           # css, js, imágenes
 │  └─ .htaccess         # front controller + aislamiento del WordPress raíz
-├─ db/                  # schema.sql y migraciones
+├─ db/                  # schema.sql (42 tablas) y migraciones 002–019
 ├─ cron.php             # tareas periódicas (campañas, IMAP, reservas, recordatorios)
 ├─ migrar.php           # aplica una migración con la config de su instalación (CLI)
+├─ reinicio.php         # vacía y siembra la instalación de pruebas (CLI, con barreras)
 └─ server-config/       # config.example.php (el real no se versiona)
 bin/                    # deploy.py (subida, migraciones, pruebas, verificación de sintaxis)
-test/                   # run_tests.php · ui_test.php · smoke.sh · render.sh · api_test.php
-                        #   + verificar_unificacion.py (238 comprobaciones en total)
-md/                     # documento maestro, referencia de Zoho, requerimientos
+test/                   # run_tests.php (+ casos/, casos_db/) · ui_test.php · smoke.sh · render.sh
+                        #   · api_test.php · vivo_test.php · web_contrato_test.php
+                        #   · herramientas_test.py · verificar_unificacion.py
+md/                     # documento maestro, auditoría, referencia de Zoho, requerimientos
 docs/                   # banner y capturas de pantalla
 ```
 
@@ -547,15 +569,19 @@ docs/                   # banner y capturas de pantalla
 Resumen; el detalle está en [INSTALL.md](INSTALL.md).
 
 ```bash
-mysql -u USUARIO -p BASE < app/db/schema.sql        # esquema
-cp app/server-config/config.example.php app/server-config/config.php
-# completar credenciales de base y de Google
+mysql -u USUARIO -p BASE < app/db/schema.sql        # esquema completo (42 tablas), base vacía
+cp app/server-config/config.example.php app/server-config/crm-pruebas.php
+# completar credenciales de base y de Google (config.php para producción)
 
 export CRM_SSH_HOST=... CRM_SSH_USER=... CRM_SSH_PASS=...
-python bin/deploy.py config     # config.php fuera del web root (600)
-python bin/deploy.py app        # la aplicación al web root
-python bin/deploy.py check      # sintaxis PHP de lo desplegado
+python bin/deploy.py config --pruebas     # crm-pruebas.php fuera del web root (600)
+python bin/deploy.py app --pruebas        # la aplicación al web root
+python bin/deploy.py check --pruebas      # sintaxis PHP de lo desplegado
 ```
+
+Todo comando de `deploy.py` lleva el destino escrito a propósito (`--pruebas` o
+`--produccion`); sin destino no hace nada. Una instalación existente se actualiza con las
+migraciones (`deploy.py migrar … --pruebas|--produccion`), hoy hasta la 019.
 
 Y agendar la tarea automática cada 5 minutos:
 
@@ -568,12 +594,17 @@ Y agendar la tarea automática cada 5 minutos:
 Regla del proyecto: **cada defecto detectado incorpora un test** para impedir su reaparición.
 
 ```bash
-php test/run_tests.php               # 138 casos de lógica pura, sin base ni red
-bash test/smoke.sh [url] [usr/tipo]  # comprobaciones HTTP contra el sitio desplegado
+php test/run_tests.php               # 1187 casos de lógica (test/casos/ y test/casos_db/)
+bash test/smoke.sh [url] [usr/tipo]  # 71 comprobaciones HTTP contra el sitio desplegado
 php  test/api_test.php               # la API v1 de punta a punta (sólo contra pruebas)
-bash test/render.sh                  # 35 pantallas ejecutadas de verdad, con sesión
-php  test/ui_test.php                # 57 reglas de interfaz, responsive y sesión
+bash test/render.sh [--produccion]   # 61 pantallas ejecutadas de verdad, con sesión (pruebas por defecto)
+php  test/vivo_test.php [--produccion] # el refresco automático (pruebas por defecto)
+php  test/ui_test.php                # 334 reglas de interfaz, sesión y seguridad
+php  test/web_contrato_test.php      # 24 comprobaciones del contrato con la web
+python test/herramientas_test.py     # 21 pruebas de deploy.py y las herramientas de migración
 python test/verificar_unificacion.py # 14 aserciones sobre la base unificada
+
+python bin/deploy.py test --pruebas  # run_tests, ui_test, smoke y api_test en el servidor
 ```
 
 - **`run_tests.php`** cubre la normalización de la base de Zoho (con los casos reales que trae
@@ -584,8 +615,13 @@ python test/verificar_unificacion.py # 14 aserciones sobre la base unificada
   la idempotencia, las consultas duplicadas, los límites de envíos, la ventana y los huecos de
   la agenda, el token del formulario y la invitación `.ics`. Para los feriados: la lectura del
   calendario oficial, el feriado nacional y el regional, el trasladable que se mueve, el puente,
-  la fuente caída o incompleta, la reserva rechazada y el aviso al responsable. Lo que necesita base corre contra
-  una SQLite en memoria; en local hace falta cargar `mbstring`, `openssl` y `pdo_sqlite`.
+  la fuente caída o incompleta, la reserva rechazada y el aviso al responsable. Desde los arreglos
+  de la auditoría suma un archivo de casos por área (`test/casos/` y `test/casos_db/`): permisos,
+  papelera, importador, conversión, agenda, Google, campañas con un SMTP falso, IMAP con un
+  servidor de mentira, saneado del HTML entrante, Ajustes, cron y `reinicio.php`.
+  Lo que necesita base corre contra una SQLite en memoria (cada archivo de `casos_db` arranca
+  con las tablas base y borra lo que crea); hace falta `mbstring`, `openssl` y `pdo_sqlite`, y
+  sin `pdo_sqlite` la corrida falla salvo `CRM_TEST_SIN_BASE=1`.
 - **`smoke.sh`** verifica que **toda ruta privada exija sesión**, que las públicas respondan,
   que la API rechace sin clave, que la API v1 **rechace lo que no viene firmado**, que la agenda
   pública **descarte lo que completa el campo trampa** y que el código de la aplicación **no se
@@ -596,7 +632,9 @@ python test/verificar_unificacion.py # 14 aserciones sobre la base unificada
   de pruebas, y al terminar cancela la reserva y borra todo lo que creó.
 - **`render.sh`** arma una sesión de administrador y **ejecuta cada pantalla de verdad**. Es lo
   que atrapa una función inexistente o una variable que la vista espera y nadie pasó: cosas que
-  `php -l` no puede ver. Ya encontró dos defectos antes de que llegaran a producción.
+  `php -l` no puede ver. Ya encontró dos defectos antes de que llegaran a producción. Corre por
+  defecto contra la instalación de pruebas; contra producción hace falta `--produccion`, y el
+  usuario de prueba se borra siempre al terminar.
 - **`verificar_unificacion.py`** comprueba la base unificada: que ningún correo quede repetido
   en dos fichas de la misma persona, que no se haya perdido ni un contacto de Zoho y que la
   geografía haya quedado normalizada. Encontró tres defectos del unificador, entre ellos que

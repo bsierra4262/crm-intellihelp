@@ -1,4 +1,7 @@
 <?php /** @var string $enCurso @var array $reloj @var array $f @var array $data @var array $resumen @var array $conteo @var string $ultima */
+// Vista de la bitácora (sección CRON), desde pages/cron.php: tarjetas de
+// resumen, estado del proceso periódico y del reloj, filtros y tabla
+// paginada. $tipos son las solapas de filtro por la columna `tipo`.
 $tipos = ['' => 'Todo', 'accion' => 'Acciones', 'nav' => 'Navegación', 'auth' => 'Accesos',
           'error' => 'Errores', 'sistema' => 'Sistema'];
 ?>

@@ -17,6 +17,11 @@
 --    día. Queda la fila para que la sincronización no lo vuelva a agregar.
 --
 --  Es idempotente: se puede correr muchas veces.
+--
+--  La usan app/feriados.php (sincronización y consultas), pages/feriados.php
+--  y, a través de feriados_del_rango(), la agenda. Sin esta tabla la agenda
+--  sigue funcionando sin descontar feriados (feriados_asegurar() ignora el
+--  error 42S02 de tabla inexistente).
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS `feriados` (
@@ -27,15 +32,24 @@ CREATE TABLE IF NOT EXISTS `feriados` (
   `jurisdiccion`   VARCHAR(20)  NOT NULL DEFAULT 'nacional',
   `origen`         ENUM('auto','manual') NOT NULL DEFAULT 'auto',
   `ignorado`       TINYINT(1)   NOT NULL DEFAULT 0,
+  -- Usuario que lo cargó a mano; NULL en los que trae la sincronización.
+  -- Sin clave foránea: si se borra el usuario, la fila queda igual.
   `creado_por`     BIGINT UNSIGNED DEFAULT NULL,
   `creado_en`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `actualizado_en` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  -- Un feriado por día y jurisdicción: dos del mismo día se guardan en una
+  -- sola fila con los dos nombres (feriados_parsear()).
   UNIQUE KEY `ux_feriado_dia` (`fecha`, `jurisdiccion`),
   KEY `ix_feriado_vigente` (`ignorado`, `fecha`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Ajustes nuevos. No pisan lo que ya esté cargado.
+--   · feriados_activo: '0' apaga el descuento de feriados en la agenda;
+--   · feriados_sincronizado_en: última sincronización buena (Y-m-d H:i:s);
+--   · feriados_intento_en: último intento, bueno o malo (para no reintentar
+--     enseguida contra una fuente caída);
+--   · feriados_ultimo_error: el motivo del último intento fallido, para la pantalla.
 INSERT INTO `app_settings` (`clave`, `valor`) VALUES
     ('feriados_activo',          '1'),
     ('feriados_jurisdiccion',    'CABA'),

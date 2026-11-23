@@ -1,6 +1,26 @@
 <?php
+// ============================================================
+//  Vista de «Entradas desde la web» (pages/entradas-web.php).
+//
+//  Variables que recibe:
+//    · $f         filtros de la dirección (q, tipo, canal, pagina, estado,
+//                 desde, hasta, orden, page);
+//    · $data      entradas_web_listar(): ['rows' => filas, 'total' => n, …
+//                 lo que usa _pager.php];
+//    · $canales   tarjetas por canal (agendadas, realizadas, canceladas, consultas);
+//    · $opCanal   / $opPagina  valores distintos para los desplegables;
+//    · $usuarios  usuarios activos (para el responsable y para nombrar al automático);
+//    · $dueno     id elegido en `web_dueno_id` (0 = automático);
+//    · $duenoAuto id que tocaría en automático;
+//    · $esAdmin   muestra el formulario de responsable y el botón Exportar.
+//
+//  Todo lo que vino de la web (nombre, correo, canal, UTM, páginas) se
+//  escapa con e(): son datos que escribió un visitante cualquiera.
+// ============================================================
 /** @var array $f @var array $data @var array $canales @var array $opCanal @var array $opPagina
  *  @var array $usuarios @var int $dueno @var int $duenoAuto @var bool $esAdmin */
+// Textos de cada valor guardado: tipo de entrada, estado de la entrada
+// (clase del distintivo y texto) y estado de la reunión enlazada.
 $tipos   = ['consulta' => 'Consulta', 'reserva' => 'Reunión'];
 $estados = [
     'ok'         => ['badge-ok',      'Entró'],
@@ -21,9 +41,12 @@ foreach ($usuarios as $u) { $nombreDe[(int)$u['id']] = $u['nombre']; }
         <h1>Entradas desde la web</h1>
         <p class="muted"><?= number_format($data['total'], 0, ',', '.') ?> consultas y reuniones que llegaron de intellihelp.tech</p>
     </div>
+    <?php // Exportar baja datos personales: sólo administración (el servidor también lo controla). ?>
+    <?php if ($esAdmin): ?>
     <div class="head-actions">
         <a class="btn btn-ghost" href="<?= e(url('entradas-web' . query_con(['exportar' => 1]))) ?>"><?= icon('descargar', 16) ?>Exportar</a>
     </div>
+    <?php endif; ?>
 </div>
 
 <?php /* Lo que la consultora mira cada mes, canal por canal. Se calcula con los
@@ -152,6 +175,7 @@ foreach ($usuarios as $u) { $nombreDe[(int)$u['id']] = $u['nombre']; }
                     por el que llegó.</td></tr>
             <?php else: foreach ($data['rows'] as $r): ?>
                 <?php
+                // «google / cpc»: fuente y medio de la campaña, los que haya.
                 $fuente = implode(' / ', array_filter([(string)$r['utm_source'], (string)$r['utm_medium']], 'strlen'));
                 [$clase, $txt] = $estados[$r['estado']] ?? ['badge-neutral', $r['estado']];
                 ?>
@@ -202,6 +226,7 @@ foreach ($usuarios as $u) { $nombreDe[(int)$u['id']] = $u['nombre']; }
                     <td data-label="Campaña" class="prio-3"><?= e($r['utm_campaign'] ?: '—') ?></td>
                     <td data-label="Responsable" class="prio-4"><?= e($r['propietario'] ?: '—') ?></td>
                     <td data-label="Estado" class="w-estado">
+                        <?php // El motivo técnico del error (p. ej. «horario_tomado», «duplicada de la entrada 12») va en el title. ?>
                         <span class="badge <?= $clase ?>" <?= $r['error'] ? 'title="' . e($r['error']) . '"' : '' ?>><?= e($txt) ?></span>
                     </td>
                 </tr>

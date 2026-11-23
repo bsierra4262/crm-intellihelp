@@ -24,6 +24,11 @@ declare(strict_types=1);
 //  con lo que ya está en la base, se espera un rato antes de volver a probar y
 //  la consulta tiene un tiempo de espera corto. Lo peor que pasa con la fuente
 //  caída es que un feriado decretado ayer tarde un poco más en aparecer.
+//
+//  Quién lo usa: agenda.php (feriados_del_rango() al calcular huecos y al
+//  reservar), la API v1 (feriados_para_api()), pages/feriados.php y el cron
+//  (feriados_asegurar(true)). Tabla: feriados (migración 009) y los ajustes
+//  feriados_* de app_settings. Módulo: Agenda.
 // ============================================================
 
 /** Calendario oficial de feriados nacionales; se le agrega el año. */
@@ -35,8 +40,16 @@ const FERIADOS_VIGENCIA_SEG = 86400;
 /** Después de una consulta fallida, cuánto se espera para probar de nuevo. */
 const FERIADOS_REINTENTO_SEG = 900;
 
-/** Tiempo de espera de la consulta al vuelo (la del cron espera más). */
-const FERIADOS_TIMEOUT_SEG = 3;
+/**
+ * Tiempo de espera de la consulta al vuelo (la del cron espera más). Es por
+ * año consultado, pero al vuelo se corta en el primer año que falla
+ * (feriados_sincronizar() con $cortarAlFallar): con la fuente caída, un
+ * visitante espera como mucho esto una vez, y después nadie durante
+ * FERIADOS_REINTENTO_SEG. Corto a propósito: la reserva de la web, con la
+ * verificación de Google, tiene que entrar en los 10 s que espera la web.
+ */
+const FERIADOS_TIMEOUT_SEG = 2;
+/** Tiempo de espera del cron y del botón «Actualizar ahora». */
 const FERIADOS_TIMEOUT_CRON_SEG = 15;
 
 /**
@@ -45,6 +58,10 @@ const FERIADOS_TIMEOUT_CRON_SEG = 15;
  */
 const FERIADOS_MINIMO_ANIO = 10;
 
+/**
+ * Tipos de feriado y su texto. Las claves son las que usa la fuente; un tipo
+ * desconocido se guarda como 'inamovible' (feriados_parsear()).
+ */
 const FERIADOS_TIPOS = [
     'inamovible'   => 'Inamovible',
     'trasladable'  => 'Trasladable',
@@ -272,10 +289,15 @@ function feriados_descargar(int $anio, int $timeout = FERIADOS_TIMEOUT_SEG, ?str
  * $fuente: fn(int $anio): ?array con el formato de feriados_parsear(). Por
  * defecto, feriados_descargar(). Las pruebas pasan una que simula la fuente.
  *
+ * $cortarAlFallar: si un año no responde, los siguientes ni se consultan
+ * (quedan en `fallidos`). Es la sincronización al vuelo, con un visitante
+ * esperando: con la fuente caída, esperar un año que falla alcanza.
+ *
  * @param int[]|null $anios por defecto el actual y el siguiente
  * @return array{agregados:array,quitados:array,actualizados:int,anios:int[],fallidos:int[],error:?string}
  */
-function feriados_sincronizar(?array $anios = null, ?callable $fuente = null, int $timeout = FERIADOS_TIMEOUT_SEG): array
+function feriados_sincronizar(?array $anios = null, ?callable $fuente = null, int $timeout = FERIADOS_TIMEOUT_SEG,
+                              bool $cortarAlFallar = false): array
 {
     $anios ??= [(int)date('Y'), (int)date('Y') + 1];
     $errores = [];
@@ -288,8 +310,13 @@ function feriados_sincronizar(?array $anios = null, ?callable $fuente = null, in
     $res = ['agregados' => [], 'quitados' => [], 'actualizados' => 0, 'anios' => [], 'fallidos' => [], 'error' => null];
     setting_set('feriados_intento_en', date('Y-m-d H:i:s'));
 
+    $cortado = false;
     foreach ($anios as $anio) {
         $anio = (int)$anio;
+        if ($cortado) {
+            $res['fallidos'][] = $anio;
+            continue;
+        }
         try {
             $oficial = $fuente($anio);
         } catch (\Throwable $e) {
@@ -299,6 +326,9 @@ function feriados_sincronizar(?array $anios = null, ?callable $fuente = null, in
         if (!is_array($oficial) || count($oficial) < FERIADOS_MINIMO_ANIO) {
             if (is_array($oficial)) { $errores[] = $anio . ': calendario incompleto (' . count($oficial) . ' días)'; }
             $res['fallidos'][] = $anio;
+            // Sólo una fuente que no respondió corta; un calendario incompleto
+            // es una respuesta, y el otro año puede estar bien.
+            $cortado = $cortarAlFallar && !is_array($oficial);
             continue;
         }
 
@@ -361,6 +391,10 @@ function feriados_hay_datos(int $anio): bool
  * $forzar es el botón «Actualizar ahora» de la pantalla de feriados.
  *
  * @return array|null el resultado de feriados_sincronizar(), o null si no tocaba
+ *                    o si otro proceso está sincronizando. Si algo lanzó una
+ *                    excepción (queda en log_error), con $forzar devuelve un
+ *                    resultado con `error` para que la pantalla diga la verdad;
+ *                    sin $forzar, null (la agenda sigue igual).
  */
 function feriados_asegurar(bool $diaria = false, bool $forzar = false, ?callable $fuente = null): ?array
 {
@@ -380,19 +414,32 @@ function feriados_asegurar(bool $diaria = false, bool $forzar = false, ?callable
         // Una sola sincronización a la vez: el resto sigue con lo que hay.
         if (!feriados_bloquear()) { return null; }
         try {
-            return feriados_sincronizar(null, $fuente, $diaria || $forzar ? FERIADOS_TIMEOUT_CRON_SEG : FERIADOS_TIMEOUT_SEG);
+            $alVuelo = !$diaria && !$forzar;
+            return feriados_sincronizar(null, $fuente, $alVuelo ? FERIADOS_TIMEOUT_SEG : FERIADOS_TIMEOUT_CRON_SEG, $alVuelo);
         } finally {
             feriados_liberar();
         }
     } catch (\Throwable $e) {
         // Sin la migración 009 todavía no hay tabla: la agenda sigue como antes.
-        if (!($e instanceof \PDOException && $e->getCode() === '42S02')) {
+        $sinTabla = $e instanceof \PDOException && $e->getCode() === '42S02';
+        if (!$sinTabla) {
             log_error('feriados.asegurar', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine());
         }
-        return null;
+        if (!$forzar) { return null; }
+        return ['agregados' => [], 'quitados' => [], 'actualizados' => 0, 'anios' => [], 'fallidos' => [],
+                'error' => $sinTabla ? 'falta aplicar la migración 009' : 'falla interna, quedó registrada en la auditoría'];
     }
 }
 
+/**
+ * Toma el bloqueo con nombre de MySQL para sincronizar, sin esperar (0 s).
+ *
+ * El nombre lleva la base: producción y pruebas comparten servidor MySQL y no
+ * se tienen que frenar entre sí. El bloqueo es de la conexión: si el proceso
+ * muere, MySQL lo suelta solo.
+ *
+ * @return bool true si lo tomó (o si la base no soporta bloqueos)
+ */
 function feriados_bloquear(): bool
 {
     try {
@@ -404,6 +451,7 @@ function feriados_bloquear(): bool
     }
 }
 
+/** Suelta el bloqueo de feriados_bloquear(). Nunca lanza. */
 function feriados_liberar(): void
 {
     try { q("DO RELEASE_LOCK(CONCAT(DATABASE(), ':feriados'))"); } catch (\Throwable $e) {}

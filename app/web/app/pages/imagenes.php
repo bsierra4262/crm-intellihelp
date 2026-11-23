@@ -2,6 +2,23 @@
 declare(strict_types=1);
 require_admin();
 
+// ============================================================
+//  Ruta: /imagenes  (sólo administradores; módulo «campanas»).
+//  Galería de imágenes para las plantillas: subir y borrar.
+//    · POST con accion=borrar → borra el archivo y la fila de `imagenes`,
+//      salvo que alguna plantilla la use (también las de la papelera, que se
+//      pueden restaurar): en ese caso no se borra y se dice cuáles. Los
+//      correos ya entregados que la mostraban sí quedan con la imagen rota
+//      (el aviso de confirmación lo dice).
+//    · POST con archivo → valida y guarda.
+//  Validación de la subida: el tipo se decide por getimagesize() (el
+//  contenido real, no la extensión ni el tipo que manda el navegador); sólo
+//  JPG, PNG, GIF o WEBP (nada de SVG, que puede traer código); tope de
+//  400 KB; nombre en disco al azar con la extensión que corresponde al tipo
+//  detectado. El nombre original sólo se guarda como etiqueta.
+//  Los archivos los sirve la ruta pública `img` (pages/img.php).
+// ============================================================
+
 $aviso = null;
 
 // Las imágenes se guardan en disco, fuera del web root, y se sirven por la
@@ -14,7 +31,16 @@ if (is_post()) {
 
     if (($_POST['accion'] ?? '') === 'borrar') {
         $im = q1('SELECT * FROM imagenes WHERE id = ?', [(int)($_POST['id'] ?? 0)]);
-        if ($im) {
+        // ¿La usa alguna plantilla? `archivo` es hexadecimal + extensión, sin
+        // comodines de LIKE, así que se puede buscar tal cual.
+        $usan = $im ? q('SELECT nombre FROM plantillas WHERE bloques LIKE ? OR cuerpo_html LIKE ? ORDER BY nombre LIMIT 6',
+                        ['%' . $im['archivo'] . '%', '%' . $im['archivo'] . '%'])->fetchAll(PDO::FETCH_COLUMN) : [];
+        if ($im && $usan) {
+            flash('No se borró: la usan las plantillas «' . implode('», «', $usan) . '». '
+                . 'Sacala de esas plantillas primero.', 'error');
+        } elseif ($im) {
+            // `archivo` lo generó el propio sistema (hexadecimal + extensión),
+            // así que no puede apuntar fuera de la carpeta.
             @unlink($dir . '/' . $im['archivo']);
             q('DELETE FROM imagenes WHERE id = ?', [(int)$im['id']]);
             log_app('imagen.borrar', ['detalle' => $im['nombre']]);
@@ -27,6 +53,7 @@ if (is_post()) {
     if (!$f || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         $aviso = ['error', 'No llegó ninguna imagen.'];
     } else {
+        // Si no es una imagen, getimagesize devuelve false y $mime queda vacío.
         $info = @getimagesize($f['tmp_name']);
         $mimes = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
         $mime  = $info['mime'] ?? '';

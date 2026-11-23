@@ -2,6 +2,21 @@
 declare(strict_types=1);
 require_login();
 
+// ============================================================
+//  Ruta: GET /api-campana[?id=N]  (con sesión; módulo «campanas»).
+//  Responde JSON. La consultan cada seis segundos las pantallas de
+//  campañas y de una campaña (atributos data-vivo, script en app.js).
+//    · con id: las cifras de esa campaña y el estado de los destinatarios
+//      que la pantalla tiene a la vista (`envios=1,2,3`, hasta 100; sin el
+//      parámetro, los primeros 50 de la cola);
+//    · sin id: las cifras de las campañas de la primera página del listado,
+//      contadas con una sola consulta agrupada (campanas_cifras).
+//  Lee campanas y envios (vía campana_get / campanas_listar) y el ajuste
+//  `cron_en_curso_desde` que escribe app/cron.php mientras corre.
+//  No chequea rol ni propietario: cualquier usuario ve cualquier campaña
+//  (la base se comparte en el equipo).
+// ============================================================
+//
 // Estado de las campañas en curso, para que la pantalla se actualice sola.
 //
 // Una campaña manda un correo cada 25-45 segundos y una corrida dura varios
@@ -16,7 +31,11 @@ header('Cache-Control: no-store');
 
 $id = (int)($_GET['id'] ?? 0);
 
-/** Cifras de una campaña, contadas sobre la cola. */
+/**
+ * Cifras de una campaña, contadas sobre la cola.
+ * Recibe una fila de campana_get() o campanas_listar(); `reuniones` sale de
+ * la columna de la tabla (la suma agenda.php).
+ */
 $cifras = static function (array $c): array {
     $total = (int)$c['total'];
     return [
@@ -51,9 +70,21 @@ if ($id > 0) {
     $c = campana_get($id);
     if (!$c) { json_out(['ok' => false], 404); }
 
-    // El estado de cada destinatario, para actualizar la tabla sin recargar.
+    // El estado de los destinatarios que la pantalla tiene a la vista, para
+    // actualizar la tabla sin recargar. Antes era TODA la cola en cada
+    // consulta (cada seis segundos), aunque la pantalla muestre de a 50.
+    $ids = array_slice(array_values(array_unique(array_filter(array_map('intval',
+               explode(',', (string)($_GET['envios'] ?? '')))))), 0, 100);
+    if ($ids) {
+        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $sql = "SELECT id, estado, enviado_en, respondido_en FROM envios WHERE campana_id = ? AND id IN ($ph)";
+        $par = array_merge([$id], $ids);
+    } else {
+        $sql = 'SELECT id, estado, enviado_en, respondido_en FROM envios WHERE campana_id = ? ORDER BY id LIMIT 50';
+        $par = [$id];
+    }
     $filas = [];
-    foreach (q('SELECT id, estado, enviado_en, respondido_en FROM envios WHERE campana_id = ?', [$id])->fetchAll() as $e) {
+    foreach (q($sql, $par)->fetchAll() as $e) {
         $filas[] = [
             'id'        => (int)$e['id'],
             'estado'    => (string)$e['estado'],

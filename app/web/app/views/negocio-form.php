@@ -1,6 +1,26 @@
 <?php
+// ============================================================
+//  Vista del formulario de negocio (alta y edición).
+//
+//  La dibuja pages/negocio-form.php y postea a la misma ruta. Recibe:
+//    $n         los datos del negocio (o lo precargado / lo recién enviado)
+//    $id        0 en el alta
+//    $errores   campo => mensaje
+//    $usuarios  usuarios activos más el propietario actual si está de baja
+//    $etapas    etapas del embudo del negocio (en un alta, del
+//               predeterminado), con la actual aunque esté desactivada
+//    $cuentas, $contactos, $campanas  sólo el valor ya vinculado (cero o una
+//               fila {id, nombre, detalle}): el resto se busca al escribir
+//
+//  Los desplegables siempre contienen el valor guardado, así que guardar sin
+//  tocar nada no cambia la etapa, la empresa, el contacto, la campaña ni el
+//  propietario. Empresa, contacto y campaña llevan data-buscar: buscador.js
+//  los convierte en campos que buscan al escribir (data-nativo="1" hace que
+//  selects.js no los envuelva).
+// ============================================================
 /** @var ?array $n @var int $id @var array $errores @var array $usuarios @var array $etapas
  *  @var array $cuentas @var array $contactos @var array $campanas */
+// Atajo para los value=: el dato del negocio ya escapado, o $def si no hay.
 $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
 ?>
 <div class="page-head">
@@ -11,7 +31,8 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
 </div>
 
 <?php if ($errores): ?>
-    <div class="flash flash-error">Revisá los campos marcados: <?= e(implode(' ', $errores)) ?></div>
+    <div class="flash flash-error"><?= isset($errores['general']) && count($errores) === 1
+        ? e($errores['general']) : 'Revisá los campos marcados: ' . e(implode(' ', $errores)) ?></div>
 <?php endif; ?>
 
 <form method="post" class="form-wrap">
@@ -24,21 +45,24 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
                 <input name="nombre" value="<?= $v('nombre') ?>" maxlength="200" required autofocus placeholder="Renovacion de equipamiento - Distribuidora del Sur">
                 <?php if (isset($errores['nombre'])): ?><i class="hint bad"><?= e($errores['nombre']) ?></i><?php endif; ?>
             </label>
+            <?php // Las etapas del embudo del propio negocio, con la actual aunque esté desactivada. ?>
             <label class="fld"><span>Etapa</span>
                 <select name="etapa_id">
                     <?php foreach ($etapas as $et): ?>
                         <option value="<?= (int)$et['id'] ?>" <?= (string)($n['etapa_id'] ?? '') === (string)$et['id'] ? 'selected' : '' ?>>
-                            <?= e($et['nombre']) ?> (<?= (int)$et['probabilidad'] ?> %)
+                            <?= e($et['nombre']) ?> (<?= (int)$et['probabilidad'] ?> %)<?= !empty($et['inactiva']) ? ' · desactivada' : '' ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
-                <i class="hint">La probabilidad se toma de la etapa salvo que la cambies abajo.</i>
+                <i class="hint">Al cambiar la etapa, la probabilidad pasa a ser la de la etapa nueva, salvo que también la cambies abajo.</i>
             </label>
+            <?php // Se precarga con la probabilidad guardada. negocio_guardar(): vacía, o igual a la que tenía cuando cambió la etapa, toma la de la etapa. ?>
             <label class="fld"><span>Probabilidad (%)</span>
                 <input type="number" name="probabilidad" value="<?= $v('probabilidad') ?>" min="0" max="100" placeholder="según la etapa">
                 <i class="hint">Qué tan probable es cerrarlo, de 0 a 100. Si lo dejás vacío toma la de la etapa. Es lo que multiplica el importe en el «ponderado» de Reportes.</i>
             </label>
 
+            <?php // type="number": el navegador manda punto decimal y sin separador de miles, que es lo que espera negocio_guardar(). ?>
             <label class="fld"><span>Importe</span>
                 <input type="number" name="importe" value="<?= $v('importe', '0') ?>" inputmode="decimal" step="0.01" min="0">
                 <i class="hint">Cuánto vale el negocio si se cierra. Es lo que suma en el embudo y en el pronóstico.</i>
@@ -54,6 +78,7 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
                 <input type="date" name="fecha_cierre" value="<?= $v('fecha_cierre') ?>">
                 <i class="hint">Cuándo esperás cerrarlo. Es lo que ubica el negocio en el pronóstico del mes.</i>
             </label>
+            <?php // Usuarios activos más el dueño actual si está dado de baja (lo agrega la página). ?>
             <label class="fld"><span>Propietario</span>
                 <select name="propietario_id">
                     <?php foreach ($usuarios as $u): ?>
@@ -68,20 +93,22 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
     <div class="card form-card">
         <h2 class="sec">Con quién</h2>
         <div class="grid-fields">
+            <?php // Sólo la empresa vinculada; las demás se buscan al escribir (buscador.js). ?>
             <label class="fld wide"><span>Empresa</span>
-                <select name="cuenta_id">
+                <select name="cuenta_id" data-buscar="cuenta" data-nativo="1" data-placeholder="Escribí el nombre de la empresa…">
                     <option value="">— Sin empresa —</option>
                     <?php foreach ($cuentas as $cu): ?>
-                        <option value="<?= (int)$cu['id'] ?>" <?= (string)($n['cuenta_id'] ?? '') === (string)$cu['id'] ? 'selected' : '' ?>><?= e($cu['nombre']) ?></option>
+                        <option value="<?= (int)$cu['id'] ?>" selected><?= e($cu['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
-                <i class="hint">La empresa que compra.</i>
+                <i class="hint">La empresa que compra. Escribí parte del nombre y elegila de la lista.</i>
             </label>
+            <?php // Igual que la empresa. El contacto no se filtra por la empresa elegida. ?>
             <label class="fld wide"><span>Contacto principal</span>
-                <select name="contacto_id">
+                <select name="contacto_id" data-buscar="contacto" data-nativo="1" data-placeholder="Escribí el nombre o el correo…">
                     <option value="">— Sin contacto —</option>
                     <?php foreach ($contactos as $ct): ?>
-                        <option value="<?= (int)$ct['id'] ?>" <?= (string)($n['contacto_id'] ?? '') === (string)$ct['id'] ? 'selected' : '' ?>><?= e($ct['nombre_completo']) ?></option>
+                        <option value="<?= (int)$ct['id'] ?>" selected><?= e($ct['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Con quién se está hablando. Suele ser quien decide o quien lleva el tema adentro.</i>
@@ -104,11 +131,12 @@ $v = fn(string $k, $def = '') => e($n[$k] ?? $def);
                 </select>
                 <i class="hint">De dónde salió la oportunidad.</i>
             </label>
+            <?php // Sólo la campaña vinculada; las demás se buscan al escribir. ?>
             <label class="fld wide"><span>Campaña de origen</span>
-                <select name="campana_id">
+                <select name="campana_id" data-buscar="campana" data-nativo="1" data-placeholder="Escribí el nombre de la campaña…">
                     <option value="">— Ninguna —</option>
                     <?php foreach ($campanas as $ca): ?>
-                        <option value="<?= (int)$ca['id'] ?>" <?= (string)($n['campana_id'] ?? '') === (string)$ca['id'] ? 'selected' : '' ?>><?= e($ca['nombre']) ?></option>
+                        <option value="<?= (int)$ca['id'] ?>" selected><?= e($ca['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Sirve para medir qué campaña trae plata de verdad.</i>

@@ -6,12 +6,34 @@
    renderizador. Así la vista previa es exactamente lo que se va a enviar, y no
    una aproximación que después no coincide.
    ============================================================ */
+// Dónde corre: sólo en views/plantilla-form.php (pantalla de plantillas,
+// módulo Campañas), que lo carga con `defer` y deja antes en
+// `window.__editor` la configuración:
+//   · datos     {bloques:[…], ajustes:{…}} con lo guardado o el preajuste;
+//   · tipos     bloques_tipos() de bloques.php: nombre y ayuda de cada tipo;
+//   · imagenes  [{url, nombre}] de la biblioteca de imágenes;
+//   · urlVista  ruta `plantilla-vista`, que devuelve {ok, html, asunto, chequeo};
+//   · urlImagenes, csrf y chequeo (el chequeo inicial).
+// Si no está `window.__editor`, el archivo no hace nada (por eso se puede
+// incluir en cualquier página).
+//
+// Elementos del DOM que espera: #lienzo, #lienzoVacio, #campoBloques
+// (campo oculto que viaja con el formulario: el estado entero en JSON),
+// #propTitulo, #propCuerpo, #previewFrame, #campoAsunto, #vistaAsunto,
+// #preview, #chequeoCuerpo y #chequeoResumen.
+//
+// Seguridad: todo lo que escribe el usuario pasa por escapar() antes de ir a
+// innerHTML. La vista previa se carga en un iframe por srcdoc con sandbox
+// vacío (en views/plantilla-form.php): sin scripts y con un origen propio,
+// así que ni un HTML malicioso podría tocar la sesión del CRM.
 (function () {
     'use strict';
 
     var cfg = window.__editor;
     if (!cfg) { return; }
 
+    // Estado único del editor. Todo cambio pasa por acá y después se
+    // repinta (lienzo, panel) y se pide la vista previa (refrescar).
     var estado = cfg.datos && cfg.datos.bloques ? cfg.datos : { bloques: [], ajustes: {} };
     if (!Array.isArray(estado.bloques)) { estado.bloques = []; }
     if (!estado.ajustes) { estado.ajustes = {}; }
@@ -23,10 +45,21 @@
     var propT     = document.getElementById('propTitulo');
     var propC     = document.getElementById('propCuerpo');
     var marco     = document.getElementById('previewFrame');
+    // La vista previa es HTML armado por el servidor con lo que escribió el
+    // usuario: se muestra en un marco aislado, sin scripts ni acceso al CRM
+    // (los bloques ya escapan el texto; esto es la segunda capa). Los enlaces
+    // pueden abrirse en otra pestaña.
+    if (marco) { marco.setAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox'); }
 
     // --------------------------------------------------------
     //  Qué campos tiene cada bloque. Es el espejo del renderizador de PHP:
     //  si allá se agrega una propiedad, acá se agrega el campo.
+    //
+    //  Cada campo es [clave, tipo de control, etiqueta, opciones]. Tipos:
+    //  texto, area, numero, color, alineacion, opcion e imagen (ver
+    //  campoHTML). Opciones: ph (placeholder), ayuda, filas, min, max y
+    //  opciones (para 'opcion'). Un tipo de bloque que no esté acá se puede
+    //  mover y borrar, pero no tiene nada para editar.
     // --------------------------------------------------------
     var ESQUEMA = {
         encabezado: [
@@ -104,6 +137,7 @@
         espacio: [['alto', 'numero', 'Alto (px)', { min: 4, max: 90 }]]
     };
 
+    // Ajustes generales del correo: se editan cuando no hay bloque elegido.
     var AJUSTES = [
         ['marca', 'color', 'Color principal'],
         ['acento', 'color', 'Color de acento'],
@@ -115,6 +149,11 @@
          { filas: 2, ayuda: 'Es la línea gris que se ve en la bandeja, al lado del asunto. Si no la ponés, el cliente muestra el principio del correo.' }]
     ];
 
+    /**
+     * Una línea que identifica al bloque en el lienzo: su primer texto
+     * significativo, recortado a 70 caracteres. Para WhatsApp y Agenda dice
+     * adónde lleva el botón.
+     */
     function resumen(b) {
         if (b.tipo === 'whatsapp') { return (b.texto || 'WhatsApp') + ' → ' + (b.telefono || 'el de Ajustes'); }
         if (b.tipo === 'agenda')   { return (b.texto || 'Agendar una reunión') + ' → tu agenda pública'; }
@@ -126,6 +165,11 @@
     // --------------------------------------------------------
     //  Lienzo
     // --------------------------------------------------------
+    /**
+     * Redibuja la lista de bloques de la izquierda desde cero. Cada bloque
+     * guarda su posición en data-i; los botones de cada uno (subir, bajar,
+     * duplicar, quitar) se atienden por delegación en el click global.
+     */
     function pintarLienzo() {
         lienzo.innerHTML = '';
         vacio.hidden = estado.bloques.length > 0;
@@ -149,6 +193,7 @@
         });
     }
 
+    /** Escapa texto para meterlo en HTML, también dentro de atributos entre comillas dobles. */
     function escapar(s) {
         return String(s == null ? '' : s)
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -157,6 +202,23 @@
     // --------------------------------------------------------
     //  Panel de propiedades
     // --------------------------------------------------------
+    /**
+     * Arma el HTML de un campo del panel de propiedades.
+     *
+     * Todos los controles llevan data-campo="<clave>"; el listener de
+     * `input` del panel usa eso para escribir en el bloque o en los ajustes.
+     * El de color son dos controles con la misma clave (selector + texto) que
+     * se copian entre sí. La alineación son botones (se atiende en el click).
+     * clave y las opciones salen de ESQUEMA/AJUSTES, no del usuario: por eso
+     * van sin escapar; el valor y los textos sí se escapan.
+     *
+     * @param {string} clave    propiedad del bloque
+     * @param {string} tipo     texto | area | numero | color | alineacion | opcion | imagen
+     * @param {string} etiqueta rótulo visible
+     * @param {Object} ops      ph, ayuda, filas, min, max, opciones
+     * @param {*}      valor    valor actual
+     * @returns {string} HTML del <label class="fld">
+     */
     function campoHTML(clave, tipo, etiqueta, ops, valor) {
         ops = ops || {};
         var id = 'f_' + clave;
@@ -196,6 +258,11 @@
         return h + '</label>';
     }
 
+    /**
+     * Redibuja el panel de la derecha: los campos del bloque elegido o, si no
+     * hay ninguno, los ajustes generales. Anota en data-destino a quién van
+     * los cambios ('bloque' o 'ajustes'); destino() lo lee.
+     */
     function pintarProps() {
         if (seleccion === null || !estado.bloques[seleccion]) {
             propT.textContent = 'Ajustes del correo';
@@ -218,6 +285,7 @@
         propC.dataset.destino = 'bloque';
     }
 
+    /** El objeto que se está editando: estado.ajustes o el bloque elegido. */
     function destino() {
         return propC.dataset.destino === 'ajustes' ? estado.ajustes : estado.bloques[seleccion];
     }
@@ -226,27 +294,84 @@
     //  Vista previa: la arma el servidor, no el navegador
     // --------------------------------------------------------
     var pendiente = null;
+    // Número de pedido de vista previa: sólo se pinta la respuesta del
+    // último. Si una vieja tarda más que la nueva, se descarta al llegar.
+    var pedidoN = 0;
+
+    /**
+     * Muestra (o saca, con texto vacío) un aviso arriba de la vista previa
+     * cuando no se pudo actualizar: sin esto la vista quedaba congelada sin
+     * que nadie se diera cuenta.
+     */
+    function avisoVista(texto) {
+        var cont = marco ? marco.parentNode : null;
+        if (!cont) { return; }
+        var av = document.getElementById('avisoVista');
+        if (!texto) { if (av) { av.hidden = true; } return; }
+        if (!av) {
+            av = document.createElement('div');
+            av.id = 'avisoVista';
+            av.className = 'flash flash-warn';
+            av.setAttribute('role', 'status');
+            cont.parentNode.insertBefore(av, cont);
+        }
+        av.textContent = texto;
+        av.hidden = false;
+    }
+
+    /**
+     * Copia el estado al campo oculto (así el formulario siempre manda lo
+     * último) y, 400 ms después del último cambio, pide al servidor el HTML
+     * de la vista previa, el asunto con las variables reemplazadas y el
+     * chequeo.
+     *
+     * Sólo se pinta la respuesta del pedido más reciente. Si el servidor no
+     * contesta JSON (la sesión venció y devolvió el login, o hubo un error),
+     * se avisa arriba de la vista previa en vez de dejarla congelada.
+     */
     function refrescar() {
         campo.value = JSON.stringify(estado);
         clearTimeout(pendiente);
         pendiente = setTimeout(function () {
+            var n = ++pedidoN;
             var cuerpo = new URLSearchParams();
             cuerpo.set('_csrf', cfg.csrf);
             cuerpo.set('bloques', campo.value);
             cuerpo.set('asunto', (document.getElementById('campoAsunto') || {}).value || '');
             fetch(cfg.urlVista, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
                 body: cuerpo.toString()
-            }).then(function (r) { return r.json(); }).then(function (d) {
-                if (!d || !d.ok) { return; }
+            }).then(function (r) {
+                var tipo = r.headers.get('Content-Type') || '';
+                if (r.redirected || tipo.indexOf('json') === -1) { throw new Error('sesion'); }
+                return r.json();
+            }).then(function (d) {
+                if (n !== pedidoN) { return; }   // llegó tarde: ya hay uno más nuevo
+                if (!d || !d.ok) {
+                    avisoVista('No se pudo actualizar la vista previa' + (d && d.error ? ': ' + d.error : '.'));
+                    return;
+                }
+                avisoVista('');
                 marco.srcdoc = d.html;
                 document.getElementById('vistaAsunto').textContent = d.asunto || '(sin asunto)';
                 pintarChequeo(d.chequeo);
-            }).catch(function () {});
+            }).catch(function (err) {
+                if (n !== pedidoN) { return; }
+                avisoVista(err && err.message === 'sesion'
+                    ? 'La vista previa no se actualiza: la sesión venció. Guardá una copia de lo escrito y recargá la página.'
+                    : 'La vista previa no se actualiza: no hay conexión con el servidor. Se reintenta con el próximo cambio.');
+            });
         }, 400);
     }
 
+    /**
+     * Muestra el resultado de bloques_verificar(): errores, avisos (cada uno
+     * [título, detalle]) y las métricas del correo (peso, palabras, imágenes,
+     * enlaces). El límite de 102 KB es el de Gmail, que corta el correo más
+     * pesado con «Mensaje recortado».
+     */
     function pintarChequeo(ch) {
         if (!ch) { return; }
         var c = document.getElementById('chequeoCuerpo');
@@ -276,10 +401,18 @@
 
     // --------------------------------------------------------
     //  Eventos
+    //
+    //  Un solo listener de click en todo el documento, por delegación: los
+    //  elementos se vuelven a crear en cada repintado, así que no se les
+    //  puede colgar un listener propio. El orden de los `if` importa: los
+    //  botones de un bloque están DENTRO del bloque y se atienden antes que
+    //  el click que lo selecciona.
     // --------------------------------------------------------
     document.addEventListener('click', function (e) {
         var add = e.target.closest('[data-agregar]');
         if (add) {
+            // Cada bloque nuevo arranca con un contenido de ejemplo, para que
+            // se vea en la vista previa apenas se agrega.
             var t = add.dataset.agregar;
             var nuevo = { tipo: t };
             if (t === 'texto')  { nuevo.texto = 'Escribí acá tu mensaje.'; }
@@ -335,6 +468,8 @@
             return;
         }
 
+        // Las chapitas de variables ({{nombre}}…) se copian al portapapeles.
+        // Sin API de portapapeles (HTTP plano) no copia, pero igual parpadea.
         var vr = e.target.closest('.ed-var');
         if (vr) {
             navigator.clipboard && navigator.clipboard.writeText(vr.dataset.var);
@@ -343,10 +478,14 @@
         }
     });
 
+    /** Intercambia dos bloques de lugar (subir y bajar). */
     function intercambiar(a, b) {
         var t = estado.bloques[a]; estado.bloques[a] = estado.bloques[b]; estado.bloques[b] = t;
     }
 
+    // Cada tecla en el panel escribe directo en el estado. Se repinta el
+    // lienzo (por el resumen) pero no el panel, para no perder el foco ni la
+    // posición del cursor. Los números quedan guardados como texto.
     propC.addEventListener('input', function (e) {
         var c = e.target.dataset.campo;
         if (!c) { return; }
@@ -365,6 +504,10 @@
 
     // --------------------------------------------------------
     //  Reordenar arrastrando
+    //
+    //  Se saca el bloque de su lugar y se inserta en la posición del bloque
+    //  sobre el que se soltó. Arrastrando hacia abajo queda DESPUÉS de ese
+    //  bloque (el índice ya se corrió uno al sacarlo); hacia arriba, antes.
     // --------------------------------------------------------
     var origen = null;
     lienzo.addEventListener('dragstart', function (e) {
@@ -401,6 +544,14 @@
     // --------------------------------------------------------
     //  Selector de imágenes
     // --------------------------------------------------------
+    /**
+     * Abre la galería de imágenes subidas y, al elegir una, guarda su URL
+     * absoluta en la propiedad `clave` del bloque (o de los ajustes). Sin
+     * imágenes, ofrece ir a la pantalla de Imágenes en otra pestaña. El modal
+     * se arma acá mismo y se destruye al cerrar.
+     *
+     * @param {string} clave propiedad a llenar ('src' o 'logo')
+     */
     function elegirImagen(clave) {
         if (!cfg.imagenes.length) {
             window.crmConfirmar({
@@ -437,7 +588,8 @@
     }
 
     // --------------------------------------------------------
-    //  Arranque
+    //  Arranque: se pinta todo con el chequeo que trajo la página y se pide
+    //  una vista previa fresca.
     // --------------------------------------------------------
     pintarLienzo();
     pintarProps();

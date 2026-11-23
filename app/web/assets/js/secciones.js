@@ -13,7 +13,7 @@
  * reemplaza sólo las que cambiaron. No hay un endpoint por pantalla: la
  * pantalla ya sabe dibujarse, se le pide que lo haga de nuevo.
  *
- * Casi siempre no cambió nada, y esas respuestas vuelven vacías (304): no
+ * Casi siempre no cambió nada, y esas respuestas vuelven vacías (204): no
  * viajan datos y no se toca el HTML. Recién cuando algo cambió de verdad se
  * reemplaza la zona y se marca en amarillo un segundo, para que se vea qué se
  * movió en vez de que los números salten solos.
@@ -23,6 +23,25 @@
  *   · no toca nada mientras hay un diálogo abierto;
  *   · no cuenta como actividad para el cierre de sesión (eso lo impone el
  *     servidor): una pantalla olvidada tiene que cerrarse igual.
+ *
+ * Quién lo carga: layout.php, con `defer`, sólo con sesión iniciada, en todas
+ * las pantallas. Si la pantalla no tiene ninguna zona [data-vivo], termina
+ * enseguida sin consultar nada.
+ *
+ * Del lado del servidor: vivo_pedido() detecta el `__vivo=1` y vivo_responder()
+ * (helpers.php) contesta sólo el cuerpo de la vista, sin el layout, con una
+ * primera línea `<!--vivo:HUELLA-->` (md5 del cuerpo). Esa huella vuelve en el
+ * parámetro `__h` del pedido siguiente; si coincide, el servidor contesta 204
+ * sin cuerpo. bootstrap.php no cuenta estos pedidos como actividad y, si la
+ * sesión venció, les contesta 440.
+ *
+ * Al reemplazar una zona dispara en `document` el evento `vivo:actualizado`,
+ * que escuchan app.js (recortes y selección múltiple) y selects.js (vuelve a
+ * envolver los desplegables nuevos).
+ *
+ * El HTML nuevo se inserta con innerHTML: es el mismo que el servidor ya
+ * dibuja en la página completa, con el mismo escape. Los <script> que traiga
+ * no se ejecutan.
  */
 (function () {
     'use strict';
@@ -42,10 +61,18 @@
         huella  = null,   // huella de lo último que se recibió
         pidiendo = false;
 
+    // La dirección de refresco es la de la página con `__vivo=1`: mismos
+    // filtros, misma página del listado, mismo orden.
     var url = new URL(window.location.href);
     url.searchParams.set('__vivo', '1');
 
-    /** ¿Se puede reemplazar esta zona sin arruinarle nada a quien la mira? */
+    /**
+     * ¿Se puede reemplazar esta zona sin arruinarle nada a quien la mira?
+     *
+     * @param {Element} zona
+     * @returns {boolean} false si tiene el foco adentro, algo desplegado o un
+     *   texto seleccionado; esa zona se saltea en esta vuelta.
+     */
     function seguro(zona) {
         var act = doc.activeElement;
         // Estás escribiendo acá adentro: reemplazarla borraría lo que escribiste.
@@ -63,6 +90,9 @@
      *
      * Sin esto los números cambian solos y el ojo no lo registra: mirás la
      * pantalla, había un 3, ahora hay un 4, y no sabés si siempre fue 4.
+     *
+     * @param {Element} zona la zona recién reemplazada; la clase .vivo-cambio
+     *   (app.css) se quita sola a los 1,6 s, lo que dura la animación.
      */
     function resaltar(zona) {
         zona.classList.remove('vivo-cambio');
@@ -71,13 +101,31 @@
         setTimeout(function () { zona.classList.remove('vivo-cambio'); }, 1600);
     }
 
+    /**
+     * Toma la respuesta del servidor y reemplaza las zonas que cambiaron.
+     *
+     * Cada zona de la pantalla se busca en la respuesta por su nombre
+     * (data-vivo="nombre"); si no está, se deja como está. Si hay varias zonas
+     * con el mismo nombre (por ejemplo, dos con data-vivo vacío), se aparean
+     * por orden de aparición: la segunda de la pantalla con la segunda de la
+     * respuesta, y así.
+     *
+     * Lo último que mandó el servidor para cada zona se guarda en la propiedad
+     * `__servidor` del propio elemento.
+     *
+     * @param {string} html cuerpo de la vista devuelto por vivo_responder().
+     */
     function aplicar(html) {
         var doc2 = new DOMParser().parseFromString(html, 'text/html');
         var cambio = false;
+        // Cuántas zonas de cada nombre se recorrieron ya, para aparear por orden.
+        var vistas = {};
 
         doc.querySelectorAll('[data-vivo]').forEach(function (zona) {
             var nombre = zona.getAttribute('data-vivo');
-            var nueva  = doc2.querySelector('[data-vivo="' + nombre + '"]');
+            var n = vistas[nombre] = (vistas[nombre] || 0) + 1;
+            var nuevas = doc2.querySelectorAll('[data-vivo="' + nombre.replace(/["\\]/g, '\\$&') + '"]');
+            var nueva  = nuevas[n - 1];
             if (!nueva) { return; }
 
             // Se compara contra lo ÚLTIMO QUE MANDÓ EL SERVIDOR, no contra lo
@@ -118,6 +166,13 @@
         }
     }
 
+    /**
+     * Cambia el ritmo de consulta. Si el ritmo es el mismo y el reloj sigue
+     * andando no hace nada; si el reloj se había cortado (tres fallos), lo
+     * vuelve a arrancar.
+     *
+     * @param {number} nuevo milisegundos entre consultas.
+     */
     function reprogramar(nuevo) {
         if (nuevo === ritmo && timer) { return; }
         ritmo = nuevo;
@@ -125,6 +180,15 @@
         timer = setInterval(consultar, ritmo);
     }
 
+    /**
+     * Pide la pantalla de nuevo y aplica lo que cambió.
+     *
+     * Respuestas: 204 = no cambió nada (tras seis seguidas se pasa al ritmo
+     * lento); 440/401/403 = sesión vencida o sin permiso, se recarga la página
+     * entera y el servidor decide adónde mandar; otro error = fallo, y tras
+     * tres seguidos se corta el reloj hasta que la pestaña vuelva a verse.
+     * La marca `pidiendo` evita dos consultas en vuelo a la vez.
+     */
     function consultar() {
         if (doc.hidden || pidiendo) { return; }   // nadie mirando, o ya hay una en vuelo
         pidiendo = true;
@@ -178,5 +242,7 @@
     });
 
     // Después de guardar algo desde la propia pantalla conviene mirar ya.
+    // Sirve para los formularios que no navegan; los que sí navegan reemplazan
+    // la página antes de que pase el plazo.
     doc.addEventListener('submit', function () { setTimeout(consultar, 900); }, true);
 })();

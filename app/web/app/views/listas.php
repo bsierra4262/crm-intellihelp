@@ -1,4 +1,15 @@
-<?php /** @var array $rows */ ?>
+<?php
+// ============================================================
+//  Índice de listas de destinatarios (la renderiza pages/listas.php).
+//
+//  Recibe $rows: listas_listar(), con `categoria`, `categoria_color` y la
+//  cantidad de `miembros` de cada lista.
+//
+//  La baja de una lista se hace por POST a `registro-eliminar` (papelera
+//  genérica, entidad 'lista'), que vuelve a `listas`.
+// ============================================================
+/** @var array $rows */
+?>
 <div class="page-head" data-vivo="cabecera">
     <div>
         <h1>Listas de destinatarios</h1>
@@ -21,6 +32,7 @@
                 <tr>
                     <td data-label="Lista"><a href="<?= e(url('lista-ver?id=' . (int)$l['id'])) ?>"><strong><?= e($l['nombre']) ?></strong></a></td>
                     <td data-label="Segmento">
+                        <?php // El fondo es el color del segmento con «1f» agregado: el mismo tono con 12 % de opacidad. ?>
                         <?php if ($l['categoria']): ?>
                             <span class="chip" style="background:<?= e($l['categoria_color']) ?>1f;color:<?= e($l['categoria_color']) ?>"><?= e($l['categoria']) ?></span>
                         <?php else: ?><span class="muted">—</span><?php endif; ?>
@@ -29,6 +41,9 @@
                     <td data-label="Descripción" class="prio-2"><?= e(recortar($l['descripcion'], 60) ?: '—') ?></td>
                     <td data-label="Creada" class="prio-3"><?= fecha_corta($l['creado_en']) ?></td>
                     <td class="acts" data-label="Acciones">
+                        <?php // El plazo es el ajuste papelera_dias (dias_papelera()), no un número fijo. ?>
+                        <?php // La papelera: quien creó el registro (o su responsable) o un administrador; el servidor igual lo controla. ?>
+                        <?php if (puedo_mandar_papelera('lista', $l)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="lista">
@@ -36,9 +51,10 @@
                             <input type="hidden" name="volver" value="listas">
                             <button class="act danger" title="Enviar a la papelera" data-peligro
                                     data-confirmar-titulo="Enviar a la papelera"
-                                    data-confirmar="La lista &laquo;<?= e($l['nombre']) ?>&raquo; deja de estar a la vista. Los contactos no se borran. Se puede restaurar durante 60 días."
+                                    data-confirmar="La lista &laquo;<?= e($l['nombre']) ?>&raquo; deja de estar a la vista. Los contactos no se borran. Se puede restaurar durante <?= (int)dias_papelera() ?> días."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
 
                         <a class="act" href="<?= e(url('lista-ver?id=' . (int)$l['id'])) ?>" title="Ver miembros"><?= icon('contactos', 16) ?></a>
                         <a class="act" href="<?= e(url('lista-form?id=' . (int)$l['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>

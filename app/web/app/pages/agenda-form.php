@@ -1,5 +1,26 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Alta y edición de un tipo de reunión (ruta `agenda-form?id=N`, módulo
+//  'agenda', con login). Sin id, crea uno nuevo.
+//
+//  GET: arma el formulario con el tipo y su horario laboral (o con los
+//  valores por defecto: 30 min, lunes a viernes de 9 a 18, zona de Argentina).
+//  POST: valida (CSRF; agenda_tipo_validar(): nombre de hasta 120, al menos
+//  un día, días 0-6, horas 'HH:MM' en orden, zona que exista; slug que no
+//  repita otro tipo del mismo dueño ni el de otro usuario con la misma parte
+//  local del correo) y guarda con agenda_tipo_guardar(), que además recorta
+//  el slug a 60; si sale bien, redirige a `agenda`.
+//
+//  Permisos: cada quien edita sus tipos; un administrador, los de todos, y es
+//  el único que puede elegir sobre qué calendario (usuario) cae el tipo.
+//
+//  Escribe agenda_tipos y agenda_horarios (a través de agenda.php).
+//  Vista: views/agenda-form.php, que recibe t, id, errores, porDia, duenioU,
+//  conectado y candidatos.
+// ============================================================
+
 require_login();
 
 $id  = (int)($_GET['id'] ?? 0);
@@ -18,6 +39,8 @@ if (!$id) {
           'zona_horaria' => AGENDA_ZONA_DEFECTO];
 }
 
+// porDia: dia (0 = domingo) => ['H:i', 'H:i']. Si un día tuviera varias
+// franjas en la base, el formulario sólo muestra la última (admite una por día).
 $horarios = $id ? agenda_horarios_de($id) : [];
 $porDia   = [];
 foreach ($horarios as $h) {
@@ -31,12 +54,21 @@ if (!$id) {
 // Quién es el dueño del calendario donde caen las reuniones. Hasta ahora esto
 // no se veía en ningún lado: la reunión se creaba en el calendario de quien
 // había armado el tipo, y no había forma de saber cuál era ni de comprobar que
-// esa cuenta tuviera Google conectado. Si no lo tiene, la reserva se toma igual
-// y el evento no se crea: el cliente recibe su enlace y la empresa no se entera.
+// esa cuenta tuviera Google conectado. Si no lo tiene, la agenda no puede leer
+// lo ocupado (gcal_ocupado() devuelve null) y no ofrece ningún horario: ni la
+// página pública ni la web toman reservas. Lo que agenda el equipo sin validar
+// el hueco sí se guarda, pero sin evento ni Meet.
 $duenio   = (int)($t['usuario_id'] ?? $uid);
 $duenioU  = q1('SELECT id, nombre, email FROM usuarios WHERE id = ?', [$duenio]) ?: [];
 $conectado = $duenio ? google_conectado($duenio) : false;
+// Sólo el administrador ve el selector de calendario. Si el dueño actual ya
+// no está activo, se suma a la lista (marcado «inactivo») para que el
+// selector arranque en él: si no, guardar sin mirar cambiaba el dueño del tipo.
 $candidatos = auth_is_admin() ? users_activos() : [];
+if ($candidatos && $duenioU && !in_array((int)$duenioU['id'], array_map('intval', array_column($candidatos, 'id')), true)) {
+    array_unshift($candidatos, ['id' => (int)$duenioU['id'], 'nombre' => $duenioU['nombre'] . ' (inactivo)',
+                                'email' => $duenioU['email']]);
+}
 
 $errores = [];
 
@@ -48,40 +80,29 @@ if (is_post()) {
     // cambiar el número en el formulario para agendar sobre el calendario ajeno.
     $pedido = (int)($_POST['usuario_id'] ?? 0);
     $d['usuario_id'] = (auth_is_admin() && $pedido > 0) ? $pedido : $uid;
-    if (trim((string)($d['nombre'] ?? '')) === '') { $errores['nombre'] = 'Poné un nombre.'; }
-    if (empty($d['dias'])) { $errores['dias'] = 'Marcá al menos un día de la semana.'; }
-
-    // El horario de cada día tiene que ir de menor a mayor. Si viene al revés se
-    // rechaza con un error en el campo, en vez de descartar la fila en silencio.
-    $diasNombre = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-    foreach ((array)($d['dias'] ?? []) as $dia) {
-        $desde = (string)($d['desde'][$dia] ?? '');
-        $hasta = (string)($d['hasta'][$dia] ?? '');
-        if ($desde !== '' && $hasta !== '' && $desde >= $hasta) {
-            $errores['dias'] = 'En ' . ($diasNombre[(int)$dia] ?? 'ese día')
-                             . ' la hora de fin tiene que ser posterior a la de inicio.';
-            break;
-        }
-    }
-
-    // La zona tiene que existir: con una inventada, el cálculo de los horarios
-    // caía en la de Argentina sin que nadie se enterara.
-    if (!in_array((string)($d['zona_horaria'] ?? ''), DateTimeZone::listIdentifiers(), true)) {
-        $errores['zona_horaria'] = 'Elegí la zona horaria de la lista.';
-    }
+    // Nombre, días, horas y zona: lo mismo que limita el formulario, pero
+    // controlado acá, porque un POST armado a mano llega igual.
+    $errores = agenda_tipo_validar($d);
 
     // Dos tipos con el mismo nombre generan el mismo enlace público y chocan
     // contra la restricción de la base: antes eso salía como un error 500.
     // Se comprueba contra el dueño del calendario elegido, que no siempre es
     // quien edita: un administrador puede armar el tipo para otra persona.
+    // También contra otro usuario con la misma parte local del correo en otro
+    // dominio: la URL /r/<usuario>/<slug> sería la misma para los dos.
     if (!isset($errores['nombre'])) {
-        $slug = slugificar((string)(($d['slug'] ?? null) ?: $d['nombre'] ?? ''));
+        $slugPedido = $d['slug'] ?? null;
+        $slug = slugificar((string)((is_string($slugPedido) && $slugPedido !== '' ? $slugPedido : null)
+                                    ?: (string)($d['nombre'] ?? '')));
         $rep  = qv('SELECT id FROM agenda_tipos WHERE usuario_id = ? AND slug = ?'
                  . ($id ? ' AND id <> ?' : ''),
                    $id ? [(int)$d['usuario_id'], $slug, $id] : [(int)$d['usuario_id'], $slug]);
         if ($rep) {
             $errores['nombre'] = 'Ya tenés un tipo de reunión con ese nombre, y el enlace público '
                                . 'sería el mismo. Poné otro nombre.';
+        } elseif (agenda_slug_choca_usuario((int)$d['usuario_id'], $slug, $id ?: null)) {
+            $errores['nombre'] = 'Otra persona del equipo con el mismo usuario de correo ya usa ese enlace '
+                               . 'público. Poné otro nombre o cambiá la dirección del enlace.';
         }
     }
 
@@ -90,10 +111,14 @@ if (is_post()) {
         flash($id ? 'Tipo de reunión actualizado.' : 'Tipo de reunión creado. Ya podés compartir el enlace.', 'success');
         redirect('agenda');
     }
+    // Con errores se vuelve a dibujar el formulario con lo que se mandó.
     $t = array_merge($t ?? [], $d);
     $porDia = [];
     foreach ((array)($d['dias'] ?? []) as $dia) {
-        $porDia[(int)$dia] = [$d['desde'][$dia] ?? '09:00', $d['hasta'][$dia] ?? '18:00'];
+        if (!is_scalar($dia)) { continue; }
+        $desde = $d['desde'][$dia] ?? '09:00';
+        $hasta = $d['hasta'][$dia] ?? '18:00';
+        $porDia[(int)$dia] = [is_string($desde) ? $desde : '09:00', is_string($hasta) ? $hasta : '18:00'];
     }
 }
 

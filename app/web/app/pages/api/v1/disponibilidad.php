@@ -16,6 +16,16 @@ declare(strict_types=1);
 //  Si no se pudo leer el calendario de Google no se publica nada (503): sin
 //  ver el calendario no hay forma de saber qué está ocupado, y la web muestra
 //  el formulario de siempre.
+//
+//  Contrato: md/INTEGRACION-WEB.md §5.5. Firma obligatoria (clave de
+//  escritura), sin idempotencia ni hash de IP: un GET no cambia nada. Límite:
+//  120 pedidos por minuto por clave; no hay límite por visitante porque el
+//  GET no trae el hash de su IP (la web tiene su propia caché de 60 s).
+//  Módulo: Agenda (503 modulo_apagado si está apagado).
+//  Depende de agenda.php (agenda_tipo_publico, agenda_huecos_rango,
+//  agenda_zona) y feriados.php (feriados_para_api). No escribe nada propio
+//  salvo la auditoría y, de rebote, la caché de freeBusy y la sincronización
+//  de feriados si tocaba.
 // ============================================================
 
 try {
@@ -38,6 +48,9 @@ try {
         api_error(400, 'parametros_invalidos', 'El vendedor no es válido.', ['campos' => ['vendedor' => 'Formato inválido.']]);
     }
 
+    // Fecha AAAA-MM-DD real (el ida y vuelta descarta un 2026-02-31 que PHP
+    // correría al 3 de marzo). El rango se lee en la zona del servidor; la
+    // ventana del tipo (antelación, ventana_dias) la recorta agenda_huecos_rango().
     $fecha = static function (string $v): ?DateTimeImmutable {
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) { return null; }
         $d = DateTimeImmutable::createFromFormat('!Y-m-d', $v);
@@ -72,6 +85,8 @@ try {
     }
 
     // ---- Huecos ----
+    // Con la caché de freeBusy (AGENDA_CACHE_HORARIOS): lo que se muestra
+    // puede tener hasta ese atraso; la reserva vuelve a mirar Google sin caché.
     $motivo = null;
     $huecos = agenda_huecos_rango($tipo, $desde->format('Y-m-d'), $hasta->format('Y-m-d'), $motivo, null,
                                   ['cache' => AGENDA_CACHE_HORARIOS]);
@@ -111,5 +126,7 @@ try {
         'generado' => (new DateTimeImmutable('now', $zona))->format('c'),
     ]);
 } catch (\Throwable $e) {
+    // api_error()/api_responder() terminan con exit, que no lanza: acá llega
+    // sólo lo inesperado, y se contesta 500 en JSON (o 503 si falta migrar).
     api_fallo($e);
 }

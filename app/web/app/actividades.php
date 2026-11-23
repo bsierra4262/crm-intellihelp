@@ -5,19 +5,46 @@ declare(strict_types=1);
 //  Actividades: tareas, llamadas y reuniones.
 //  Van en una sola tabla porque comparten casi todos los campos y así la
 //  «agenda del día» y la línea de tiempo de un registro salen de una consulta.
+//
+//  Tabla `actividades` (no confundir con `actividad`, la auditoría de
+//  actividad.php). Cada fila puede colgar de un contacto, un posible
+//  cliente, una empresa y/o un negocio (columnas *_id, todas opcionales).
+//  Borrado lógico con `eliminado_en` (papelera, ver registro_eliminar()).
+//
+//  Qué marca una actividad como hecha: `completada_en`, NO el texto de
+//  `estado`. Los listados, el panel de las fichas y el contador de vencidas
+//  miran `completada_en`.
+//  Fechas: una tarea usa `vence_el`; una llamada o reunión, `inicia_el` (y la
+//  reunión también `termina_el`). Las consultas usan
+//  COALESCE(vence_el, inicia_el) como «cuándo» de cualquier tipo.
+//
+//  Lo usan: pages/actividades.php, actividad-form.php,
+//  actividad-completar.php, las fichas (panel lateral), la agenda (las
+//  reuniones reservadas desde la web) y la entrada web (la tarea de
+//  responder una consulta). Lo carga bootstrap.php siempre, aunque el módulo
+//  `actividades` esté apagado.
+//  Permisos: ninguna función de este archivo mira quién es el propietario.
 // ============================================================
 
+/** Tipos de actividad: clave guardada en la base => etiqueta en pantalla. */
 function tipos_actividad(): array
 {
     return ['tarea' => 'Tarea', 'llamada' => 'Llamada', 'reunion' => 'Reunión'];
 }
 
+/** Resultados posibles de una llamada (se guardan como texto en `resultado`). */
 function resultados_llamada(): array
 {
     return ['Atendió', 'No atendió', 'Buzón de voz', 'Número equivocado',
             'Pidió que lo llamen después', 'Agendó reunión', 'No le interesa'];
 }
 
+/**
+ * Una actividad con los nombres de todo lo que tiene vinculado (propietario,
+ * contacto, empresa, negocio y posible cliente), o null si no existe o está
+ * en la papelera. Los vínculos se traen aunque el registro vinculado esté
+ * eliminado.
+ */
 function actividad_get(int $id): ?array
 {
     return q1('SELECT a.*, u.nombre AS propietario, c.nombre_completo AS contacto,
@@ -33,9 +60,20 @@ function actividad_get(int $id): ?array
                WHERE a.id = ? AND a.eliminado_en IS NULL', [$id]);
 }
 
-/** Actividades asociadas a un registro (para el panel lateral de la ficha). */
+/**
+ * Actividades asociadas a un registro (para el panel lateral de la ficha).
+ *
+ * Primero las pendientes y después las completadas; dentro de cada grupo,
+ * de la más lejana en el tiempo a la más cercana. Con más de $limite
+ * actividades, las que quedan afuera no se ven en la ficha (no hay «ver más»).
+ *
+ * @param string $columna contacto_id | cuenta_id | negocio_id | posible_cliente_id
+ * @throws InvalidArgumentException con otra columna
+ */
 function actividades_de(string $columna, int $id, int $limite = 20): array
 {
+    // La columna va dentro del SQL (no se puede pasar como parámetro): por
+    // eso sólo se aceptan las de la lista.
     if (!in_array($columna, ['contacto_id', 'cuenta_id', 'negocio_id', 'posible_cliente_id'], true)) {
         throw new InvalidArgumentException('Columna no permitida: ' . $columna);
     }
@@ -46,6 +84,17 @@ function actividades_de(string $columna, int $id, int $limite = 20): array
                        COALESCE(a.inicia_el, a.vence_el) DESC LIMIT ?", [$id, $limite])->fetchAll();
 }
 
+/**
+ * WHERE + parámetros para el listado de actividades.
+ *
+ * Filtros: tipo, propietario_id, estado, q (asunto o descripción), vista
+ * (hoy | semana | vencidas | completadas; cualquier otro valor = pendientes)
+ * y vencidas=1 (equivale a vista=vencidas). Todo va como parámetro.
+ * Las comparaciones con NOW()/CURDATE() usan la hora de MySQL, que db.php
+ * alinea con el huso de PHP al conectar.
+ *
+ * @return array{0:string,1:array}
+ */
 function actividades_where(array $f): array
 {
     $w = ['a.eliminado_en IS NULL'];
@@ -74,6 +123,13 @@ function actividades_where(array $f): array
     return ['WHERE ' . implode(' AND ', $w), $p];
 }
 
+/**
+ * Lista paginada de actividades: las que tienen fecha primero, de la más
+ * próxima (o la más vencida) a la más lejana; las sin fecha al final. Vale
+ * el mismo orden para «Completadas», que entonces arranca por las más viejas.
+ *
+ * @return array rows (con propietario, contacto y cuenta), total y los datos de paginar()
+ */
 function actividades_listar(array $f): array
 {
     [$where, $p] = actividades_where($f);
@@ -90,7 +146,26 @@ function actividades_listar(array $f): array
     return $pg + ['rows' => $rows, 'total' => $total];
 }
 
-/** Alta o edición. Devuelve el id. */
+/**
+ * Alta o edición. Devuelve el id.
+ *
+ * $d trae los campos del formulario, con las fechas ya en 'Y-m-d H:i:s'
+ * (la página convierte el formato de datetime-local). Un tipo desconocido se
+ * guarda como 'tarea'. Según el tipo se descartan las fechas que no
+ * corresponden: la tarea pierde inicio y fin; la llamada y la reunión, el
+ * vencimiento.
+ *
+ * No valida que existan los ids vinculados ni el propietario, ni que estado
+ * y prioridad sean de sus listas, ni el formato de las fechas: eso lo hace
+ * antes actividad_validar() (el formulario); la agenda llama directo con
+ * datos que ya armó ella. Lo que no cuadra sube como excepción.
+ *
+ * Efectos: escribe `actividades` y deja la auditoría ('actividad.crear' o
+ * 'actividad.editar'). En un alta también deja una marca «agendada» en la
+ * línea de tiempo de cada registro vinculado; una edición no.
+ *
+ * @param int|null $id null para un alta
+ */
 function actividad_guardar(array $d, ?int $id = null): int
 {
     $tipo = in_array($d['tipo'] ?? '', array_keys(tipos_actividad()), true) ? $d['tipo'] : 'tarea';
@@ -128,10 +203,26 @@ function actividad_guardar(array $d, ?int $id = null): int
     // columna que miran los listados, el panel y el contador de vencidas.
     // Elegir «Completada» en el formulario cambiaba sólo el texto del estado y
     // la actividad seguía apareciendo entre las pendientes.
+    // Editar una que ya estaba completada (y se deja así) conserva la fecha
+    // en que se completó: antes se pisaba con la hora de la edición.
     if ($campos['estado'] === 'Completada') {
-        $campos['completada_en'] = date('Y-m-d H:i:s');
+        $ya = $id ? qv('SELECT completada_en FROM actividades WHERE id = ?', [$id]) : null;
+        $campos['completada_en'] = $ya ?: date('Y-m-d H:i:s');
     } elseif ($id) {
         $campos['completada_en'] = null;   // se reabre si le sacan el estado
+    }
+
+    // El aviso «X minutos antes» se manda una sola vez (`recordado_en`). Si al
+    // editar cambia la fecha o los minutos, el aviso se vuelve a armar: si no,
+    // una reunión pasada a la semana siguiente se quedaba sin aviso.
+    if ($id) {
+        $antes = q1('SELECT vence_el, inicia_el, recordar_min FROM actividades WHERE id = ?', [$id]);
+        if (!$antes
+            || (string)($antes['recordar_min'] ?? '') !== (string)($campos['recordar_min'] ?? '')
+            || substr((string)($antes['inicia_el'] ?? ''), 0, 16) !== substr((string)($campos['inicia_el'] ?? ''), 0, 16)
+            || substr((string)($antes['vence_el'] ?? ''), 0, 16) !== substr((string)($campos['vence_el'] ?? ''), 0, 16)) {
+            $campos['recordado_en'] = null;
+        }
     }
 
     if ($id) {
@@ -160,20 +251,37 @@ function actividad_guardar(array $d, ?int $id = null): int
     return $nuevo;
 }
 
-/** Marca una actividad como completada (o la reabre). */
-function actividad_completar(int $id, bool $completar = true, ?string $resultado = null): void
+/**
+ * Marca una actividad como completada (o la reabre).
+ *
+ * Completar pone `completada_en` = ahora y estado «Completada»; reabrir
+ * limpia `completada_en` y deja el estado en «En curso», sea cual fuera el
+ * anterior. El resultado sólo se pisa si viene uno (COALESCE).
+ *
+ * Efectos: además de la auditoría de la actividad, al COMPLETAR deja una
+ * marca en la línea de tiempo de cada registro vinculado y actualiza
+ * `ultima_actividad_en` del contacto y del posible cliente. Reabrir no hace
+ * ninguna de las dos cosas: no es un contacto con nadie, y ensuciaba el
+ * filtro «sin tocar hace 30 días».
+ *
+ * Una actividad que no existe o está en la papelera no se toca.
+ *
+ * @return bool false si la actividad no existe o está en la papelera
+ */
+function actividad_completar(int $id, bool $completar = true, ?string $resultado = null): bool
 {
+    $a = actividad_get($id);
+    if (!$a) { return false; }
     q('UPDATE actividades SET completada_en = ?, estado = ?, resultado = COALESCE(?, resultado) WHERE id = ?',
       [$completar ? date('Y-m-d H:i:s') : null,
        $completar ? 'Completada' : 'En curso',
        $resultado, $id]);
-    $a = actividad_get($id);
     log_app('actividad.' . ($completar ? 'completar' : 'reabrir'),
         ['entidad' => 'actividad', 'entidad_id' => $id,
          'detalle' => ($a['asunto'] ?? '') . ($resultado ? ' · ' . $resultado : '')]);
 
     // Que se vea también en la ficha del contacto/negocio.
-    if ($a) {
+    if ($completar) {
         foreach (['contacto_id' => 'contacto', 'negocio_id' => 'negocio',
                   'cuenta_id' => 'cuenta', 'posible_cliente_id' => 'posible_cliente'] as $col => $ent) {
             if (!empty($a[$col])) {
@@ -190,9 +298,91 @@ function actividad_completar(int $id, bool $completar = true, ?string $resultado
             q('UPDATE posibles_clientes SET ultima_actividad_en = NOW() WHERE id = ?', [(int)$a['posible_cliente_id']]);
         }
     }
+    return true;
 }
 
-/** Etiqueta y clase de una actividad según su vencimiento. */
+/**
+ * Convierte lo que manda un input datetime-local («2026-11-22T10:30», con o
+ * sin segundos) al formato de la base. Vacío da ''; algo que no es una fecha
+ * real (30 de febrero, texto) da null.
+ */
+function actividad_fecha_form(?string $v): ?string
+{
+    $v = trim((string)$v);
+    if ($v === '') { return ''; }
+    $v = str_replace('T', ' ', $v);
+    foreach (['!Y-m-d H:i:s', '!Y-m-d H:i'] as $fmt) {
+        $f = DateTime::createFromFormat($fmt, $v);
+        $err = DateTime::getLastErrors();
+        if ($f && !($err && ($err['warning_count'] || $err['error_count']))) {
+            return $f->format('Y-m-d H:i:s');
+        }
+    }
+    return null;
+}
+
+/**
+ * Valida lo que llega del formulario de actividades y deja las fechas en el
+ * formato de la base. Es lo que antes no se controlaba y terminaba en un
+ * error 500: una fecha imposible, un id vinculado que no existe, un estado o
+ * una prioridad que no son de la lista.
+ *
+ * @param array $d el POST del formulario
+ * @return array{0:array,1:array} [datos con las fechas convertidas, errores campo => mensaje]
+ */
+function actividad_validar(array $d): array
+{
+    $err = [];
+    if (trim((string)($d['asunto'] ?? '')) === '') { $err['asunto'] = 'Poné un asunto.'; }
+    if (mb_strlen(trim((string)($d['asunto'] ?? ''))) > 200) { $err['asunto'] = 'El asunto no puede pasar de 200 caracteres.'; }
+
+    foreach (['vence_el' => 'El vencimiento', 'inicia_el' => 'El inicio', 'termina_el' => 'El fin'] as $k => $et) {
+        $f = actividad_fecha_form(isset($d[$k]) ? (string)$d[$k] : null);
+        if ($f === null) { $err[$k] = $et . ' no es una fecha válida.'; $d[$k] = ''; }
+        else { $d[$k] = $f; }
+    }
+    if (($d['tipo'] ?? '') === 'reunion' && $d['inicia_el'] !== '' && $d['termina_el'] !== ''
+        && $d['termina_el'] <= $d['inicia_el']) {
+        $err['termina_el'] = 'La reunión tiene que terminar después de empezar.';
+    }
+
+    if (($d['estado'] ?? '') !== '' && !in_array($d['estado'], estados_actividad(), true)) {
+        $err['estado'] = 'El estado no es uno de la lista.';
+    }
+    if (($d['prioridad'] ?? '') !== '' && !in_array($d['prioridad'], prioridades(), true)) {
+        $err['prioridad'] = 'La prioridad no es una de la lista.';
+    }
+    foreach (['duracion_min' => 'La duración', 'recordar_min' => 'El aviso'] as $k => $et) {
+        if (($d[$k] ?? '') !== '' && (!ctype_digit((string)$d[$k]) || (int)$d[$k] > 100000)) {
+            $err[$k] = $et . ' tiene que ser una cantidad de minutos.';
+        }
+    }
+
+    // Un id vinculado tiene que existir (aunque esté en la papelera): si no, la
+    // clave foránea hace fallar el guardado.
+    foreach (['contacto_id' => ['contactos', 'El contacto'], 'cuenta_id' => ['cuentas', 'La empresa'],
+              'negocio_id' => ['negocios', 'El negocio'], 'posible_cliente_id' => ['posibles_clientes', 'El posible cliente'],
+              'propietario_id' => ['usuarios', 'El responsable']] as $k => [$tabla, $et]) {
+        $v = trim((string)($d[$k] ?? ''));
+        if ($v === '') { continue; }
+        if (!ctype_digit($v) || !qv("SELECT 1 FROM $tabla WHERE id = ?", [(int)$v])) {
+            $err[$k] = $et . ' elegido ya no existe.';
+        }
+    }
+    return [$d, $err];
+}
+
+/**
+ * Etiqueta y clase de una actividad según su vencimiento.
+ *
+ *   · sin fecha → «—», neutral;
+ *   · completada → la fecha, verde;
+ *   · vencida → la fecha, rojo;
+ *   · hoy → «Hoy HH:MM», amarillo;
+ *   · más adelante → la fecha, azul.
+ *
+ * @return array{0:string,1:string} texto y clase CSS del distintivo
+ */
 function actividad_vencimiento(array $a): array
 {
     $cuando = ($a['vence_el'] ?? null) ?: $a['inicia_el'];
@@ -206,4 +396,52 @@ function actividad_vencimiento(array $a): array
     if ($t < time())                       { return [fecha_hora($cuando), 'badge-rej']; }
     if (date('Y-m-d', $t) === date('Y-m-d')) { return ['Hoy ' . date('H:i', $t), 'badge-pend']; }
     return [fecha_hora($cuando), 'badge-info'];
+}
+
+/**
+ * Avisos «X minutos antes» de las actividades (lo llama el cron).
+ *
+ * Cada actividad con `recordar_min` y sin `recordado_en`, todavía abierta y
+ * fuera de la papelera, recibe una alerta personal para su dueño cuando
+ * llega su hora de aviso (inicio o vencimiento menos los minutos). Las
+ * alertas personales salen también por correo al dueño en el paso de
+ * alertas del cron (notif_enviar_pendientes).
+ *
+ * No se avisa de lo que ya pasó hace más de una hora (por ejemplo, si el
+ * cron estuvo parado): se marca igual para no mandar un aviso tardío.
+ * Las cuentas de tiempo se hacen en PHP, con la misma zona que la base
+ * (db.php la alinea), para no depender de la sintaxis de fechas de MariaDB.
+ *
+ * @param int|null $ahora marca de tiempo (para las pruebas)
+ * @return int cuántos avisos se dejaron
+ */
+function actividades_recordatorios(?int $ahora = null): int
+{
+    $ahora = $ahora ?? time();
+    // El aviso más largo que tiene sentido es de una semana antes.
+    $filas = q("SELECT a.id, a.tipo, a.asunto, a.propietario_id, a.recordar_min,
+                       COALESCE(a.inicia_el, a.vence_el) AS cuando
+                FROM actividades a
+                WHERE a.recordar_min IS NOT NULL AND a.recordado_en IS NULL
+                  AND a.completada_en IS NULL AND a.eliminado_en IS NULL
+                  AND COALESCE(a.inicia_el, a.vence_el) BETWEEN ? AND ?
+                ORDER BY cuando LIMIT 500",
+               [date('Y-m-d H:i:s', $ahora - 86400), date('Y-m-d H:i:s', $ahora + 8 * 86400)])->fetchAll();
+    $n = 0;
+    foreach ($filas as $a) {
+        $cuando = strtotime((string)$a['cuando']);
+        if ($cuando === false || $cuando - (int)$a['recordar_min'] * 60 > $ahora) { continue; }
+        if ($cuando >= $ahora - 3600 && !empty($a['propietario_id'])) {
+            $tipos = tipos_actividad();
+            notificar('recordatorio',
+                ($tipos[$a['tipo']] ?? 'Actividad') . ': ' . $a['asunto'],
+                ['usuario_id' => (int)$a['propietario_id'],
+                 'detalle'    => ($a['tipo'] === 'tarea' ? 'Vence ' : 'Empieza ') . fecha_hora((string)$a['cuando']),
+                 'entidad'    => 'actividad', 'entidad_id' => (int)$a['id'],
+                 'url'        => 'actividad-form?id=' . (int)$a['id']]);
+            $n++;
+        }
+        q('UPDATE actividades SET recordado_en = ? WHERE id = ?', [date('Y-m-d H:i:s', $ahora), (int)$a['id']]);
+    }
+    return $n;
 }

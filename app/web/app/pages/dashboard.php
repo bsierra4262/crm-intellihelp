@@ -1,5 +1,27 @@
 <?php
 declare(strict_types=1);
+
+// ============================================================
+//  Ruta: GET /dashboard (requiere sesión). El panel de inicio.
+//
+//  Muestra contadores (contactos, empresas, pendientes de aprobar, posibles,
+//  embudo, ganado del mes, actividades vencidas), la agenda del día y las
+//  campañas en curso. Sólo consulta lo de los módulos encendidos.
+//
+//  Parámetros GET:
+//    · ambito=mio  filtra por propietario_id = usuario (por defecto, todo);
+//  POST (+ CSRF) vista=separado|unificado: guarda la preferencia en el ajuste
+//  `panel_vista_<id de usuario>` de app_settings y vuelve al panel. Antes era
+//  un GET que escribía: cualquier enlace (o el precargado del navegador)
+//  cambiaba la preferencia.
+//
+//  Los importes (embudo abierto, ganado del mes) se muestran por moneda, sin
+//  convertir: pesos y dólares por separado.
+//
+//  El filtro de propietario se pega al SQL como texto, pero es un entero
+//  casteado del id de la sesión, nunca un dato del usuario.
+//  Vista: views/dashboard.php (con zonas data-vivo que se refrescan solas).
+// ============================================================
 require_login();
 
 $uid = current_user_id();
@@ -15,10 +37,12 @@ $uid = current_user_id();
  * habría que volver a elegirla todos los días.
  */
 $vista = (string) setting_get('panel_vista_' . $uid, 'separado');
-if (isset($_GET['vista']) && in_array($_GET['vista'], ['separado', 'unificado'], true)) {
-    $vista = (string) $_GET['vista'];
-    setting_set('panel_vista_' . $uid, $vista);
-    redirect('dashboard' . (($_GET['ambito'] ?? '') === 'mio' ? '?ambito=mio' : ''));
+if (is_post()) {
+    verify_csrf();
+    if (in_array($_POST['vista'] ?? '', ['separado', 'unificado'], true)) {
+        setting_set('panel_vista_' . $uid, (string) $_POST['vista']);
+    }
+    redirect('dashboard' . (($_POST['ambito'] ?? '') === 'mio' ? '?ambito=mio' : ''));
 }
 $separado = $vista === 'separado';
 // Por defecto se ve todo el sistema; «lo mío» es un filtro que se pide. Los
@@ -57,18 +81,27 @@ if ($verPosibles) {
 }
 
 // Embudo abierto: cuántos negocios y cuánto pesan, ponderado por probabilidad.
-$emb = [];
-$ganadoMes = 0.0;
+$emb = ['n' => 0, 'total' => [], 'ponderado' => []];
+$ganadoMes = [];
 if ($verNegocios) {
-    $emb = q1("SELECT COUNT(*) n, COALESCE(SUM(n.importe),0) total, COALESCE(SUM(n.ingreso_esperado),0) ponderado
-               FROM negocios n JOIN etapas e ON e.id = n.etapa_id
-               WHERE n.eliminado_en IS NULL AND e.tipo = 'abierta'"
-              . ($mio ? ' AND n.propietario_id = ' . (int)$uid : '')) ?: [];
+    // Una fila por moneda: no se suman pesos con dólares.
+    $filasEmb = q("SELECT n.moneda, COUNT(*) n, COALESCE(SUM(n.importe),0) total,
+                          COALESCE(SUM(n.ingreso_esperado),0) ponderado
+                   FROM negocios n JOIN etapas e ON e.id = n.etapa_id
+                   WHERE n.eliminado_en IS NULL AND e.tipo = 'abierta'"
+                  . ($mio ? ' AND n.propietario_id = ' . (int)$uid : '') . '
+                   GROUP BY n.moneda')->fetchAll();
+    $emb = [
+        'n'         => array_sum(array_map(fn($f) => (int)$f['n'], $filasEmb)),
+        'total'     => sumar_por_moneda($filasEmb, 'total'),
+        'ponderado' => sumar_por_moneda($filasEmb, 'ponderado'),
+    ];
 
-    $ganadoMes = (float) qv("SELECT COALESCE(SUM(n.importe),0) FROM negocios n JOIN etapas e ON e.id = n.etapa_id
+    $ganadoMes = sumar_por_moneda(q("SELECT n.moneda, COALESCE(SUM(n.importe),0) total
+                             FROM negocios n JOIN etapas e ON e.id = n.etapa_id
                              WHERE n.eliminado_en IS NULL AND e.tipo = 'ganada'
-                               AND n.cerrado_en >= ?" . ($mio ? ' AND n.propietario_id = ' . (int)$uid : ''),
-                            [date('Y-m-01 00:00:00')]);
+                               AND n.cerrado_en >= ?" . ($mio ? ' AND n.propietario_id = ' . (int)$uid : '') . '
+                             GROUP BY n.moneda', [date('Y-m-01 00:00:00')])->fetchAll(), 'total');
 }
 
 // Agenda del día y pendientes vencidos.

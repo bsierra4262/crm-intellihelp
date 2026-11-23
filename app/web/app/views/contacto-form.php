@@ -1,5 +1,37 @@
 <?php
+// ============================================================
+//  Vista: formulario de alta y edición de un contacto.
+//
+//  La dibuja pages/contacto-form.php (ruta `contacto-form`, `?id=` para
+//  editar). Módulo: núcleo (Contactos), siempre encendido.
+//
+//  Variables que recibe:
+//    $c        array|null  la ficha (en edición) o lo que se acaba de mandar
+//                          (si hubo errores: la página mezcla la ficha con el POST)
+//    $id       int         0 en un alta
+//    $errores  array       campo => mensaje, de la validación del servidor
+//    $usuarios array       usuarios activos, para el propietario
+//    $cuentas  array       sólo la empresa vinculada (cero o una fila
+//                          {id, nombre, detalle}); las demás se buscan al
+//                          escribir (buscador.js, por el data-buscar)
+//
+//  Trampas:
+//    · el `required` de los campos es una comodidad del navegador; la regla
+//      real la aplica la página con contacto_falta().
+//    · el selector de empresa es `required`; el script del final le saca el
+//      `required` mientras haya algo escrito en «crear una empresa nueva»,
+//      para que el alta al vuelo se pueda mandar.
+//    · la casilla «No incluirlo en campañas» va precedida de un oculto
+//      no_email=0: desmarcada, viaja el 0 y contacto_guardar() la limpia.
+//      Una baja pedida por la persona (tabla `desuscripciones`) sigue
+//      mandando igual: eso sólo lo levanta «Volver a habilitar» en la ficha.
+//    · el propietario se preselecciona con quien carga sólo en un alta; en
+//      una edición sin propietario queda «Sin asignar».
+//    · todo lo que sale de la ficha pasa por e() (directo o con $v).
+// ============================================================
+
 /** @var ?array $c @var int $id @var array $errores @var array $usuarios @var array $cuentas */
+// Atajo: el valor del campo ya escapado para HTML, con un valor por defecto.
 $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
 
 // Qué le falta a esta ficha. Abrir para editar una ficha marcada como pendiente
@@ -15,6 +47,10 @@ if ($id) {
 }
 /** Marca visualmente un campo que hay que completar. */
 $falta = fn(string $campo) => isset($faltaCampo[$campo]) ? ' falta' : '';
+/**
+ * Escribe, debajo del campo, el aviso de que ese dato falta para aprobar la
+ * ficha. No escribe nada si el campo está completo.
+ */
 $avisoFalta = function (string $campo) use ($faltaCampo) {
     if (!isset($faltaCampo[$campo])) { return; }
     echo '<i class="hint pendiente">Falta este dato para que la ficha quede aprobada.</i>';
@@ -67,24 +103,27 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
             </label>
 
             <label class="fld<?= $falta('cuenta_id') ?> wide"><span>Empresa <i class="req">*</i></span>
-                <select name="cuenta_id" required>
+                <select name="cuenta_id" required data-buscar="cuenta" data-nativo="1" data-placeholder="Escribí el nombre de la empresa…">
                     <option value="">— Elegí una empresa —</option>
                     <?php foreach ($cuentas as $cu): ?>
-                        <option value="<?= (int)$cu['id'] ?>" <?= (string)($c['cuenta_id'] ?? '') === (string)$cu['id'] ? 'selected' : '' ?>><?= e($cu['nombre']) ?></option>
+                        <option value="<?= (int)$cu['id'] ?>" selected><?= e($cu['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
-                <i class="hint">La empresa donde trabaja. Si todavía no está cargada, usá el campo de abajo.</i>
+                <i class="hint">La empresa donde trabaja. Escribí parte del nombre y elegila; si todavía no está cargada, usá el campo de abajo.</i>
             </label>
+            <?php // La página crea la empresa con cuenta_asegurar() sólo si el selector de arriba llega vacío. ?>
             <label class="fld wide"><span>…o crear una empresa nueva</span>
-                <input name="cuenta_nueva" placeholder="Escribí el nombre y se crea sola al guardar" maxlength="200">
+                <input name="cuenta_nueva" value="<?= $v('cuenta_nueva') ?>" placeholder="Escribí el nombre y se crea sola al guardar" maxlength="200" data-libera-requerido="cuenta_id">
                 <i class="hint">Se crea la empresa al guardar, sin tener que salir de esta pantalla.</i>
             </label>
 
             <label class="fld"><span>Propietario</span>
+                <?php // Quien carga se preselecciona sólo en un alta: editar una ficha sin dueño no se la asigna a quien edita. ?>
                 <select name="propietario_id">
                     <option value="">— Sin asignar —</option>
+                    <?php $propSel = (string)($id ? ($c['propietario_id'] ?? '') : ($c['propietario_id'] ?? current_user_id())); ?>
                     <?php foreach ($usuarios as $u): ?>
-                        <option value="<?= (int)$u['id'] ?>" <?= (string)($c['propietario_id'] ?? current_user_id()) === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
+                        <option value="<?= (int)$u['id'] ?>" <?= $propSel === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Quién lo atiende. Es lo que separa «Lo mío» de «Todo el equipo» en el panel.</i>
@@ -130,14 +169,16 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <i class="hint">La central de la empresa, cuando hay que pedir por interno.</i>
             </label>
             <label class="fld"><span>LinkedIn</span>
-                <input type="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255" placeholder="https://linkedin.com/in/…">
+                <input type="text" inputmode="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255" placeholder="linkedin.com/in/…">
                 <i class="hint">El perfil de la persona. Ayuda a preparar la llamada antes de levantar el teléfono.</i>
             </label>
             <label class="fld wide"><span>Sitio web</span>
-                <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="empresa.com">
+                <input type="text" inputmode="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="empresa.com">
                 <i class="hint">El sitio personal, si tiene. El de la empresa va en la ficha de la empresa.</i>
             </label>
+            <?php // El oculto va antes: desmarcada, la casilla no viaja y llega este 0. ?>
             <div class="fld wide abajo">
+                <input type="hidden" name="no_email" value="0">
                 <label class="switch">
                     <input type="checkbox" name="no_email" value="1" <?= !empty($c['no_email']) ? 'checked' : '' ?>>
                     <span class="track"></span>
@@ -182,3 +223,19 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
         <a class="btn btn-ghost" href="<?= e(url($id ? 'contacto-ver?id=' . $id : 'contactos')) ?>">Cancelar</a>
     </div>
 </form>
+
+<script>
+// Con un nombre en «crear una empresa nueva» el selector de empresa deja de
+// ser obligatorio: si no, el navegador no dejaba mandar el alta al vuelo. Se
+// busca el campo por nombre, sea un selector o el buscador que lo reemplace.
+(function () {
+    document.querySelectorAll('[data-libera-requerido]').forEach(function (inp) {
+        var campo = inp.form && inp.form.elements[inp.getAttribute('data-libera-requerido')];
+        if (!campo || !('required' in campo)) { return; }
+        var original = campo.required;
+        function aplicar() { campo.required = original && inp.value.trim() === ''; }
+        inp.addEventListener('input', aplicar);
+        aplicar();
+    });
+})();
+</script>

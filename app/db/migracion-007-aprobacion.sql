@@ -15,6 +15,19 @@
 --    · `aprobado_en`     alguien la dio por buena igual  (lo decide una persona)
 --
 --  Una ficha está pendiente cuando le falta algo Y nadie la aprobó.
+--  En SQL: `pendiente_norm = 1 AND aprobado_en IS NULL` (así filtra crm.php).
+--
+--  Quién escribe: la acción «Aprobar» de los listados (aprobar_registros() en
+--  crm.php) completa `aprobado_en` y `aprobado_por` (id de `usuarios`, sin
+--  clave foránea) o los vuelve a NULL.
+--
+--  Índices: `ix_cont_aprob`/`ix_cta_aprob` empiezan por `pendiente_norm`, así
+--  que cubren también lo que hacían `ix_cont_pend`/`ix_cta_pend` de la 006,
+--  que quedan redundantes (la migracion 018 los saca).
+--
+--  ADD COLUMN / ADD INDEX IF NOT EXISTS es sintaxis de MariaDB (en MySQL 8
+--  falla). Requiere la 006. schema.sql ya incluye esto: una instalacion nueva no
+--  necesita correrla (si se corre igual, no cambia nada).
 -- ============================================================
 
 ALTER TABLE `contactos`

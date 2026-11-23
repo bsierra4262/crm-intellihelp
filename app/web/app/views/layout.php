@@ -1,4 +1,29 @@
 <?php
+// ============================================================
+//  Layout: el marco HTML de todas las pantallas.
+//
+//  Lo ejecuta render() (helpers.php) después de dibujar la vista, con un
+//  ámbito propio. Recibe:
+//    · $content   HTML ya armado de la vista (se imprime sin escapar);
+//    · $title     título de la pantalla (pestaña y barra superior);
+//    · $bodyClass opcional: 'app' (con sesión), 'auth' (sin sesión) o la
+//                 clase que pida una página pública (reservar, baja);
+//    · $extraHead / $extraFoot opcionales: HTML crudo que agrega la página
+//                 en el <head> o al final del <body>. Lo arma siempre el
+//                 código del controlador, nunca un dato del usuario.
+//
+//  Con sesión y bodyClass 'app' dibuja la barra lateral (secciones de los
+//  módulos encendidos, menú de administración para admins), la barra
+//  superior con el buscador y la campana de alertas, y los avisos flash.
+//  Sin sesión, sólo el contenido.
+//
+//  Expone a JavaScript el token CSRF (window.CSRF y <meta name="csrf">),
+//  la función window.appLog (manda eventos y errores del navegador a la
+//  auditoría por api-log) y los tiempos de sesión que usa idle.js.
+//
+//  Hace dos consultas por pantalla: alertas sin leer (si hay módulos que
+//  las produzcan) y pendientes de aprobar (contar_pendientes de crm.php).
+// ============================================================
 /** Layout principal. Requiere en scope: $content, $title. */
 /** @var string $content @var string $title */
 $u       = auth_user();
@@ -64,6 +89,7 @@ if ($u && ($u['rol'] ?? '') === 'admin') {
 // apagado, y hacer clic llevaría a «esto todavía no está en marcha».
 $admin = array_filter($admin, fn($k) => ruta_habilitada($k), ARRAY_FILTER_USE_KEY);
 
+// Arma la dirección de un asset o una ruta, ya escapada para un atributo.
 $asset     = fn($p) => e(url($p));
 $extraHead = $extraHead ?? '';
 $extraFoot = $extraFoot ?? '';
@@ -125,6 +151,7 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
 </head>
 <body class="<?= e($bodyClass) ?>">
 <?php if ($u && $bodyClass === 'app'):
+    // Marco completo del sistema: sólo con sesión y en pantallas internas.
     $ini = iniciales((string)($u['nombre'] ?? '?'));
     // Las alertas nacen de las campañas o de la agenda: con los dos módulos
     // apagados no se muestra la campana.
@@ -153,6 +180,7 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
             <?php if ($admin): ?>
                 <div class="nav-title">Administración</div>
                 <?php foreach ($admin as $r => $def): ?>
+                    <?php // Ninguna entrada de $admin vale null hoy: esta línea no tiene efecto. ?>
                     <?php if ($def === null) { continue; } ?>
                     <a href="<?= $asset($r) ?>" class="<?= $seccion === $r ? 'active' : '' ?>">
                         <?= icon($def[1]) ?><span><?= e($def[0]) ?></span>
@@ -172,7 +200,12 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
                     <small><?= e($u['rol'] === 'admin' ? 'Administrador' : 'Comercial') ?></small>
                 </span>
             </div>
-            <a class="icon-btn" href="<?= $asset('logout') ?>" title="Cerrar sesión" aria-label="Cerrar sesión"><?= icon('salir', 18) ?></a>
+            <?php // Salir va por POST con el token CSRF: un enlace (GET) lo podía
+                  // disparar cualquier sitio externo. Ver pages/logout.php. ?>
+            <form class="inline-form" method="post" action="<?= $asset('logout') ?>">
+                <?= csrf_field() ?>
+                <button class="icon-btn" type="submit" title="Cerrar sesión" aria-label="Cerrar sesión"><?= icon('salir', 18) ?></button>
+            </form>
         </div>
     </aside>
     <div class="scrim" data-close-nav></div>
@@ -201,6 +234,7 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
             <?php foreach (take_flash() as $f): ?>
                 <div class="flash flash-<?= e($f['type']) ?>"><?= e($f['msg']) ?></div>
             <?php endforeach; ?>
+            <?php // La vista ya viene escapada por dentro: se imprime tal cual. ?>
             <?= $content ?>
         </main>
         <footer class="foot"><?= e($appName) ?> · <?= e($brandOrg) ?> — <?= date('Y') ?></footer>
@@ -217,7 +251,8 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
 <?php if ($u): ?><script defer src="<?= $asset('assets/js/app.js') ?>?v=<?= ASSETS_V ?>"></script>
 <script defer src="<?= $asset('assets/js/idle.js') ?>?v=<?= ASSETS_V ?>"></script>
 <script defer src="<?= $asset('assets/js/vivo.js') ?>?v=<?= ASSETS_V ?>"></script>
-<script defer src="<?= $asset('assets/js/secciones.js') ?>?v=<?= ASSETS_V ?>"></script><?php endif; ?>
+<script defer src="<?= $asset('assets/js/secciones.js') ?>?v=<?= ASSETS_V ?>"></script>
+<script defer src="<?= $asset('assets/js/buscador.js') ?>?v=<?= ASSETS_V ?>"></script><?php endif; ?>
 <?= $extraFoot ?>
 </body>
 </html>

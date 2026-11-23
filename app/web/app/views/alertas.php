@@ -1,4 +1,6 @@
 <?php /** @var array $rows @var int $sinLeer */
+// Vista de alertas, desde pages/alertas.php. Los formularios de «marcar
+// leída» no tienen action: vuelven por POST a la misma ruta.
 $tipos = notif_tipos();
 ?>
 <div class="page-head" data-vivo="cabecera">

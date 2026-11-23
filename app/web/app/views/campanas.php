@@ -1,3 +1,18 @@
+<?php
+// ============================================================
+//  Vista: listado de campañas. La pinta pages/campanas.php.
+//  Variables:
+//    $f        filtros actuales (q, estado, categoria_id, page).
+//    $data     lo que devuelve campanas_listar(): rows, total y paginación.
+//    $testing  true si la instalación está en modo prueba (es_testing()).
+//    $smtp     true si hay cuenta de salida por defecto (smtp_configurado()).
+//  Los atributos data-vivo-* son los ganchos que usa el script de app.js
+//  para refrescar estado, avance, respuestas, rebotes y reuniones con lo que
+//  devuelve api-campana, sin recargar.
+//  El plazo de la papelera que se le dice a la persona sale del ajuste
+//  `papelera_dias` (dias_papelera()).
+// ============================================================
+?>
 <?php /** @var array $f @var array $data @var bool $testing @var bool $smtp */ ?>
 <div class="page-head" data-vivo="cabecera">
     <div>
@@ -21,8 +36,8 @@
     </div>
 <?php elseif ($testing): ?>
     <div class="flash flash-info">
-        <strong>Modo prueba.</strong> El sistema funciona exactamente igual que en producción: los
-        correos salen de verdad. Lo único distinto es que los datos cargados son de prueba.
+        <strong>Modo prueba.</strong> Las campañas sólo les mandan a la lista blanca: los correos de los
+        usuarios del CRM y los del ajuste «testing_lista_blanca». El resto de los destinatarios queda omitido.
     </div>
 <?php endif; ?>
 
@@ -104,6 +119,8 @@
                     <td data-label="Reuniones" class="num prio-3" data-vivo-col="reuniones"><?= (int)$c['reuniones'] ?></td>
                     <td data-label="Responsable" class="prio-4"><?= e($c['propietario'] ?: '—') ?></td>
                     <td class="acts" data-label="Acciones">
+                        <?php // La papelera: quien creó el registro (o su responsable) o un administrador; el servidor igual lo controla. ?>
+                        <?php if (puedo_mandar_papelera('campana', $c)): ?>
                         <form class="inline-form" method="post" action="<?= e(url('registro-eliminar')) ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="entidad" value="campana">
@@ -111,9 +128,10 @@
                             <input type="hidden" name="volver" value="campanas">
                             <button class="act danger" title="Enviar a la papelera" data-peligro
                                     data-confirmar-titulo="Enviar a la papelera"
-                                    data-confirmar="&laquo;<?= e($c['nombre']) ?>&raquo; deja de estar a la vista. Lo que ya se envió no se toca. Se puede restaurar durante 60 días."
+                                    data-confirmar="&laquo;<?= e($c['nombre']) ?>&raquo; deja de estar a la vista. Lo que ya se envió no se toca. Se puede restaurar durante <?= (int) dias_papelera() ?> días."
                                     data-confirmar-ok="Enviar a la papelera"><?= icon('papelera', 16) ?></button>
                         </form>
+                        <?php endif; ?>
 
                         <a class="act" href="<?= e(url('campana-ver?id=' . (int)$c['id'])) ?>" title="Ver"><?= icon('reportes', 16) ?></a>
                         <a class="act" href="<?= e(url('campana-form?id=' . (int)$c['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>

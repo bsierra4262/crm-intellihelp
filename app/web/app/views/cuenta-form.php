@@ -1,5 +1,28 @@
 <?php
+// ============================================================
+//  Vista: formulario de alta y edición de una empresa (cuenta).
+//
+//  La dibuja pages/cuenta-form.php. Módulo: núcleo (Empresas).
+//
+//  Variables que recibe:
+//    $c        array|null  la ficha, o la ficha mezclada con el POST si hubo errores
+//    $id       int         0 en un alta
+//    $errores  array       campo => mensaje
+//    $usuarios array       usuarios activos, para el propietario
+//
+//  El selector de sector se llena por JavaScript a partir de `data-mapa`
+//  (sectores_por_tipo() en JSON) según el tipo elegido; `data-elegido` lleva
+//  el sector guardado para volver a marcarlo. Sin JavaScript queda vacío y,
+//  como es `required`, el formulario no se puede mandar.
+//  El servidor comprueba que tipo y sector estén en esas listas.
+//
+//  `sitio_web` y `linkedin` son texto con teclado de direcciones (no
+//  type="url", que exige el https:// que el ejemplo no muestra); al mostrarlos,
+//  dato() les antepone https:// si no lo traen.
+// ============================================================
+
 /** @var ?array $c @var int $id @var array $errores @var array $usuarios */
+// Atajo: el valor del campo ya escapado para HTML, con un valor por defecto.
 $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
 
 // Lo que le falta a esta ficha, marcado ahí mismo: abrir una empresa pendiente
@@ -11,7 +34,9 @@ if ($id) {
         if (isset($mapa[$qf])) { $faltaCampo[$mapa[$qf]] = $qf; }
     }
 }
+/** Clase CSS que marca visualmente un campo que hay que completar. */
 $falta = fn(string $campo) => isset($faltaCampo[$campo]) ? ' falta' : '';
+/** Escribe debajo del campo el aviso de que ese dato falta; nada si está completo. */
 $avisoFalta = function (string $campo) use ($faltaCampo) {
     if (!isset($faltaCampo[$campo])) { return; }
     echo '<i class="hint pendiente">Falta este dato para que la ficha quede aprobada.</i>';
@@ -70,6 +95,7 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <i class="hint">El rubro. La lista cambia según el tipo que elijas arriba.</i>
                 <?php $avisoFalta('sector'); ?>
             </label>
+            <?php // Se muestra con guiones; cuenta_guardar() lo guarda normalizado, sólo los once números. ?>
             <label class="fld<?= $falta('cuit') ?>"><span>CUIT <i class="req">*</i></span>
                 <input name="cuit" value="<?= e(formatear_cuit($c['cuit'] ?? '')) ?>" maxlength="13" required placeholder="30-12345678-1"
                        data-solo="cuit" inputmode="numeric" pattern="[0-9]{2}-?[0-9]{8}-?[0-9]" title="Once números: 30-12345678-1">
@@ -84,11 +110,13 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <input type="number" name="empleados" value="<?= $v('empleados') ?>" min="0" step="1">
                 <i class="hint">Cuánta gente tiene. Ayuda a dimensionar la propuesta.</i>
             </label>
+            <?php // Quien carga se preselecciona sólo en un alta: editar una empresa sin dueño no se la asigna a quien edita. ?>
             <label class="fld"><span>Propietario</span>
                 <select name="propietario_id">
                     <option value="">— Sin asignar —</option>
+                    <?php $propSel = (string)($id ? ($c['propietario_id'] ?? '') : ($c['propietario_id'] ?? current_user_id())); ?>
                     <?php foreach ($usuarios as $u): ?>
-                        <option value="<?= (int)$u['id'] ?>" <?= (string)($c['propietario_id'] ?? current_user_id()) === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
+                        <option value="<?= (int)$u['id'] ?>" <?= $propSel === (string)$u['id'] ? 'selected' : '' ?>><?= e($u['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <i class="hint">Quién la atiende. Es lo que separa «Lo mío» de «Todo el equipo» en el panel.</i>
@@ -108,7 +136,7 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <i class="hint">La casilla general de la empresa (info@, ventas@). El correo de cada persona va en su ficha.</i>
             </label>
             <label class="fld wide"><span>Sitio web</span>
-                <input type="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="distribuidoradelsur.com">
+                <input type="text" inputmode="url" name="sitio_web" value="<?= $v('sitio_web') ?>" maxlength="255" placeholder="distribuidoradelsur.com">
                 <i class="hint">El sitio de la empresa.</i>
             </label>
             <label class="fld wide"><span>Domicilio</span>
@@ -132,7 +160,7 @@ $avisoFalta = function (string $campo) use ($faltaCampo) {
                 <input name="pais" value="<?= $v('pais', 'Argentina') ?>" maxlength="60">
             </label>
             <label class="fld wide"><span>LinkedIn</span>
-                <input type="url" name="linkedin" value="<?= $v('linkedin') ?>" maxlength="255">
+                <input type="text" inputmode="url" name="linkedin" placeholder="linkedin.com/company/…" value="<?= $v('linkedin') ?>" maxlength="255">
                 <i class="hint">La página de la empresa en LinkedIn.</i>
             </label>
             <label class="fld full"><span>Notas</span>
