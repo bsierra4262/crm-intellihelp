@@ -1930,6 +1930,7 @@ function purgar_papelera(?int $dias = null): array
                    AND eliminado_en < NOW() - INTERVAL ? DAY" . $protegidos, [$dias]);
         $n = $st->rowCount();
         if ($n > 0) {
+            purgar_dependientes($entidad, $def['tabla']);
             $out[$entidad] = $n;
             log_app('papelera.purga', ['tipo' => 'sistema', 'actor' => 'cron',
                 'entidad' => $entidad,
@@ -1938,6 +1939,37 @@ function purgar_papelera(?int $dias = null): array
         }
     }
     return $out;
+}
+
+/**
+ * Lo que cuelga de un registro por (entidad, entidad_id) y no puede tener
+ * clave foránea: notas, etiquetas y adjuntos. Lo llama purgar_papelera()
+ * después de borrar definitivamente registros de $entidad.
+ *
+ * Las notas y las etiquetas de un registro que ya no existe no se ven en
+ * ningún lado: se borran con él. Los adjuntos no se borran acá: pasan a la
+ * papelera (si no estaban) y adjuntos_purgar() borra el archivo del disco
+ * cuando se cumple el plazo, como con cualquier otro adjunto.
+ *
+ * Las columnas con referencia directa (envíos, miembros de listas,
+ * mensajes) ya las resuelven las claves foráneas de la migración 019.
+ */
+function purgar_dependientes(string $entidad, string $tabla): void
+{
+    $sinRegistro = "entidad = ? AND NOT EXISTS (SELECT 1 FROM $tabla r WHERE r.id = entidad_id)";
+    foreach (['notas', 'etiqueta_registro'] as $dep) {
+        try {
+            q("DELETE FROM $dep WHERE $sinRegistro", [$entidad]);
+        } catch (\Throwable $e) {
+            error_log("[crm] purga: no se pudo limpiar $dep de $entidad: " . $e->getMessage());
+        }
+    }
+    try {
+        q("UPDATE adjuntos SET eliminado_en = ? WHERE eliminado_en IS NULL AND $sinRegistro",
+          [date('Y-m-d H:i:s'), $entidad]);
+    } catch (\Throwable $e) {
+        error_log("[crm] purga: no se pudieron archivar los adjuntos de $entidad: " . $e->getMessage());
+    }
 }
 
 /**

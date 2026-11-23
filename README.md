@@ -551,7 +551,7 @@ app/
 │  │  └─ views/         # plantillas (layout + una por pantalla)
 │  ├─ assets/           # css, js, imágenes
 │  └─ .htaccess         # front controller + aislamiento del WordPress raíz
-├─ db/                  # schema.sql (42 tablas) y migraciones 002–018
+├─ db/                  # schema.sql (42 tablas) y migraciones 002–019
 ├─ cron.php             # tareas periódicas (campañas, IMAP, reservas, recordatorios)
 ├─ migrar.php           # aplica una migración con la config de su instalación (CLI)
 ├─ reinicio.php         # vacía y siembra la instalación de pruebas (CLI, con barreras)
@@ -581,7 +581,7 @@ python bin/deploy.py check --pruebas      # sintaxis PHP de lo desplegado
 
 Todo comando de `deploy.py` lleva el destino escrito a propósito (`--pruebas` o
 `--produccion`); sin destino no hace nada. Una instalación existente se actualiza con las
-migraciones (`deploy.py migrar … --pruebas|--produccion`), hoy hasta la 018.
+migraciones (`deploy.py migrar … --pruebas|--produccion`), hoy hasta la 019.
 
 Y agendar la tarea automática cada 5 minutos:
 

@@ -13,6 +13,9 @@ eran un defecto sino una regla del equipo, ahora documentada) y **6 no se arregl
 código (lista completa abajo, con el porqué y qué haría falta). Están arreglados el crítico y
 los 25 altos.
 
+**Actualización 23/11/2026:** casi todo lo que había quedado sin arreglar se cerró después (ver
+«Cerrado el 23/11/2026»): lo que queda abajo es lo que no depende del código o es una decisión.
+
 | Gravedad | Hallazgos | Arreglados | Decisión | No se arregla |
 |---|---|---|---|---|
 | Crítico | 1 | 1 | 0 | 0 |
@@ -46,18 +49,25 @@ servidor), contrato con la web 24/24, `smoke.sh` 71/71, render 61/61 pantallas, 
 MariaDB: una base de producción simulada con 010–018 aplicadas dos veces queda igual al
 `schema.sql` nuevo (sólo cambia el orden de un índice).
 
+### Cerrado el 23/11/2026
+
+Lo que en la primera pasada había quedado en «no se arregló» y se resolvió después:
+
+| Qué | Cómo quedó |
+|---|---|
+| **WordPress se queda con pedidos a `/crm`** (D1) | Ya estaba resuelto por el `.htaccess` raíz que se subió el 9/11 con la web nueva (excluye `/crm` y `/crm-pruebas` antes de cualquier regla). Comprobado por HTTP: 72 de 72 pedidos (login, CSS, baja, API; con y sin www, http y https) llegan al CRM |
+| **Sin límite por visitante en `GET api/v1/disponibilidad`** (C2) | No era un defecto: la web pide los horarios una vez por vendedor y tipo, guarda la respuesta en caché y la comparte entre todos los visitantes, y limita ella misma a 60 consultas cada 10 minutos por IP. El pedido que llega al CRM no es de un visitante, así que un límite por visitante ahí no tiene sentido. El contrato no cambia |
+| **`uq_ew_idem` no protege con `token_id` NULL** (C2, E2) | Migración 019: columna calculada `token_clave` = `COALESCE(token_id, 0)` y `UNIQUE (token_clave, idempotencia)` en lugar de la clave vieja |
+| **Sin claves foráneas en las tablas de 002–004; la purga deja huérfanos** (E2) | Revisadas las dos bases el 23/11: **no había ningún huérfano** (la auditoría lo dedujo del código). Migración 019: claves foráneas en `envios` y `mensajes` (`SET NULL`: quedan como historial) y en `lista_miembros` (`CASCADE`: un contacto purgado sale de las listas); antes pone en NULL cualquier referencia rota, sin borrar filas. `notas`, `etiqueta_registro` y `adjuntos` no pueden tener clave foránea (apuntan a varias tablas): `purgar_dependientes()` las limpia en la purga |
+| **Columnas sin uso** (E2, D2) | `imap_ultimo_uid` sale con la 019. `recordar_min` / `recordado_en` se quedan: ahora se usan (fila de abajo) |
+| **Aviso de `recordar_min` de las actividades** (E2) | `actividades_recordatorios()`, paso 3b' del cron: alerta personal al dueño a la hora del aviso, con correo (tipo «Avisos de mis actividades»). Editar la fecha o los minutos rearma el aviso |
+| **Ajustes heredados `imap_pass` / `smtp_pass` en texto plano** (D2) | Comprobado en producción que eran la misma contraseña que la casilla cifrada `ithos@`. La 019 los borra cuando hay una casilla activa con contraseña |
+
 ### Lo que NO se arregló
 
 | Qué | Por qué | Qué haría falta |
 |---|---|---|
-| **WordPress se queda con pedidos a `/crm`** (D1). Unos 4 de cada 10 pedidos terminan en el WordPress del raíz: afecta la baja legal, el píxel, las imágenes y la baja de un clic de Gmail | No es del código del CRM: lo decide el `.htaccess` raíz del servidor, que pertenece al WordPress | Excluir `/crm` y `/crm-pruebas` en el `.htaccess` raíz de `public_html`, antes de las reglas de WordPress, y verificarlo por HTTP |
-| **Sin límite por visitante en `GET api/v1/disponibilidad`** (C2). Sólo hay 120/min por clave, compartido | Por contrato el `GET` no trae el hash de IP del visitante; la web ya limita y cachea | Que la web mande `X-ITH-Client-IP-Hash` también en el `GET` (cambio de contrato, del lado de la web primero) |
-| **`uq_ew_idem` no protege con `token_id` NULL** (C2, E2) | No causa problemas: la agenda pública `/r/` genera la idempotencia al azar; y la 008 ya está aplicada | Si alguna vez importa, una columna calculada con `COALESCE(token_id, 0)` en la clave única, por migración |
 | **Migraciones 005–009, 013, 016 y 018 sólo para MariaDB** (E2, C2) | Usan `ADD COLUMN/INDEX IF NOT EXISTS`; el hosting es MariaDB. `schema.sql` sí sirve en MySQL 8 | Reescribirlas con comprobaciones en `information_schema` si algún día se instala sobre MySQL |
-| **Sin claves foráneas en las tablas de 002–004** (E2). La purga deja huérfanos en `mensajes`, `etiqueta_registro`, `notas`, `envios`, `lista_miembros` | Ya hay huérfanos en las bases: agregar las FK obliga a limpiarlos, y limpiar es borrar | Decidir qué se borra, limpiar con respaldo y agregar las FK por migración |
-| **Columnas sin uso** (E2, D2): `cuentas_correo.imap_ultimo_uid`, `actividades.recordar_min` / `recordado_en` | Sacarlas es un `DROP COLUMN`: se prefirió no borrar en esta pasada | Una migración con `DROP COLUMN` cuando se confirme que nada las lee |
-| **Aviso de `recordar_min` de las actividades** (E2): el formulario lo carga pero nadie manda ese recordatorio | Es una función nueva, no un arreglo | Un paso del cron que mande el aviso y marque `recordado_en` (o sacar el campo del formulario) |
-| **Ajustes heredados `imap_pass` / `smtp_pass` en texto plano** (D2) | Son de la configuración vieja de una sola casilla; las casillas actuales guardan la contraseña cifrada | Migrarlos a `cuentas_correo` cifrados y borrar los ajustes |
 | **`crm_secret` cambiado** (D2): lo cifrado con el secreto anterior no se puede leer | Arreglado en parte: la casilla muestra «Recargar contraseña» en vez de quedar «no configurada» en silencio | Nada más desde el código: si cambia el secreto, se recargan las contraseñas y se reconecta Google |
 | **`uq_msg` con `message_id` NULL** (E2) | La clave única no lo cubre, pero `imap.php` ya evita el duplicado (marca por mensaje, `INSERT IGNORE`) | Nada mientras se guarde por `imap.php` |
 | **Mezcla de versiones durante la subida** (E2): mientras `deploy.py app` sube, conviven unos segundos archivos viejos y nuevos | SFTP archivo por archivo; no hay cambio atómico en el hosting compartido | Subir a una carpeta nueva y cambiar un enlace simbólico, o una página de mantenimiento durante la subida |

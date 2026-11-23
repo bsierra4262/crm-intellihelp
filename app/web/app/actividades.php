@@ -212,6 +212,19 @@ function actividad_guardar(array $d, ?int $id = null): int
         $campos['completada_en'] = null;   // se reabre si le sacan el estado
     }
 
+    // El aviso «X minutos antes» se manda una sola vez (`recordado_en`). Si al
+    // editar cambia la fecha o los minutos, el aviso se vuelve a armar: si no,
+    // una reunión pasada a la semana siguiente se quedaba sin aviso.
+    if ($id) {
+        $antes = q1('SELECT vence_el, inicia_el, recordar_min FROM actividades WHERE id = ?', [$id]);
+        if (!$antes
+            || (string)($antes['recordar_min'] ?? '') !== (string)($campos['recordar_min'] ?? '')
+            || substr((string)($antes['inicia_el'] ?? ''), 0, 16) !== substr((string)($campos['inicia_el'] ?? ''), 0, 16)
+            || substr((string)($antes['vence_el'] ?? ''), 0, 16) !== substr((string)($campos['vence_el'] ?? ''), 0, 16)) {
+            $campos['recordado_en'] = null;
+        }
+    }
+
     if ($id) {
         $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($campos)));
         q("UPDATE actividades SET $sets WHERE id = ?", [...array_values($campos), $id]);
@@ -383,4 +396,52 @@ function actividad_vencimiento(array $a): array
     if ($t < time())                       { return [fecha_hora($cuando), 'badge-rej']; }
     if (date('Y-m-d', $t) === date('Y-m-d')) { return ['Hoy ' . date('H:i', $t), 'badge-pend']; }
     return [fecha_hora($cuando), 'badge-info'];
+}
+
+/**
+ * Avisos «X minutos antes» de las actividades (lo llama el cron).
+ *
+ * Cada actividad con `recordar_min` y sin `recordado_en`, todavía abierta y
+ * fuera de la papelera, recibe una alerta personal para su dueño cuando
+ * llega su hora de aviso (inicio o vencimiento menos los minutos). Las
+ * alertas personales salen también por correo al dueño en el paso de
+ * alertas del cron (notif_enviar_pendientes).
+ *
+ * No se avisa de lo que ya pasó hace más de una hora (por ejemplo, si el
+ * cron estuvo parado): se marca igual para no mandar un aviso tardío.
+ * Las cuentas de tiempo se hacen en PHP, con la misma zona que la base
+ * (db.php la alinea), para no depender de la sintaxis de fechas de MariaDB.
+ *
+ * @param int|null $ahora marca de tiempo (para las pruebas)
+ * @return int cuántos avisos se dejaron
+ */
+function actividades_recordatorios(?int $ahora = null): int
+{
+    $ahora = $ahora ?? time();
+    // El aviso más largo que tiene sentido es de una semana antes.
+    $filas = q("SELECT a.id, a.tipo, a.asunto, a.propietario_id, a.recordar_min,
+                       COALESCE(a.inicia_el, a.vence_el) AS cuando
+                FROM actividades a
+                WHERE a.recordar_min IS NOT NULL AND a.recordado_en IS NULL
+                  AND a.completada_en IS NULL AND a.eliminado_en IS NULL
+                  AND COALESCE(a.inicia_el, a.vence_el) BETWEEN ? AND ?
+                ORDER BY cuando LIMIT 500",
+               [date('Y-m-d H:i:s', $ahora - 86400), date('Y-m-d H:i:s', $ahora + 8 * 86400)])->fetchAll();
+    $n = 0;
+    foreach ($filas as $a) {
+        $cuando = strtotime((string)$a['cuando']);
+        if ($cuando === false || $cuando - (int)$a['recordar_min'] * 60 > $ahora) { continue; }
+        if ($cuando >= $ahora - 3600 && !empty($a['propietario_id'])) {
+            $tipos = tipos_actividad();
+            notificar('recordatorio',
+                ($tipos[$a['tipo']] ?? 'Actividad') . ': ' . $a['asunto'],
+                ['usuario_id' => (int)$a['propietario_id'],
+                 'detalle'    => ($a['tipo'] === 'tarea' ? 'Vence ' : 'Empieza ') . fecha_hora((string)$a['cuando']),
+                 'entidad'    => 'actividad', 'entidad_id' => (int)$a['id'],
+                 'url'        => 'actividad-form?id=' . (int)$a['id']]);
+            $n++;
+        }
+        q('UPDATE actividades SET recordado_en = ? WHERE id = ?', [date('Y-m-d H:i:s', $ahora), (int)$a['id']]);
+    }
+    return $n;
 }

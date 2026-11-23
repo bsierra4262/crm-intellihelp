@@ -741,11 +741,13 @@ CREATE TABLE IF NOT EXISTS `entradas_web` (
   `reserva_id`      BIGINT UNSIGNED DEFAULT NULL,
   `creado_en`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `actualizado_en`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  -- (migracion 019) el token o 0: calculada, no ocupa lugar ni se escribe
+  `token_clave`     BIGINT UNSIGNED GENERATED ALWAYS AS (COALESCE(`token_id`, 0)) VIRTUAL,
   PRIMARY KEY (`id`),
-  -- La idempotencia es por clave de API. Ojo: en un UNIQUE los NULL no chocan
-  -- entre si, asi que para la agenda publica (`token_id` NULL) esta clave no
-  -- impide duplicados; ahi la aplicacion genera una clave al azar por pedido.
-  UNIQUE KEY `uq_ew_idem`   (`token_id`, `idempotencia`),
+  -- La idempotencia es por clave de API. En un UNIQUE los NULL no chocan
+  -- entre si: por eso la clave usa `token_clave` (0 para la agenda publica,
+  -- `token_id` NULL) y no `token_id`.
+  UNIQUE KEY `uq_ew_idem_clave` (`token_clave`, `idempotencia`),
   KEY `ix_ew_creado`        (`creado_en`),
   KEY `ix_ew_canal`         (`canal`, `creado_en`),
   KEY `ix_ew_pagina`        (`origen_pagina`, `creado_en`),
@@ -871,7 +873,10 @@ CREATE TABLE IF NOT EXISTS `lista_miembros` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_lm` (`lista_id`, `email`),
   KEY `ix_lm_contacto` (`contacto_id`),
-  CONSTRAINT `fk_lm_lista` FOREIGN KEY (`lista_id`) REFERENCES `listas` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_lm_lista` FOREIGN KEY (`lista_id`) REFERENCES `listas` (`id`) ON DELETE CASCADE,
+  -- (migracion 019) un contacto purgado sale de las listas: no sigue recibiendo campañas
+  CONSTRAINT `fk_lm_contacto` FOREIGN KEY (`contacto_id`) REFERENCES `contactos` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_lm_pc` FOREIGN KEY (`posible_cliente_id`) REFERENCES `posibles_clientes` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Campanas de correo masivo. Las crea la pantalla de Campanas; el estado lo
@@ -969,7 +974,10 @@ CREATE TABLE IF NOT EXISTS `envios` (
   KEY `ix_envios_email`  (`email`),
   KEY `ix_envios_contacto` (`contacto_id`),
   KEY `ix_envios_cuenta` (`cuenta_correo_id`, `enviado_en`),   -- (migracion 018)
-  CONSTRAINT `fk_envios_campana` FOREIGN KEY (`campana_id`) REFERENCES `campanas` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_envios_campana` FOREIGN KEY (`campana_id`) REFERENCES `campanas` (`id`) ON DELETE CASCADE,
+  -- (migracion 019) la purga de un contacto deja el envio como historial, sin la referencia
+  CONSTRAINT `fk_envios_contacto` FOREIGN KEY (`contacto_id`) REFERENCES `contactos` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_envios_pc` FOREIGN KEY (`posible_cliente_id`) REFERENCES `posibles_clientes` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Bitacora fina de cada envio (apertura, clic, rebote, respuesta, baja).
@@ -1006,7 +1014,7 @@ CREATE TABLE IF NOT EXISTS `desuscripciones` (
 -- todo en cada pasada del cron (mismo truco que Pulsemail).
 -- Con varias casillas (migracion 002) hay una fila por casilla, con `buzon` =
 -- 'INBOX:<usuario>' (imap.php). La columna `cuentas_correo.imap_ultimo_uid`
--- que crea la migracion 002 no se usa: la marca vale la de esta tabla.
+-- que creaba la migracion 002 nunca se uso y la 019 la saca.
 CREATE TABLE IF NOT EXISTS `imap_estado` (
   `buzon`      VARCHAR(120) NOT NULL,
   `ultimo_uid` BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -1028,7 +1036,7 @@ CREATE TABLE IF NOT EXISTS `imap_estado` (
 -- tiene DEFAULT '' (018) porque el alta la graba en un UPDATE aparte.
 -- `firma_html` es la firma de la casilla (no la del usuario, que esta en
 -- `usuarios.firma_html`). `ultimo_error`/`verificada_en` los deja la prueba
--- de conexion. `imap_ultimo_uid` quedo sin uso: la marca de lectura vive en
+-- de conexion. La marca de lectura de cada casilla vive en
 -- `imap_estado`.
 -- Una direccion por casilla viva: `remitente_vivo` (018) es una columna
 -- calculada que vale el remitente mientras la casilla no esta dada de baja y
@@ -1052,7 +1060,6 @@ CREATE TABLE IF NOT EXISTS `cuentas_correo` (
   `imap_port`      INT UNSIGNED DEFAULT 993,
   `imap_user`      VARCHAR(190) DEFAULT NULL,
   `imap_pass`      VARCHAR(255) DEFAULT NULL,
-  `imap_ultimo_uid` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   -- Ritmo propio de la cuenta: cada casilla tiene su tope diario.
   `limite_diario`  INT UNSIGNED NOT NULL DEFAULT 300,
   `usuario_id`     BIGINT UNSIGNED DEFAULT NULL,   -- duenio, si es personal
@@ -1160,7 +1167,11 @@ CREATE TABLE IF NOT EXISTS `mensajes` (
   KEY `ix_msg_sin_leer` (`leido_en`, `direccion`),
   -- La conversacion se arma por direccion de correo (016).
   KEY `ix_msg_de`   (`de`, `fecha`),
-  KEY `ix_msg_para` (`para`, `fecha`)
+  KEY `ix_msg_para` (`para`, `fecha`),
+  -- (migracion 019) la conversacion queda aunque se purgue el contacto o la campaña
+  CONSTRAINT `fk_msg_contacto` FOREIGN KEY (`contacto_id`) REFERENCES `contactos` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_msg_envio`    FOREIGN KEY (`envio_id`)    REFERENCES `envios` (`id`)    ON DELETE SET NULL,
+  CONSTRAINT `fk_msg_campana`  FOREIGN KEY (`campana_id`)  REFERENCES `campanas` (`id`)  ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Lecturas de alertas por persona (migracion 010): una alerta del equipo

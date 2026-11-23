@@ -207,9 +207,9 @@ function cuenta_a_config(array $c): array
 
 /**
  * Config IMAP de una cuenta. Si no tiene propia, usa la de salida (usuario y
- * contraseña de SMTP). La contraseña sale descifrada. La columna
- * `imap_ultimo_uid` de la tabla no se usa: la marca de lectura vive en
- * `imap_estado`, por dirección de casilla.
+ * contraseña de SMTP). La contraseña sale descifrada. La marca de lectura
+ * vive en `imap_estado`, por dirección de casilla (la columna
+ * `imap_ultimo_uid` nunca se usó y la saca la migración 019).
  *
  * @return array{host:string, port:int, user:string, pass:string, cuenta_id:?int}
  */

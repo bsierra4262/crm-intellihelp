@@ -136,7 +136,7 @@ CMR/
 │   │   │   ├── pages/            un controlador por ruta (incl. api/ y api/v1/)
 │   │   │   └── views/            plantillas (layout + una por pantalla)
 │   │   └── assets/               css, js (incl. buscador.js, idle.js, vivo.js), img
-│   ├── db/                       schema.sql y migraciones (migracion-NNN-….sql, hasta la 018)
+│   ├── db/                       schema.sql y migraciones (migracion-NNN-….sql, hasta la 019)
 │   ├── cron.php                  tareas periódicas (CLI y cron-URL)
 │   ├── migrar.php                aplica una migración con la config de SU instalación (sólo CLI)
 │   ├── reinicio.php              vacía la instalación de pruebas y siembra los datos de prueba (sólo CLI)
@@ -157,7 +157,7 @@ así que cambia sola al desplegar un cambio en cualquiera de ellos; no hay núme
 ## 4. Base de datos
 
 Esquema completo en [`app/db/schema.sql`](../app/db/schema.sql): crea **42 tablas** e incluye
-todas las migraciones hasta la 018. Una instalación nueva se arma **sólo con `schema.sql`**; las
+todas las migraciones hasta la 019. Una instalación nueva se arma **sólo con `schema.sql`**; las
 migraciones son para las instalaciones que ya existían. Grupos de tablas:
 
 | Grupo | Tablas |
@@ -195,8 +195,9 @@ Todas son idempotentes. `schema.sql` ya trae todas: en una instalación nueva no
 | 016 | `migracion-016-correo-entrante.sql` | `imap_estado.uidvalidity`; índices `ix_msg_de` / `ix_msg_para` en `mensajes`; `cuentas_correo.smtp_pass` con `DEFAULT ''` |
 | 017 | `migracion-017-avisar-sistema.sql` | Vuelve a encender `avisar_sistema` y marca como avisadas las alertas de sistema de más de un día sin mandar (no borra nada) |
 | 018 | `migracion-018-indices-casillas.sql` | Índices de `envios`, `listas` y `campanas`; saca `ix_cont_pend` / `ix_cta_pend` (redundantes); `mensajes.cuenta_correo_id` a `INT UNSIGNED`; columna calculada `remitente_vivo` con `UNIQUE` (una casilla dada de baja se puede volver a cargar). Requiere 002–007 |
+| 019 | `migracion-019-integridad.sql` | Claves foráneas de `envios`, `lista_miembros` y `mensajes` hacia contactos, posibles clientes, envíos y campañas (antes pone en NULL las referencias rotas; no borra filas); `entradas_web.token_clave` calculada y `UNIQUE (token_clave, idempotencia)` (la agenda pública con `token_id` NULL queda protegida); saca `cuentas_correo.imap_ultimo_uid` (sin uso); borra los ajustes `smtp_pass`/`imap_pass` en texto plano si hay una casilla activa con contraseña. Requiere 002–018 |
 
-Los números 011, 012 y 014 no existen. Las migraciones 005–009, 013, 016 y 018 usan
+Los números 011, 012 y 014 no existen. Las migraciones 005–009, 013, 016, 018 y 019 usan
 `ADD COLUMN/INDEX IF NOT EXISTS`, que es sintaxis de MariaDB (`schema.sql` sirve también en
 MySQL 8). Sin la 010, la 013 o la 015 el código sigue andando, con lo que cada una agrega
 apagado: sin la 010 las alertas del equipo se leen como antes (para todos), sin la 013 no hay

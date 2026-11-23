@@ -4,6 +4,26 @@ Todos los cambios notables de este proyecto se documentan acá.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/)
 y el versionado, [SemVer](https://semver.org/lang/es/).
 
+## 2026-11-23 · Cierre de la auditoría
+
+Lo que había quedado pendiente en [md/AUDITORIA.md](md/AUDITORIA.md).
+
+- **Aviso «X minutos antes» de las actividades:** el campo del formulario de tareas, llamadas y
+  reuniones ahora hace algo. El cron deja una alerta personal al dueño a la hora del aviso y le
+  llega por correo (tipo nuevo «Avisos de mis actividades», con su interruptor en Ajustes). Si se
+  cambia la fecha o los minutos, el aviso se vuelve a armar; lo que pasó hace más de una hora no
+  se avisa tarde.
+- **La purga de la papelera ya no deja nada colgado:** las notas y etiquetas de un registro
+  borrado definitivamente se van con él, y sus adjuntos pasan a la papelera (el archivo se borra
+  al cumplir el plazo). Migración **019**: claves foráneas en `envios`, `lista_miembros` y
+  `mensajes` (el envío y la conversación quedan como historial; el miembro de una lista sale con
+  su contacto), idempotencia de la agenda pública protegida (`token_clave`), fuera la columna sin
+  uso `imap_ultimo_uid` y fuera las contraseñas viejas en texto plano (`smtp_pass`/`imap_pass` de
+  los ajustes) cuando hay una casilla activa, que es la que se usa. Revisado antes en las dos
+  bases: no había ninguna referencia rota que limpiar ni ningún contacto que rescatar.
+- Comprobado por HTTP que WordPress ya no se queda con pedidos a `/crm` (el `.htaccess` raíz del
+  9/11 lo resolvió): 72 de 72 pedidos llegan al CRM.
+
 ## 2026-11-22 · Arreglos de la auditoría
 
 Arreglos de los hallazgos de [md/AUDITORIA.md](md/AUDITORIA.md), en diez lotes que se juntaron

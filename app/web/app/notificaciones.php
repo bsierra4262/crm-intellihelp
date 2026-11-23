@@ -65,6 +65,10 @@ function notif_tipos(): array
                         'ayuda'  => 'Cuando alguien deja una consulta en el formulario de intellihelp.tech '
                                   . 'sin reservar un horario. Le llega a quien atiende las consultas de la web '
                                   . '(o, si no hay nadie asignado, a la lista de avisos).'],
+        'recordatorio' => ['nombre' => 'Avisos de mis actividades', 'icono' => 'agenda',
+                        'ajuste' => 'avisar_recordatorio',
+                        'ayuda'  => 'El aviso «X minutos antes» que se carga en una tarea, llamada o '
+                                  . 'reunión. Le llega sólo al dueño de la actividad.'],
         'sistema'   => ['nombre' => 'Problemas del sistema', 'icono' => 'alerta',
                         'ajuste' => 'avisar_sistema',
                         'ayuda'  => 'Cuando algo deja de funcionar: Google Calendar sin responder, '

@@ -22,8 +22,8 @@ para las dos; donde difieren, se indica.
 Sin `dom`, los correos entrantes se muestran como texto plano. La lectura de rebotes y
 respuestas usa un cliente IMAP propio: no hace falta la extensión `imap`.
 
-`schema.sql` también se puede importar en MySQL 8, pero las migraciones 005–009, 013, 016 y
-018 usan `ADD COLUMN/INDEX IF NOT EXISTS`, que sólo existe en MariaDB.
+`schema.sql` también se puede importar en MySQL 8, pero las migraciones 005–009, 013, 016,
+018 y 019 usan `ADD COLUMN/INDEX IF NOT EXISTS`, que sólo existe en MariaDB.
 
 ---
 
@@ -45,7 +45,7 @@ python bin/deploy.py schema --pruebas     # o --produccion
 ```
 
 El esquema crea las **42 tablas**, el embudo por defecto («Ventas», siete etapas) y los ajustes
-iniciales, e incluye todas las migraciones hasta la 018: **no hay que correr ninguna después**
+iniciales, e incluye todas las migraciones hasta la 019: **no hay que correr ninguna después**
 (si se corren, no cambian nada). **No inserta datos de negocio**: la base arranca vacía.
 
 `deploy.py schema` se niega si la base ya tiene tablas, toma la base y el usuario sólo de la
@@ -69,13 +69,14 @@ un respaldo previo en producción. Todas son idempotentes.
 | 016 | `imap_estado.uidvalidity`; índices de `mensajes`; `smtp_pass` con valor por defecto |
 | 017 | Vuelve a encender los avisos de sistema (`avisar_sistema`) y marca como avisadas las alertas viejas sin mandar |
 | 018 | Índices de `envios`, `listas` y `campanas`; `remitente_vivo` (una casilla dada de baja se puede volver a cargar). Requiere 002–007 |
+| 019 | Claves foráneas de `envios`, `lista_miembros` y `mensajes`; idempotencia de la agenda pública (`token_clave`); saca `imap_ultimo_uid`; borra las contraseñas viejas en texto plano si hay casilla. Requiere 002–018 |
 
 Los números 011, 012 y 014 no existen. Orden para una instalación que ya tenía hasta la 009:
 
 ```bash
 python bin/deploy.py app --pruebas        # primero el código (sube también migrar.php)
 for n in 010-lecturas-alertas 013-agenda-google-pendiente 015-campanas-bajas \
-         016-correo-entrante 017-avisar-sistema 018-indices-casillas; do
+         016-correo-entrante 017-avisar-sistema 018-indices-casillas 019-integridad; do
   python bin/deploy.py migrar app/db/migracion-$n.sql --pruebas
 done
 python bin/deploy.py check --pruebas

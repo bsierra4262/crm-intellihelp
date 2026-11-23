@@ -98,7 +98,8 @@ const ASUNTOS_REBOTE = [
  *      contraseña (descifrada);
  *   2. si no, lo que haya en $CONFIG['imap'], pisado por los ajustes
  *      `imap_host`, `imap_port`, `imap_user`, `imap_pass` (esquema anterior a
- *      las cuentas múltiples; esos ajustes se guardan en texto plano);
+ *      las cuentas múltiples, en texto plano; la migración 019 borra las
+ *      contraseñas cuando hay una casilla activa);
  *   3. lo que falte se completa con Gmail y con el usuario/contraseña de la
  *      salida (smtp_cfg()).
  *

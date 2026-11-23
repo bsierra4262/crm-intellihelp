@@ -361,6 +361,25 @@ try {
 }
 cron_renovar_turno();
 
+// ---- 3b'. Avisos de actividades ----
+// El «avisarme X minutos antes» de tareas, llamadas y reuniones: una alerta
+// personal para el dueño, que sale por correo en el paso 4 de esta misma
+// corrida. Va antes de las alertas justamente por eso.
+try {
+    if (function_exists('actividades_recordatorios')) {
+        $n = actividades_recordatorios();
+        if ($n) {
+            $lineas[] = "actividades: $n avisos";
+            log_app('cron.actividades', ['tipo' => 'sistema', 'actor' => 'cron', 'detalle' => end($lineas)]);
+        }
+    }
+} catch (\Throwable $e) {
+    db_reanudar();
+    $lineas[] = 'actividades ERROR: ' . $e->getMessage();
+    log_app('cron.actividades_error', ['tipo' => 'error', 'actor' => 'cron', 'detalle' => $e->getMessage()]);
+}
+cron_renovar_turno();
+
 // ---- 3c. Feriados ----
 // Una vez por día (la primera corrida del día, o cuando lo sincronizado tiene
 // más de 24 h) se trae el calendario oficial del año y del siguiente. Va antes
