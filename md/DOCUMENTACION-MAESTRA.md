@@ -853,7 +853,12 @@ que no está en la lista se conserva.
 - **Subida:** `deploy.py app --pruebas|--produccion` (SFTP/SSH) sube `app/web/` y, a la raíz,
   `cron.php`, `reinicio.php` y `migrar.php`, sin secretos (excluidos por patrón). Con `--limpiar`
   lista lo que hay en el servidor y ya no está en el repositorio y, con confirmación, lo mueve a
-  `~/crm_retirados` (no borra). Mientras se sube conviven archivos viejos y nuevos unos segundos.
+  `~/crm_retirados` (no borra). No sube encima de lo que está en uso: arma la versión en
+  `~/crm_build/<destino>-<fecha>` (copia del webroot + lo nuevo), le pasa `php -l` y recién
+  entonces cambia las carpetas con dos `mv` (instantáneo, nunca conviven archivos viejos y
+  nuevos; probado con 400 pedidos durante tres cambios, todos 200). Si algo falla, el sitio sigue
+  como estaba. Las 5 últimas versiones reemplazadas quedan en `~/crm_versiones/<destino>` y
+  `deploy.py app --volver` pone la anterior.
   Los assets no necesitan cambio de versión (ver `ASSETS_V`, [§3](#3-estructura-de-archivos)).
 - **Reinicio de pruebas:** `php reinicio.php` (en la carpeta de la instalación) simula; `--hacerlo`
   vacía y siembra pidiendo escribir el nombre de la base (o `--confirmar=<base>`). Sólo corre

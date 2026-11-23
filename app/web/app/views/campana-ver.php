@@ -9,13 +9,14 @@
 //                si la cola está vacía.
 //    $testing    modo prueba; $motivos omitidos agrupados por motivo.
 //    $aperturas  cuántos abrieron (píxel).
+//    $aperturasAuto descargas automáticas del píxel, que no cuentan.
 //    $puedeGestionar  si el usuario puede iniciar o cancelar (creador,
 //                responsable o admin); si no, esos botones no se muestran.
 //  Llama a campana_pasos() y campana_lista_para_enviar() para la lista de
 //  pasos. Los botones postean a campana-accion; las cifras con data-vivo-*
 //  se refrescan desde api-campana.
 // ============================================================
-/** @var int $aperturas @var array $c @var array $envios @var array $data @var array $f @var ?array $vista
+/** @var int $aperturas @var int $aperturasAuto @var array $c @var array $envios @var array $data @var array $f @var ?array $vista
  *  @var bool $testing @var array $motivos @var bool $puedeGestionar */
 // Son dos cifras distintas: «entregados» es cuántos llegaron,
 // y el AVANCE es cuántos ya se resolvieron —entregados más rebotados—. Con 3
@@ -149,6 +150,10 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
         <span class="stat-foot">
             <?= $c['enviados'] > 0 ? round(100 * $aperturas / $c['enviados'], 1) : 0 ?> % de los enviados.
             Es un piso: muchos clientes bloquean las imágenes y esa apertura no se cuenta.
+            <?php if (!empty($aperturasAuto)): ?>
+                <br>Sin contar <?= (int)$aperturasAuto ?> descarga(s) automática(s) de la imagen
+                (Apple Mail, antivirus): no son personas abriendo el correo.
+            <?php endif; ?>
         </span>
     </div>
     <div class="card stat">

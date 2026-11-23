@@ -1775,6 +1775,52 @@ function campana_ip_registro(): ?string
 }
 
 /**
+ * ¿El pedido del píxel lo hizo una máquina y no una persona?
+ *
+ * Tres casos conocidos que descargan las imágenes sin que nadie abra el
+ * correo:
+ *   · Apple Mail con «Proteger actividad de Mail» baja todas las imágenes al
+ *     recibir, desde servidores de Apple (17.0.0.0/8 y sus rangos IPv6);
+ *   · antivirus y filtros de correo corporativos, que se identifican en el
+ *     navegador (User-Agent) o no mandan ninguno;
+ *   · cualquier pedido en los primeros segundos después de la entrega:
+ *     nadie abre un correo tan rápido, pero un filtro sí lo revisa.
+ * El proxy de imágenes de Gmail (GoogleImageProxy) NO cuenta como máquina:
+ * Gmail lo pide recién cuando la persona abre el correo.
+ *
+ * @param string|null $ip        IP del pedido (en claro; no se guarda).
+ * @param string      $ua        User-Agent del pedido.
+ * @param string|null $enviadoEn `envios.enviado_en`.
+ * @return string|null el motivo, o null si parece una persona
+ */
+function apertura_automatica(?string $ip, string $ua, ?string $enviadoEn, ?int $ahora = null): ?string
+{
+    $ahora = $ahora ?? time();
+    $ip = (string) $ip;
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) && str_starts_with($ip, '17.')) {
+        return 'Apple Mail (protección de privacidad)';
+    }
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        $bin = inet_pton($ip);
+        $pref = $bin !== false ? bin2hex(substr($bin, 0, 4)) : '';
+        if (in_array($pref, ['26200149', '2a01b740'], true)) {   // 2620:149::/32 y 2a01:b740::/32
+            return 'Apple Mail (protección de privacidad)';
+        }
+    }
+    $u = strtolower(trim($ua));
+    if (!str_contains($u, 'googleimageproxy')) {
+        if ($u === '' || preg_match('/barracuda|mimecast|proofpoint|messagelabs|symantec|trendmicro|ironport|'
+                . 'forcepoint|fireeye|sophos|cisco|bot\b|crawler|spider|scanner|python|curl|wget|java\//', $u)) {
+            return 'Antivirus o filtro de correo';
+        }
+    }
+    if ($enviadoEn && ($t = strtotime($enviadoEn)) !== false && $ahora - $t >= 0 && $ahora - $t < 10) {
+        return 'Revisado al recibir (filtro de correo)';
+    }
+    return null;
+}
+
+/**
  * El destinatario de un enlace de baja, a partir del token.
  *
  * Primero en la cola (`envios`); si no está —la campaña se purgó de la

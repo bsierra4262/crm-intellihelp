@@ -575,7 +575,8 @@ cp app/server-config/config.example.php app/server-config/crm-pruebas.php
 
 export CRM_SSH_HOST=... CRM_SSH_USER=... CRM_SSH_PASS=...
 python bin/deploy.py config --pruebas     # crm-pruebas.php fuera del web root (600)
-python bin/deploy.py app --pruebas        # la aplicación al web root
+python bin/deploy.py app --pruebas        # la aplicación al web root (cambio instantáneo de carpeta)
+python bin/deploy.py app --pruebas --volver   # vuelve a la versión anterior
 python bin/deploy.py check --pruebas      # sintaxis PHP de lo desplegado
 ```
 

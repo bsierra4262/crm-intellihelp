@@ -179,6 +179,7 @@ export CRM_SSH_HOST=... CRM_SSH_PORT=65002 CRM_SSH_USER=... CRM_SSH_PASS=...
 python bin/deploy.py config --pruebas     # app/server-config/crm-pruebas.php → crm_config/crm-pruebas.php
 python bin/deploy.py config --produccion  # app/server-config/config.php → crm_config/config.php
 python bin/deploy.py app --pruebas        # la aplicación al web root de pruebas
+python bin/deploy.py app --pruebas --volver   # si algo salió mal: vuelve a la versión anterior
 python bin/deploy.py check --pruebas      # verifica la sintaxis PHP de lo desplegado
 ```
 

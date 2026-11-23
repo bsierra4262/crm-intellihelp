@@ -61,4 +61,10 @@ render('campana-ver', [
                     GROUP BY motivo ORDER BY n DESC", [$id])->fetchAll(),
     // Aperturas: el dato se venía guardando y no se mostraba en ningún lado.
     'aperturas' => (int) qv('SELECT COUNT(*) FROM envios WHERE campana_id = ? AND abierto_en IS NOT NULL', [$id]),
+    // Descargas automáticas del píxel (Apple Mail, antivirus): no cuentan como
+    // apertura, se muestran aparte. Sólo las de envíos que nadie abrió después.
+    'aperturasAuto' => (int) qv("SELECT COUNT(DISTINCT ev.envio_id) FROM envio_eventos ev
+                                 JOIN envios e ON e.id = ev.envio_id
+                                 WHERE e.campana_id = ? AND e.abierto_en IS NULL
+                                   AND ev.tipo = 'apertura' AND ev.detalle LIKE 'automática%'", [$id]),
 ], $c['nombre']);

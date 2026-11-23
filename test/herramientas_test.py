@@ -119,6 +119,63 @@ class Limpieza(unittest.TestCase):
         self.assertEqual(deploy.sobrantes(remotos, locales), ["app/pages/borrada.php", "viejo.php"])
 
 
+class CambioDeVersion(unittest.TestCase):
+    """Los comandos de shell de `app` (cambio de carpetas, poda, --volver),
+    corridos de verdad con bash en una carpeta temporal."""
+
+    def bash(self, cmd: str) -> int:
+        import shutil
+        import subprocess
+        b = shutil.which("bash")
+        if not b:
+            self.skipTest("sin bash")
+        return subprocess.run([b, "-c", cmd], capture_output=True).returncode
+
+    def armar(self, d: str, nombre: str, contenido: str) -> str:
+        ruta = d + "/" + nombre
+        os.makedirs(ruta, exist_ok=True)
+        with open(ruta + "/index.php", "w") as f:
+            f.write(contenido)
+        return ruta
+
+    def leer(self, ruta: str) -> str:
+        with open(ruta + "/index.php") as f:
+            return f.read()
+
+    def test_activa_la_nueva_y_guarda_la_vieja(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = d.replace("\\", "/")
+            web, nueva = self.armar(d, "crm", "vieja"), self.armar(d, "build", "nueva")
+            self.assertEqual(self.bash(deploy.comando_cambio(web, nueva, d + "/versiones/20260101-000000")), 0)
+            self.assertEqual(self.leer(web), "nueva")
+            self.assertEqual(self.leer(d + "/versiones/20260101-000000"), "vieja")
+            self.assertFalse(os.path.exists(nueva))
+
+    def test_si_falla_el_segundo_paso_el_sitio_queda_como_estaba(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = d.replace("\\", "/")
+            web = self.armar(d, "crm", "vieja")
+            self.assertNotEqual(self.bash(deploy.comando_cambio(web, d + "/no-existe", d + "/versiones/x")), 0)
+            self.assertEqual(self.leer(web), "vieja")
+
+    def test_primera_instalacion_sin_webroot(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = d.replace("\\", "/")
+            nueva = self.armar(d, "build", "nueva")
+            self.assertEqual(self.bash(deploy.comando_cambio(d + "/crm", nueva, d + "/versiones/x")), 0)
+            self.assertEqual(self.leer(d + "/crm"), "nueva")
+
+    def test_poda_deja_las_ultimas(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = d.replace("\\", "/")
+            nombres = [f"2026010{i}-000000" for i in range(1, 8)] + ["20260109-000000-descartada", "otra-cosa"]
+            for n in nombres:
+                os.makedirs(d + "/" + n)
+            self.assertEqual(self.bash(deploy.comando_podar(d, 3)), 0)
+            self.assertEqual(sorted(os.listdir(d)),
+                             ["20260106-000000", "20260107-000000", "20260109-000000-descartada", "otra-cosa"])
+
+
 class Unificar(unittest.TestCase):
     def ficha(self, **kw):
         f = U.ficha_vacia()
