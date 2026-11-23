@@ -129,6 +129,12 @@ una a otra.
   `reinicio.php` usa para sembrar los contactos de prueba (responsable, correo externo,
   teléfonos). No están en el código porque el repositorio es público; también pueden cargarse
   como ajustes `pruebas_<clave>`. Lo que falte no se siembra.
+- **`'mail' => ['desviar_a' => '…']`** (sólo en `crm-pruebas.php`, nunca en producción): todo
+  correo que salga de esa instalación —campañas, respuestas, agenda, avisos— le llega únicamente
+  a esa casilla, sin copias y con el destinatario original en el asunto (`[PRUEBAS → …]`) y en la
+  cabecera `X-CRM-Desviado-De`; los invitados de Google Calendar se reemplazan por ella. Está en
+  el archivo y no en la base para que copiar o reiniciar la base de pruebas no lo apague. La
+  pantalla de Campañas avisa cuando está activo.
 
 ---
 

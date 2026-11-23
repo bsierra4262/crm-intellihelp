@@ -818,6 +818,8 @@ que no está en la lista se conserva.
 - **Configuración:** `/home/uXXXXXXXXX/crm_config/config.php` en producción y
   `crm_config/crm-pruebas.php` en pruebas (fuera del webroot, `chmod 600`). Cada instalación
   tiene su base, su `storage` y su `secret`. Ver [§5](#5-acceso-y-sesión) (`CRM_CONFIG_DIR`).
+  La de pruebas lleva además `mail.desviar_a`: todo correo saliente (y los invitados de Google
+  Calendar) va sólo a esa casilla (`correo_desvio()` en `envio.php`). En producción no se pone.
 - **Base:** `uXXXXXXXXX_crm` en `localhost`.
 - **Cron:** `app/cron.php` cada 5 minutos desde el hPanel (cada minuto también sirve, ver
   [§11](#11-campañas-de-correo)). Pasos: casillas IMAP y despacho de campañas en vueltas;
