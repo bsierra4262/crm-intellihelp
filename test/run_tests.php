@@ -422,7 +422,8 @@ eq('vencida se marca en rojo',    $cls, 'badge-rej');
 [$txt, $cls] = actividad_vencimiento(['vence_el' => date('Y-m-d H:i:s', strtotime('+2 days')),
                                       'inicia_el' => null, 'completada_en' => null]);
 eq('futura es informativa',       $cls, 'badge-info');
-[$txt, $cls] = actividad_vencimiento(['vence_el' => date('Y-m-d 23:00:00'),
+// Más tarde hoy: 23:59:59 (con 23:00 la prueba fallaba si se corría de noche).
+[$txt, $cls] = actividad_vencimiento(['vence_el' => date('Y-m-d 23:59:59'),
                                       'inicia_el' => null, 'completada_en' => null]);
 eq('la de hoy se destaca',        $cls, 'badge-pend');
 [$txt, $cls] = actividad_vencimiento(['vence_el' => date('Y-m-d H:i:s', strtotime('-2 days')),

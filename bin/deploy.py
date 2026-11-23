@@ -10,6 +10,9 @@ Todo comando necesita el destino, escrito a proposito: --pruebas o --produccion.
                                             ademas lista lo que hay en el servidor y ya
                                             no esta en el repositorio, y (con
                                             confirmacion) lo mueve fuera del webroot
+    python bin/deploy.py app --pruebas --volver
+                                            vuelve a la version anterior (las ultimas 5
+                                            quedan en ~/crm_versiones/<destino>)
     python bin/deploy.py config --pruebas   sube app/server-config/crm-pruebas.php
                                             a crm_config/crm-pruebas.php
     python bin/deploy.py config --produccion
@@ -46,8 +49,14 @@ confirmarla y la guarda en bin/deploy.known_hosts.
 #  · `--pruebas` cambia webroot, storage, base, URL y el archivo de
 #    configuracion (crm-pruebas.php); la carpeta de configuracion (CONFDIR)
 #    es una sola para las dos instalaciones.
-#  · `app` sube archivo por archivo encima de lo que hay; mientras sube, el
-#    sitio queda con una mezcla de archivos nuevos y viejos (son segundos).
+#  · `app` NO sube encima de lo que esta en uso: copia el webroot a
+#    ~/crm_build/<destino>-<fecha>, sube ahi, le pasa `php -l` a todo y
+#    recien entonces cambia las carpetas con dos `mv` seguidos (mismo disco:
+#    es un renombre, instantaneo). Nunca conviven archivos viejos y nuevos.
+#    Si la subida o la sintaxis fallan, el sitio sigue con lo que tenia. La
+#    version reemplazada queda en ~/crm_versiones/<destino>/<fecha> (las 5
+#    ultimas) y `app --volver` la pone de nuevo. La copia inicial conserva lo
+#    que hay en el servidor y no en el repositorio (error_log, .user.ini).
 #    Con --limpiar, lo que esta en el servidor y no en el repositorio se
 #    MUEVE (no se borra) a /home/<usuario>/crm_retirados/<destino>/<fecha>/,
 #    despues de mostrar la lista y pedir confirmacion.
@@ -123,7 +132,7 @@ URL     = ""
 
 # Opciones que entiende cada comando (ademas de --pruebas / --produccion).
 OPCIONES = {
-    "app":    {"--limpiar", "--si"},
+    "app":    {"--limpiar", "--si", "--volver"},
     "config": set(),
     "schema": set(),
     "migrar": {"--simular"},
@@ -413,10 +422,50 @@ SCRIPTS_RAIZ = ("cron.php", "reinicio.php", "migrar.php")
 # tres scripts de linea de comandos a su raiz. Crea la carpeta de
 # almacenamiento si falta. No toca la base ni la config.
 # Con --limpiar, ademas, retira lo que sobra (ver limpiar_sobrantes()).
+# Cuantas versiones reemplazadas se guardan para `app --volver`.
+VERSIONES_GUARDADAS = 5
+
+
+def carpetas_version(sello: str) -> tuple[str, str]:
+    """(carpeta donde se arma la version nueva, carpeta de versiones guardadas)."""
+    return f"{HOME}/crm_build/{DESTINO}-{sello}", f"{HOME}/crm_versiones/{DESTINO}"
+
+
+def comando_cambio(webroot: str, armado: str, guardada: str) -> str:
+    """Los dos renombres que activan la version armada. Si el segundo falla,
+    el primero se deshace: el webroot nunca queda vacio."""
+    w, a, g = shlex.quote(webroot), shlex.quote(armado), shlex.quote(guardada)
+    return (f"mkdir -p {shlex.quote(posixpath.dirname(guardada))} && "
+            f"{{ if [ -e {w} ]; then mv {w} {g}; fi; }} && "
+            f"{{ mv {a} {w} || {{ [ -e {g} ] && mv {g} {w}; false; }}; }}")
+
+
+def comando_podar(versiones: str, guardar: int = VERSIONES_GUARDADAS) -> str:
+    """Borra las versiones guardadas mas viejas (tambien las descartadas por
+    --volver), dejando las `guardar` ultimas. Los nombres son fechas: el orden
+    alfabetico es el cronologico."""
+    v = shlex.quote(versiones)
+    return (f"cd {v} 2>/dev/null && ls -1 | grep -E '^[0-9]{{8}}-[0-9]{{6}}(-descartada)?$' | sort -r "
+            f"| tail -n +{guardar + 1} | xargs -r rm -rf --")
+
+
 def cmd_app(cli, opciones: set[str]) -> None:
+    if "--volver" in opciones:
+        return cmd_volver(cli)
+    sello = time.strftime("%Y%m%d-%H%M%S")
+    armado, versiones = carpetas_version(sello)
+
+    # 1. Copia de lo que esta en uso: lo que no viene del repositorio se conserva.
+    rc, _ = ejecutar(cli, f"mkdir -p {shlex.quote(posixpath.dirname(armado))} && "
+                          f"if [ -d {shlex.quote(WEBROOT)} ]; then cp -a {shlex.quote(WEBROOT)} {shlex.quote(armado)}; "
+                          f"else mkdir -p {shlex.quote(armado)}; fi")
+    if rc != 0:
+        sys.exit("No se pudo preparar la carpeta de armado: el sitio no se toco.")
+
+    # 2. Subida a la carpeta de armado (el sitio sigue con lo que tenia).
     sftp = cli.open_sftp()
-    print(f"Subiendo app/web/ → {WEBROOT}")
-    n = subir_arbol(sftp, RAIZ / "app" / "web", WEBROOT)
+    print(f"Armando la version en {armado}")
+    n = subir_arbol(sftp, RAIZ / "app" / "web", armado)
     # Scripts que viven junto al webroot pero se corren por línea de comandos.
     # Ninguno se ejecuta por HTTP: reinicio.php y migrar.php devuelven 404, y
     # cron.php pide la clave que se configura en Ajustes.
@@ -424,14 +473,48 @@ def cmd_app(cli, opciones: set[str]) -> None:
         local = RAIZ / "app" / nombre
         if not local.is_file():
             continue
-        sftp.put(str(local), posixpath.join(WEBROOT, nombre))
+        sftp.put(str(local), posixpath.join(armado, nombre))
         n += 1
-        print(f"  → {WEBROOT}/{nombre}")
+        print(f"  → {armado}/{nombre}")
     print(f"{n} archivos subidos.")
-    if "--limpiar" in opciones:
-        limpiar_sobrantes(sftp, "--si" in opciones)
     sftp.close()
+
+    # 3. Sintaxis antes de activar.
+    _, errores = ejecutar(cli, f"find {shlex.quote(armado)} -name '*.php' -print0 | xargs -0 -n1 php -l "
+                               f"| grep -v 'No syntax errors' || true", silencioso=True)
+    if errores.strip():
+        print(errores.rstrip())
+        sys.exit(f"Errores de sintaxis: NO se activo. El sitio sigue igual; lo armado quedo en {armado}.")
+
+    # 4. Cambio de carpetas.
+    guardada = f"{versiones}/{sello}"
+    rc, _ = ejecutar(cli, comando_cambio(WEBROOT, armado, guardada))
+    if rc != 0:
+        sys.exit(f"No se pudo activar la version: el sitio sigue con la anterior. Lo armado quedo en {armado}.")
+    print(f"Version activada. La anterior quedo en {guardada} (se vuelve con `app --volver`).")
+    ejecutar(cli, comando_podar(versiones), silencioso=True)
+
+    if "--limpiar" in opciones:
+        sftp = cli.open_sftp()
+        limpiar_sobrantes(sftp, "--si" in opciones)
+        sftp.close()
     ejecutar(cli, f"mkdir -p {shlex.quote(STORAGE)} && chmod 750 {shlex.quote(STORAGE)}")
+
+
+def cmd_volver(cli) -> None:
+    """Pone de nuevo la ultima version guardada; la que estaba en uso queda
+    guardada como <fecha>-descartada (no cuenta para un proximo --volver)."""
+    _, versiones = carpetas_version("x")
+    _, salida = ejecutar(cli, f"ls -1 {shlex.quote(versiones)} 2>/dev/null | grep -E '^[0-9]{{8}}-[0-9]{{6}}$' "
+                              f"| sort -r | head -1", silencioso=True)
+    ultima = salida.strip()
+    if not ultima:
+        sys.exit(f"No hay versiones guardadas en {versiones}.")
+    descartada = f"{versiones}/{time.strftime('%Y%m%d-%H%M%S')}-descartada"
+    rc, _ = ejecutar(cli, comando_cambio(WEBROOT, f"{versiones}/{ultima}", descartada))
+    if rc != 0:
+        sys.exit("No se pudo volver: el sitio sigue como estaba.")
+    print(f"De nuevo en la version {ultima}. La que estaba en uso quedo en {descartada}.")
 
 
 # Lo que esta en el webroot y ya no en el repositorio (paginas borradas o

@@ -22,4 +22,5 @@ render('campanas', [
     'data'    => campanas_listar($f),
     'testing' => es_testing(),
     'smtp'    => smtp_configurado(),
+    'desvio'  => correo_desvio(),
 ], 'Campañas');

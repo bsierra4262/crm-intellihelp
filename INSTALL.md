@@ -129,6 +129,12 @@ una a otra.
   `reinicio.php` usa para sembrar los contactos de prueba (responsable, correo externo,
   teléfonos). No están en el código porque el repositorio es público; también pueden cargarse
   como ajustes `pruebas_<clave>`. Lo que falte no se siembra.
+- **`'mail' => ['desviar_a' => '…']`** (sólo en `crm-pruebas.php`, nunca en producción): todo
+  correo que salga de esa instalación —campañas, respuestas, agenda, avisos— le llega únicamente
+  a esa casilla, sin copias y con el destinatario original en el asunto (`[PRUEBAS → …]`) y en la
+  cabecera `X-CRM-Desviado-De`; los invitados de Google Calendar se reemplazan por ella. Está en
+  el archivo y no en la base para que copiar o reiniciar la base de pruebas no lo apague. La
+  pantalla de Campañas avisa cuando está activo.
 
 ---
 
@@ -179,6 +185,7 @@ export CRM_SSH_HOST=... CRM_SSH_PORT=65002 CRM_SSH_USER=... CRM_SSH_PASS=...
 python bin/deploy.py config --pruebas     # app/server-config/crm-pruebas.php → crm_config/crm-pruebas.php
 python bin/deploy.py config --produccion  # app/server-config/config.php → crm_config/config.php
 python bin/deploy.py app --pruebas        # la aplicación al web root de pruebas
+python bin/deploy.py app --pruebas --volver   # si algo salió mal: vuelve a la versión anterior
 python bin/deploy.py check --pruebas      # verifica la sintaxis PHP de lo desplegado
 ```
 

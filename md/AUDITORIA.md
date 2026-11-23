@@ -62,6 +62,8 @@ Lo que en la primera pasada había quedado en «no se arregló» y se resolvió 
 | **Columnas sin uso** (E2, D2) | `imap_ultimo_uid` sale con la 019. `recordar_min` / `recordado_en` se quedan: ahora se usan (fila de abajo) |
 | **Aviso de `recordar_min` de las actividades** (E2) | `actividades_recordatorios()`, paso 3b' del cron: alerta personal al dueño a la hora del aviso, con correo (tipo «Avisos de mis actividades»). Editar la fecha o los minutos rearma el aviso |
 | **Ajustes heredados `imap_pass` / `smtp_pass` en texto plano** (D2) | Comprobado en producción que eran la misma contraseña que la casilla cifrada `ithos@`. La 019 los borra cuando hay una casilla activa con contraseña |
+| **Mezcla de versiones durante la subida** (E2) | `deploy.py app` arma la versión en `~/crm_build`, le pasa `php -l` y cambia las carpetas con dos `mv` (mismo disco: instantáneo). Probado en crm-pruebas: 400 de 400 pedidos respondieron 200 durante tres cambios. Las 5 versiones anteriores quedan en `~/crm_versiones/<destino>` y `app --volver` vuelve atrás |
+| **Aperturas infladas por Apple Mail Privacy Protection** (D1) | `apertura_automatica()` reconoce las descargas de máquinas (IP de Apple 17/8 y sus rangos IPv6, antivirus y filtros por User-Agent, pedidos en los primeros 10 segundos tras la entrega). Quedan como evento «automática» y no llenan `abierto_en`; la campaña las muestra aparte. Es una heurística: lo que no se reconozca sigue contando |
 
 ### Lo que NO se arregló
 
@@ -70,10 +72,8 @@ Lo que en la primera pasada había quedado en «no se arregló» y se resolvió 
 | **Migraciones 005–009, 013, 016 y 018 sólo para MariaDB** (E2, C2) | Usan `ADD COLUMN/INDEX IF NOT EXISTS`; el hosting es MariaDB. `schema.sql` sí sirve en MySQL 8 | Reescribirlas con comprobaciones en `information_schema` si algún día se instala sobre MySQL |
 | **`crm_secret` cambiado** (D2): lo cifrado con el secreto anterior no se puede leer | Arreglado en parte: la casilla muestra «Recargar contraseña» en vez de quedar «no configurada» en silencio | Nada más desde el código: si cambia el secreto, se recargan las contraseñas y se reconecta Google |
 | **`uq_msg` con `message_id` NULL** (E2) | La clave única no lo cubre, pero `imap.php` ya evita el duplicado (marca por mensaje, `INSERT IGNORE`) | Nada mientras se guarde por `imap.php` |
-| **Mezcla de versiones durante la subida** (E2): mientras `deploy.py app` sube, conviven unos segundos archivos viejos y nuevos | SFTP archivo por archivo; no hay cambio atómico en el hosting compartido | Subir a una carpeta nueva y cambiar un enlace simbólico, o una página de mantenimiento durante la subida |
 | **Dueño de casillas y conversaciones** (D2, decisión): cualquier usuario usa cualquier casilla y ve cualquier conversación | La base es compartida por el equipo; el texto de la pantalla se aclaró («dueño» es informativo) | Si se quiere restringir: regla de permisos en `campana-form` y `conversacion` |
-| **Aperturas infladas por Apple Mail Privacy Protection** (D1) | Apple descarga el píxel de todos los correos; no se distingue desde el servidor | Nada: tomar las aperturas como indicio, no como dato |
-| **crm-pruebas sin casillas de correo**: `api_test.php` da 61/62 (falla «SMTP configurado en pruebas») | No es un defecto: la instalación de pruebas no tiene casillas cargadas; producción sí | Cargar una casilla de prueba en crm-pruebas |
+| **crm-pruebas sin casillas de correo**: `api_test.php` da 61/62 (falla «SMTP configurado en pruebas») | No es un defecto: la instalación de pruebas no tiene casillas cargadas; producción sí. Copiar una casilla de producción a pruebas exige pasar su contraseña de un entorno al otro, y eso lo decide el dueño | Cargar una casilla en crm-pruebas desde «Casillas de correo» (con una contraseña de aplicación de Google) |
 
 ### Decisiones tomadas por defecto que conviene revisar
 

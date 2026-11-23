@@ -21,6 +21,16 @@ Lo que había quedado pendiente en [md/AUDITORIA.md](md/AUDITORIA.md).
   uso `imap_ultimo_uid` y fuera las contraseñas viejas en texto plano (`smtp_pass`/`imap_pass` de
   los ajustes) cuando hay una casilla activa, que es la que se usa. Revisado antes en las dos
   bases: no había ninguna referencia rota que limpiar ni ningún contacto que rescatar.
+- **Aperturas sin las de máquinas:** el píxel reconoce las descargas automáticas (Apple Mail con
+  protección de privacidad, antivirus y filtros de correo, pedidos en los primeros segundos tras
+  la entrega) y no las cuenta como apertura; la campaña las muestra aparte.
+- **Pruebas no le escribe a nadie real:** con `mail.desviar_a` en `crm-pruebas.php`, todo correo
+  que sale de pruebas le llega sólo a esa casilla, con el destinatario original en el asunto, y los
+  invitados de Google Calendar se reemplazan por ella. Pruebas tiene casilla (la de bsierra@,
+  copiada de producción con la clave cifrada de nuevo) y la prueba de SMTP de la API pasa.
+- **Subida sin cortes:** `deploy.py app` arma la versión aparte, revisa la sintaxis y la activa
+  con un cambio de carpeta instantáneo; guarda las 5 anteriores y `app --volver` vuelve atrás.
+- La prueba «la de hoy se destaca» fallaba si se corría después de las 23.
 - Comprobado por HTTP que WordPress ya no se queda con pedidos a `/crm` (el `.htaccess` raíz del
   9/11 lo resolvió): 72 de 72 pedidos llegan al CRM.
 
