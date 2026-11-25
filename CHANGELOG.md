@@ -4,6 +4,25 @@ Todos los cambios notables de este proyecto se documentan acá.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/)
 y el versionado, [SemVer](https://semver.org/lang/es/).
 
+## 2026-11-25 · Ingreso con ITHub (sesión única)
+
+- **Login por ITHub** (OpenID Connect, código + PKCE): con la sección `ithub` en la
+  configuración, `/login` manda a la sesión única de Intellihelp y, si ya estaba abierta, se
+  entra sin ver nada. El `id_token` se valida entero (RS256 con la clave pública de ITHub,
+  emisor, destinatario, vencimiento y nonce); la clave se arma desde el JWK sin dependencias y
+  queda en caché una hora.
+- **El rol lo decide ITHub**: llega en el token (`admin` | `comercial`) y se aplica en cada
+  ingreso. Quien no tiene el CRM habilitado en ITHub no entra. Usuarios lo avisa arriba.
+- **Una sola salida**: «Salir» cierra la sesión única (todas las apps). Al revés, cuando ITHub
+  cierra una sesión o le quita el CRM a alguien, avisa por detrás a `/ithub-logout` y la sesión
+  del CRM se corta en el pedido siguiente. Migración **020** (`ithub_sesiones_cerradas`). El
+  cierre por inactividad del CRM sigue igual y no cierra las demás apps.
+- **Google Calendar se conecta una vez**: con ITHub, Google ya no es el login; «Conectar Google»
+  pide el permiso del calendario de la propia cuenta (se rechaza otra) y no cambia la sesión.
+- Sin la sección `ithub` el CRM sigue con su login de Google de siempre.
+- 18 pruebas nuevas (firma, emisor, destinatario, vencimiento, nonce, aviso de cierre, salida);
+  `smoke.sh` reconoce el modo ITHub.
+
 ## 2026-11-23 · Cierre de la auditoría
 
 Lo que había quedado pendiente en [md/AUDITORIA.md](md/AUDITORIA.md).

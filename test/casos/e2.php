@@ -106,8 +106,8 @@ $__bloques = [];
 foreach (migrar_sentencias($__schema) as $__s) {
     if (preg_match('/^CREATE TABLE IF NOT EXISTS `(\w+)`/i', $__s, $__m)) { $__bloques[$__m[1]] = $__s; }
 }
-// 40 hasta la 009 + la 018; la 010 suma notificacion_lecturas y la 015 bajas_tokens.
-eq('schema: crea las 42 tablas', count($__bloques), 42);
+// 40 hasta la 009 + la 018; la 010 suma notificacion_lecturas, la 015 bajas_tokens y la 020 ithub_sesiones_cerradas.
+eq('schema: crea las 43 tablas', count($__bloques), 43);
 $__faltan = [];
 // Índices que alguna migración saca después (la 018 saca los de la 006): no
 // tienen que estar en schema.sql.

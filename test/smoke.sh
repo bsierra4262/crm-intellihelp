@@ -3,7 +3,8 @@
 #  Smoke test HTTP — CRM INTELLIHELP
 #
 #  Verifica, contra el sitio desplegado, que:
-#    · el login responde y muestra el botón de Google
+#    · el login responde y muestra el botón de Google (o, con ITHub, manda a la
+#      sesión única con PKCE y el aviso de cierre rechaza tokens inválidos)
 #    · TODA ruta privada redirige al login (nadie entra sin sesión)
 #    · las rutas públicas (agenda, baja) responden sin sesión
 #    · el código de la aplicación NO se puede pedir por HTTP
@@ -109,9 +110,30 @@ else
 fi
 
 echo "== Acceso =="
-probar "el login responde"                 "$BASE/login"            "200"
-contiene "muestra el ingreso con Google"   "$BASE/login"            "Ingresar con Google Workspace"
-contiene "aclara el dominio autorizado"    "$BASE/login"            "@intellihelp.tech"
+# Con ITHub configurado, /login no tiene pantalla: manda a ithub-login y de
+# ahí a ITHub. La pantalla (con «Ingresar con ITHub») se ve con ?manual=1.
+LOGIN_RED="$(curl -s -o /dev/null -m 25 -w '%{http_code} %{redirect_url}' "$BASE/login")"
+case "$LOGIN_RED" in
+    30*ithub-login*)
+        echo "  [OK] el login manda a la sesión única de ITHub  ($LOGIN_RED)"; OK=$((OK + 1))
+        AUT="$(curl -s -o /dev/null -m 25 -w '%{http_code} %{redirect_url}' "$BASE/ithub-login")"
+        case "$AUT" in
+            30*/oauth/authorize\?client_id=*code_challenge_method=S256*)
+                echo "  [OK] ithub-login pide autorización a ITHub con PKCE"; OK=$((OK + 1)) ;;
+            *)  echo "  [XX] ithub-login no manda a /oauth/authorize con PKCE  → $AUT"; FALLOS=$((FALLOS + 1)) ;;
+        esac
+        probar "la pantalla de ingreso responde"  "$BASE/login?manual=1"   "200"
+        contiene "ofrece el ingreso con ITHub"    "$BASE/login?manual=1"   "Ingresar con ITHub"
+        c="$(curl -s -o /dev/null -m 25 -w '%{http_code}' -X POST -d 'logout_token=x.y.z' "$BASE/ithub-logout")"
+        if [ "$c" = "400" ]; then bien "el aviso de cierre rechaza un token inválido  (400)"
+        else mal "el aviso de cierre aceptó un token inválido  → $c"; fi
+        ;;
+    *)
+        probar "el login responde"                 "$BASE/login"            "200"
+        contiene "muestra el ingreso con Google"   "$BASE/login"            "Ingresar con Google Workspace"
+        contiene "aclara el dominio autorizado"    "$BASE/login"            "@intellihelp.tech"
+        ;;
+esac
 probar "la raíz lleva al login"            "$BASE/"                 "200|302"
 
 # Lista a mano de rutas que exigen sesión: una pantalla nueva no queda
