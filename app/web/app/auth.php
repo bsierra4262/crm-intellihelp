@@ -24,6 +24,8 @@ declare(strict_types=1);
 /**
  * Devuelve el usuario autenticado (array) o null.
  *
+ * Si la sesión se abrió con ITHub y ITHub avisó que se cerró, se corta.
+ *
  * Se relee de la base una vez por pedido (y se guarda en un caché estático):
  * así un cambio de rol o una desactivación rige desde el pedido siguiente,
  * sin esperar a que la persona vuelva a ingresar. Si el usuario ya no existe
@@ -39,6 +41,14 @@ function auth_user(): ?array
     static $cache = null;
     if ($cache !== null) {
         return $cache;
+    }
+    // Sesión abierta con ITHub que ITHub ya cerró (aviso por detrás en
+    // ithub-logout): se corta acá, en el primer pedido después del aviso.
+    if (!empty($_SESSION['ithub_sid']) && ithub_sid_cerrado((string)$_SESSION['ithub_sid'])) {
+        log_app('sesion.salida', ['tipo' => 'auth', 'usuario_id' => (int)$_SESSION['uid'],
+            'detalle' => 'Cierre desde ITHub (sesión única)']);
+        auth_logout();
+        return null;
     }
     $u = q1('SELECT id, nombre, email, rol, activo, avatar_url, cargo FROM usuarios WHERE id = ? LIMIT 1',
             [$_SESSION['uid']]);
@@ -91,22 +101,21 @@ function find_user_by_email(string $email): ?array
 }
 
 /**
- * Inicia sesión para un id de usuario ya validado (viene de Google OAuth).
+ * Inicia sesión para un id de usuario ya validado (viene de ITHub o de Google).
  *
  * Regenera el id de sesión (evita la fijación de sesión: un id que alguien
  * plantó antes del ingreso deja de servir), arranca los relojes del cierre
  * automático, anota el último acceso y deja el ingreso en la auditoría.
  * No comprueba que el usuario esté activo: eso le toca a quien llama.
  */
-function auth_login_user(int $id): void
+function auth_login_user(int $id, string $detalle = 'Ingreso con Google Workspace'): void
 {
     session_regenerate_id(true);
     $_SESSION['uid']              = $id;
     $_SESSION['login_en']         = time();
     $_SESSION['ultima_actividad'] = time();
     q('UPDATE usuarios SET ultimo_acceso = NOW() WHERE id = ?', [$id]);
-    log_app('sesion.ingreso', ['tipo' => 'auth', 'usuario_id' => $id,
-        'detalle' => 'Ingreso con Google Workspace']);
+    log_app('sesion.ingreso', ['tipo' => 'auth', 'usuario_id' => $id, 'detalle' => $detalle]);
 }
 
 /**

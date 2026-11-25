@@ -9,7 +9,9 @@ declare(strict_types=1);
 //  Tiene que coincidir exacta con la registrada en la consola de Google
 //  (google_redirect_uri()).
 //
-//  Hace el login completo: valida el state, cambia el código por tokens, lee
+//  Con ITHub configurado, el login lo hace ITHub y esto queda sólo para
+//  conectar Google Calendar de quien ya está adentro (paso 5'). Sin ITHub,
+//  hace el login completo: valida el state, cambia el código por tokens, lee
 //  la identidad del id_token, controla el dominio, busca o crea el usuario,
 //  guarda los tokens de Google (google_tokens) e inicia la sesión
 //  (auth_login_user(), que regenera el id de sesión). Cualquier falla vuelve
@@ -70,6 +72,34 @@ if (!empty($g['allowed_domain']) && $hd !== $g['allowed_domain']) {
         'detalle' => 'Intento de ingreso con una cuenta fuera del dominio autorizado']);
     flash('Tu cuenta no pertenece al dominio autorizado de la organización.', 'error');
     redirect('login');
+}
+
+// 5') Con ITHub, esto no es un login: es «Conectar Google Calendar» de
+//     alguien que ya está adentro. Se exige que la cuenta de Google sea la
+//     misma de la sesión (si no, el calendario de otra persona quedaría
+//     colgado de este usuario) y no se toca la sesión.
+if (ithub_habilitado()) {
+    $yo = auth_user();
+    if ($yo === null) {
+        redirect('login');
+    }
+    if (normalizar_email((string)$yo['email']) !== $email) {
+        flash('Elegiste otra cuenta de Google (' . $email . '). Conectá la tuya: ' . $yo['email'] . '.', 'error');
+        redirect('agenda');
+    }
+    google_guardar_tokens((int)$yo['id'], $tok);
+    if (google_permisos_faltantes((string)($tok['scope'] ?? ''))) {
+        gcal_recordar_falla((int)$yo['id'], 403,
+            'Falta el permiso de Google Calendar: al conectar se destildó el acceso al calendario.');
+        flash('Google quedó conectado, pero sin permiso para tu calendario: la agenda no puede ver tus '
+            . 'horarios ni crear reuniones. Volvé a conectar y dejá tildado el acceso al calendario.', 'warn');
+    } else {
+        gcal_limpiar_falla((int)$yo['id']);
+        log_app('google.conectado', ['tipo' => 'auth', 'usuario_id' => (int)$yo['id'],
+            'detalle' => 'Conectó Google Calendar']);
+        flash('Google Calendar conectado.', 'success');
+    }
+    redirect('agenda');
 }
 
 // 5) Buscar o crear el usuario

@@ -78,6 +78,17 @@ return [
         'allowed_domain' => 'intellihelp.tech',                   // hd: sólo cuentas del dominio
         'auto_provision' => true,                                 // crear usuarios nuevos con rol 'comercial'
     ],
+    // Ingreso con ITHub (sesión única de Intellihelp). Con client_id y
+    // client_secret, /login manda a ITHub y el rol (admin | comercial) lo
+    // decide ITHub; Google queda sólo para conectar Google Calendar. Sin esta
+    // sección (o vacía), el CRM sigue con su login de Google de siempre.
+    // Alta en ITHub → Aplicaciones → CRM: URI de vuelta <canonical>/ithub-callback,
+    // URI después de salir <canonical>/login, aviso de cierre <canonical>/ithub-logout.
+    // 'ithub' => [
+    //     'issuer'        => 'https://ithub.intellihelp.tech',
+    //     'client_id'     => 'crm',
+    //     'client_secret' => 'ith_...',                          // NUNCA subir a git
+    // ],
     // Sólo en la config de PRUEBAS (crm-pruebas.php): todo correo que salga
     // (campañas, respuestas, agenda, avisos) va únicamente a esta casilla, con
     // el destinatario original en el asunto, y los invitados de Google Calendar

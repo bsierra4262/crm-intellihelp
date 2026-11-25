@@ -11,6 +11,12 @@ declare(strict_types=1);
 //  flujo es siempre el mismo.
 // ============================================================
 
+// Con ITHub, Google ya no es el login: sólo se usa para conectar Google
+// Calendar, y para eso hay que estar adentro del CRM.
+if (ithub_habilitado() && !auth_user()) {
+    redirect('login');
+}
+
 if (!google_enabled()) {
     flash('El acceso con Google no está configurado. Avisale al administrador.', 'error');
     redirect('login');

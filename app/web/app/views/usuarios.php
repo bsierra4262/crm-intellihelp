@@ -20,11 +20,19 @@
     </div>
 </div>
 
+<?php if (ithub_habilitado()): ?>
+<div class="flash flash-info">
+    El acceso al CRM y el rol de cada persona se administran en
+    <a href="<?= e(ithub_cfg()['issuer'] . '/permisos') ?>" target="_blank" rel="noopener"><strong>ITHub → Permisos</strong></a>.
+    Un cambio hecho acá vale hasta su próximo ingreso, en el que se aplica el rol que diga ITHub.
+</div>
+<?php else: ?>
 <div class="flash flash-info">
     Cualquier persona con cuenta <strong>@<?= e(google_cfg()['allowed_domain'] ?? 'intellihelp.tech') ?></strong>
     que entre por primera vez se da de alta sola con rol <strong>Comercial</strong>.
     Desde acá le cambiás el rol o la desactivás.
 </div>
+<?php endif; ?>
 
 <div class="card table-card" data-vivo="tabla">
     <div class="table-scroll">

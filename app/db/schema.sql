@@ -1222,6 +1222,16 @@ CREATE TABLE IF NOT EXISTS `import_lotes` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Sesiones de ITHub cerradas (aviso por detras de ITHub, ithub-logout.php).
+-- auth_user() corta toda sesion del CRM abierta con ese `sid`. Se limpia sola
+-- (mas de dos dias no sirve: la sesion maxima del CRM es de 8 h).
+CREATE TABLE IF NOT EXISTS `ithub_sesiones_cerradas` (
+  `sid`        CHAR(32)  NOT NULL,     -- id de la sesion de ITHub (claim `sid`)
+  `cerrada_en` DATETIME  NOT NULL,
+  PRIMARY KEY (`sid`),
+  KEY `idx_ithub_cerrada_en` (`cerrada_en`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- ============================================================
 --  DATOS INICIALES (configuracion, no datos de negocio)

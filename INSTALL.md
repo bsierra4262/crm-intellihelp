@@ -76,7 +76,7 @@ Los números 011, 012 y 014 no existen. Orden para una instalación que ya tení
 ```bash
 python bin/deploy.py app --pruebas        # primero el código (sube también migrar.php)
 for n in 010-lecturas-alertas 013-agenda-google-pendiente 015-campanas-bajas \
-         016-correo-entrante 017-avisar-sistema 018-indices-casillas 019-integridad; do
+         016-correo-entrante 017-avisar-sistema 018-indices-casillas 019-integridad 020-ithub; do
   python bin/deploy.py migrar app/db/migracion-$n.sql --pruebas
 done
 python bin/deploy.py check --pruebas
@@ -161,6 +161,31 @@ En [Google Cloud Console](https://console.cloud.google.com/) → **API y servici
    cuentas del dominio.
 
 El `client_id` y el `client_secret` van en la configuración de cada instalación.
+
+### Ingreso con ITHub (sesión única)
+
+Con ITHub, el CRM no tiene login propio: `/login` manda a ITHub y, si la persona ya entró ahí,
+pasa sin ver ninguna pantalla. El acceso y el rol (`admin` o `comercial`) se administran en
+**ITHub → Permisos**. Google queda sólo para **Conectar Google Calendar**, que cada persona hace
+una vez desde la agenda (ya no se ve la pantalla de permisos de Google en cada ingreso).
+
+1. En **ITHub → Aplicaciones → CRM**:
+
+   | Campo | Valor |
+   | --- | --- |
+   | URIs de vuelta | `https://intellihelp.tech/crm/ithub-callback` (y la de `crm-pruebas`) |
+   | URIs después de salir | `https://intellihelp.tech/crm/login` (y la de `crm-pruebas`) |
+   | Aviso de cierre | `https://intellihelp.tech/crm/ithub-logout` |
+
+   y **Generar secreto** (se muestra una sola vez).
+
+2. En la configuración de la instalación, la sección `ithub` (ver `config.example.php`) con
+   `client_id` `crm` y ese secreto.
+
+3. Migración **020** (`ithub_sesiones_cerradas`): ahí anota `ithub-logout` las sesiones que
+   ITHub avisa cerradas, y el CRM corta las suyas en el pedido siguiente.
+
+Sin la sección `ithub`, el CRM sigue entrando con Google como siempre.
 
 ---
 

@@ -2,14 +2,17 @@
 // ============================================================
 //  Vista del login. La dibuja pages/login.php, sin variables propias.
 //
-//  Si Google está configurado (google_enabled, google.php), muestra el botón
-//  que lleva a google-login; si no, un aviso para el administrador. Los
+//  Con ITHub configurado (ithub.php) el login sólo se ve cuando hay un aviso
+//  que mostrar, con el botón «Ingresar con ITHub». Si no, y Google está
+//  configurado (google_enabled, google.php), muestra el botón que lleva a
+//  google-login; si no, un aviso para el administrador. Los
 //  avisos flash se imprimen acá porque, sin sesión, el layout no los dibuja.
 //  El nombre sale del config (no del ajuste `app_nombre`, a diferencia del
 //  layout).
 // ============================================================
 $appName  = $GLOBALS['CONFIG']['app']['name'] ?? 'CRM INTELLIHELP';
 $googleOn = google_enabled();
+$ithubOn  = ithub_habilitado();
 $dominio  = google_cfg()['allowed_domain'] ?? 'intellihelp.tech';
 ?>
 <div class="login-wrap">
@@ -24,7 +27,14 @@ $dominio  = google_cfg()['allowed_domain'] ?? 'intellihelp.tech';
             <div class="flash flash-<?= e($f['type']) ?>"><?= e($f['msg']) ?></div>
         <?php endforeach; ?>
 
-        <?php if ($googleOn): ?>
+        <?php if ($ithubOn): ?>
+            <a href="<?= e(url('ithub-login')) ?>" class="btn btn-primary btn-block">
+                Ingresar con ITHub
+            </a>
+            <p class="muted pub-foot">
+                Sesión única de Intellihelp: si ya entraste a ITHub, no te pide nada más.
+            </p>
+        <?php elseif ($googleOn): ?>
             <a href="<?= e(url('google-login')) ?>" class="btn btn-google btn-block">
                 <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
                     <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>

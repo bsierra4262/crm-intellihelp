@@ -113,6 +113,11 @@ function google_auth_url(string $state, bool $forzarConsentimiento = false): str
     if (!empty($g['allowed_domain'])) {
         $params['hd'] = $g['allowed_domain'];
     }
+    // Con ITHub, quien conecta Calendar ya está adentro: se le propone su
+    // propia cuenta (el callback igual exige que sea esa).
+    if (!empty($_SESSION['uid']) && function_exists('ithub_habilitado') && ithub_habilitado() && ($yo = auth_user())) {
+        $params['login_hint'] = $yo['email'];
+    }
     return 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params);
 }
 

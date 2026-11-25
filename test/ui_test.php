@@ -1359,10 +1359,12 @@ ok('index.php consulta los módulos antes de cada controlador', str_contains($in
 ok('el token se compara en tiempo constante', str_contains($cuerpoFn($leer('app/helpers.php'), 'verify_csrf'), 'hash_equals('));
 // Toda pantalla con sesión que procesa un POST verifica el token. Las
 // públicas (baja de campañas, enlaces cortos, agenda pública) no tienen
-// sesión y se protegen de otra forma; la API firma sus pedidos.
+// sesión y se protegen de otra forma; la API firma sus pedidos, y el aviso de
+// cierre de ITHub (ithub-logout) lo manda un servidor y se valida por la firma
+// del logout_token.
 $sinCsrf = [];
 foreach (glob($WEB . '/app/pages/*.php') ?: [] as $pg) {
-    if (in_array(basename($pg), ['baja.php', 'r.php', 'reservar.php'], true)) { continue; }
+    if (in_array(basename($pg), ['baja.php', 'r.php', 'reservar.php', 'ithub-logout.php'], true)) { continue; }
     $src = (string) file_get_contents($pg);
     if (preg_match('/REQUEST_METHOD|is_post\(\)|\$_POST/', $src) && !str_contains($src, 'verify_csrf(')) {
         $sinCsrf[] = basename($pg);

@@ -164,6 +164,7 @@ require APP . '/helpers.php';
 require APP . '/actividad.php';
 require APP . '/auth.php';
 require APP . '/google.php';
+require APP . '/ithub.php';
 require APP . '/icons.php';
 require APP . '/crm.php';
 require APP . '/api.php';
