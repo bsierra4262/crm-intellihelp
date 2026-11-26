@@ -906,6 +906,7 @@ CREATE TABLE IF NOT EXISTS `campanas` (
   `limite_diario` INT UNSIGNED NOT NULL DEFAULT 300,
   `enviar_desde`  TIME DEFAULT NULL,           -- ventana horaria permitida
   `enviar_hasta`  TIME DEFAULT NULL,
+  `solo_habiles`  TINYINT(1) NOT NULL DEFAULT 0,   -- (022) sin sabados, domingos ni feriados
   `programada_para` DATETIME DEFAULT NULL,
   `inicio_en`     DATETIME DEFAULT NULL,
   `fin_en`        DATETIME DEFAULT NULL,

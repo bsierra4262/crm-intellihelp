@@ -718,6 +718,9 @@ function campana_guardar(array $d, ?int $id = null): int
         'limite_diario'    => max(1,  (int)($d['limite_diario'] ?? 300)),
         'enviar_desde'     => ($d['enviar_desde'] ?? null) ?: null,
         'enviar_hasta'     => ($d['enviar_hasta'] ?? null) ?: null,
+        // Sin el campo (una llamada desde código) vale sí: una campaña comercial
+        // no sale un domingo ni un feriado salvo que alguien lo pida.
+        'solo_habiles'     => array_key_exists('solo_habiles', $d) ? (!empty($d['solo_habiles']) ? 1 : 0) : 1,
         'programada_para'  => ($d['programada_para'] ?? null) ?: null,
         'descripcion'      => ($d['descripcion'] ?? null) ?: null,
     ];
@@ -1199,6 +1202,10 @@ function campana_ritmo(array $c, ?int $pendientes = null): array
  */
 function campana_en_horario(array $c): bool
 {
+    // Sólo días hábiles: sábados, domingos y feriados la campaña espera.
+    if (!empty($c['solo_habiles']) && !campana_dia_habil(date('Y-m-d'))) {
+        return false;
+    }
     if (empty($c['enviar_desde']) || empty($c['enviar_hasta'])) {
         return true;
     }
@@ -1952,6 +1959,20 @@ function marcar_rebote(string $email, string $detalle = '', bool $duro = false):
         'detalle' => ($duro ? 'Rebote definitivo' : 'Rebote temporal')
                    . ($detalle ? ': ' . recortar($detalle, 200) : '')
                    . ($archivados ? ' · ' . $archivados . ' contacto(s) archivado(s)' : '')]);
+}
+
+/**
+ * ¿Ese día (Y-m-d) es hábil? Lunes a viernes que no sean feriado. Los feriados
+ * salen de la tabla `feriados` (la mantiene el cron solo, desde el calendario
+ * oficial, con los de la jurisdicción de Ajustes y los días que se carguen a
+ * mano). $feriado se puede reemplazar en las pruebas.
+ */
+function campana_dia_habil(string $fecha, ?callable $feriado = null): bool
+{
+    $ts = strtotime($fecha . ' 12:00:00');
+    if ($ts === false || (int) date('N', $ts) >= 6) { return false; }
+    $feriado ??= static fn(string $f) => function_exists('feriado_del_dia') ? feriado_del_dia($f) : null;
+    return $feriado($fecha) === null;
 }
 
 /**

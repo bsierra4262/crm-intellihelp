@@ -60,3 +60,13 @@ ok('el evento de la reserva los suma', str_contains((string) file_get_contents((
    'array_merge($invitados, agenda_invitados_fijos())'));
 $iV = ajustes_validar(['agenda_invitados_fijos' => 'a@x.com, malo'], fn($k, $d = null) => $d);
 ok('Ajustes rechaza un invitado que no es correo', (bool) array_filter($iV['errores'], fn($e) => str_contains($e, 'malo')));
+
+echo "== Campañas · Sólo días hábiles ==\n";
+$iSinFer = fn(string $f) => null;
+ok('un jueves cualquiera es hábil', campana_dia_habil('2026-11-26', $iSinFer));
+ok('el sábado no', !campana_dia_habil('2026-11-28', $iSinFer));
+ok('el domingo no', !campana_dia_habil('2026-11-29', $iSinFer));
+ok('un lunes feriado no', !campana_dia_habil('2026-12-07', fn(string $f) => $f === '2026-12-07' ? ['nombre' => 'Feriado puente'] : null));
+ok('el martes siguiente sí', campana_dia_habil('2026-12-09', fn(string $f) => $f === '2026-12-08' ? ['nombre' => 'Inmaculada'] : null));
+$iSrc = (string) file_get_contents((getenv('CRM_SRC') ?: __DIR__ . '/../../app/web/app') . '/campanas.php');
+ok('el despachador frena fuera de los días hábiles', (bool) preg_match("/function campana_en_horario.*?solo_habiles'\]\) && !campana_dia_habil/s", $iSrc));
