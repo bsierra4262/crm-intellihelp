@@ -189,6 +189,14 @@ function ithub_jwks(string $kid = ''): array
             return $claves;
         }
     }
+    // Un kid que no está obliga a bajarlas de nuevo, pero a lo sumo una vez por
+    // minuto: ithub-logout es público y un token inventado con un kid al azar
+    // no puede hacer que el CRM le pida las claves a ITHub en cada pedido.
+    $marca = $archivo !== null ? $archivo . '.intento' : null;
+    if ($marca !== null && is_file($marca) && filemtime($marca) > time() - 60) {
+        return $archivo !== null && is_file($archivo) ? (json_decode((string)file_get_contents($archivo), true) ?: []) : [];
+    }
+    if ($marca !== null) { @touch($marca); }
     [$codigo, $r] = ithub_http(ithub_cfg()['issuer'] . '/oauth/jwks');
     $claves = [];
     foreach ((array)($codigo === 200 ? ($r['keys'] ?? []) : []) as $k) {
@@ -289,19 +297,66 @@ function ithub_usuario_local(array $claims): ?array
 
 // ---- Cierre por detrás (back-channel logout) ----
 
-/** Anota que la sesión de ITHub `sid` se cerró: las del CRM con ese sid caen. */
+/**
+ * Clave con la que se anota un cierre: una huella de 32 caracteres de
+ * «sid:<sid>» o «sub:<sub>». Así entra en la columna CHAR(32) sea cual sea el
+ * largo de lo que mande ITHub, y un sid no se confunde con un sub.
+ */
+function ithub_clave_cierre(string $tipo, string $valor): string
+{
+    return substr(hash('sha256', $tipo . ':' . $valor), 0, 32);
+}
+
+/**
+ * Anota un cierre que avisó ITHub. Con `sid` cae esa sesión única; si el aviso
+ * trae sólo `sub` (la persona: por ejemplo, le quitaron el CRM), caen todas sus
+ * sesiones abiertas antes del aviso. La hora es la de PHP, la misma con la que
+ * se anota el ingreso ($_SESSION['login_en']).
+ */
+function ithub_cerrar(?string $sid, ?string $sub = null): void
+{
+    $ahora = date('Y-m-d H:i:s');
+    foreach (array_filter(['sid' => (string)$sid, 'sub' => (string)$sub]) as $tipo => $valor) {
+        q('INSERT INTO ithub_sesiones_cerradas (sid, cerrada_en) VALUES (?, ?)
+           ON DUPLICATE KEY UPDATE cerrada_en = VALUES(cerrada_en)', [ithub_clave_cierre($tipo, $valor), $ahora]);
+    }
+    // Limpieza: con la sesión máxima del CRM (8 h) nada más viejo que un día sirve.
+    q('DELETE FROM ithub_sesiones_cerradas WHERE cerrada_en < ?', [date('Y-m-d H:i:s', time() - 2 * 86400)]);
+}
+
+/** Compatibilidad: cerrar por sid. */
 function ithub_cerrar_sid(string $sid): void
 {
-    q('INSERT INTO ithub_sesiones_cerradas (sid, cerrada_en) VALUES (?, NOW())
-       ON DUPLICATE KEY UPDATE cerrada_en = NOW()', [$sid]);
-    // Limpieza: con la sesión máxima del CRM (8 h) nada más viejo que un día sirve.
-    q('DELETE FROM ithub_sesiones_cerradas WHERE cerrada_en < NOW() - INTERVAL 2 DAY');
+    ithub_cerrar($sid);
+}
+
+/**
+ * ¿Hay que cortar esta sesión del CRM? Sí si ITHub cerró su sid, o si cerró
+ * todas las de la persona (sub) después de que se abrió esta.
+ */
+function ithub_sesion_cortada(string $sid, string $sub = '', int $loginEn = 0): bool
+{
+    if ($sid !== '') {
+        // La clave vieja (el sid tal cual) sigue valiendo para lo anotado antes del cambio.
+        $claves = [ithub_clave_cierre('sid', $sid)];
+        if (strlen($sid) <= 32) { $claves[] = $sid; }
+        if (q1('SELECT sid FROM ithub_sesiones_cerradas WHERE sid IN (' . implode(',', array_fill(0, count($claves), '?')) . ') LIMIT 1', $claves) !== null) {
+            return true;
+        }
+    }
+    if ($sub !== '') {
+        $f = q1('SELECT cerrada_en FROM ithub_sesiones_cerradas WHERE sid = ? LIMIT 1', [ithub_clave_cierre('sub', $sub)]);
+        if ($f !== null && strtotime((string)$f['cerrada_en']) >= $loginEn) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /** ¿La sesión de ITHub `sid` ya se cerró? */
 function ithub_sid_cerrado(string $sid): bool
 {
-    return q1('SELECT sid FROM ithub_sesiones_cerradas WHERE sid = ? LIMIT 1', [$sid]) !== null;
+    return ithub_sesion_cortada($sid);
 }
 
 /**

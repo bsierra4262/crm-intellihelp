@@ -1527,6 +1527,9 @@ function agenda_reserva_completar(int $reservaId): array
         if (empty($r['gcal_event_id'])) {
             try {
                 $invitados = [(string)$tipo['usuario_email']];
+                // Los invitados fijos de Ajustes (por ejemplo, el resto del
+                // equipo comercial) van en toda reunión que agende un cliente.
+                $invitados = array_merge($invitados, agenda_invitados_fijos());
                 // El cliente es invitado del evento para poder entrar a la Meet
                 // sin pedir permiso. Google no le avisa nada (avisar = none):
                 // la invitación le llega una sola vez, la del CRM.
@@ -2476,4 +2479,17 @@ function agenda_recordatorios(): int
         $n++;
     }
     return $n;
+}
+
+/**
+ * Invitados fijos de toda reunión agendada (ajuste `agenda_invitados_fijos`,
+ * en Ajustes → Reuniones agendadas): correos separados por coma. Los que no
+ * son válidos se ignoran.
+ *
+ * @return string[]
+ */
+function agenda_invitados_fijos(): array
+{
+    $lista = array_map('normalizar_email', explode(',', (string) setting_get('agenda_invitados_fijos', '')));
+    return array_values(array_unique(array_filter($lista, 'email_valido')));
 }

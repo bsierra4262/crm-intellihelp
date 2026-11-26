@@ -803,6 +803,12 @@ td.wrap{white-space:normal}
   background:#fff;overflow-x:auto}
 /* El correo va dentro de un iframe aislado (sandbox): alto fijo con scroll propio. */
 .correo-marco{width:100%;height:640px;border:0;display:block;background:#fff}
+/* Correo en texto plano (plantillas de texto y su vista previa): como lo ve el
+   destinatario, con los renglones tal cual y sin diseño. */
+.correo-texto{border:1px solid var(--line);border-radius:var(--radius-sm);padding:var(--sp-4);margin:0;
+  background:var(--surface,#fff);white-space:pre-wrap;word-break:break-word;
+  font:14px/1.55 Arial,Helvetica,sans-serif;max-height:640px;overflow:auto}
+.mono-texto{font:14px/1.55 Arial,Helvetica,sans-serif;min-height:320px;resize:vertical}
 .err-code{font-size:52px;font-weight:800;color:var(--line);letter-spacing:-.03em;line-height:1}
 .empty-state.compacto{padding:var(--sp-8) 0}
 .empty-state.compacto h2{font-size:16px}

@@ -73,7 +73,7 @@ function modulos(): array
             'nombre' => 'Campañas de correo',
             'ayuda'  => 'El envío masivo con sus plantillas, listas, casillas y seguimiento de respuestas.',
             'rutas'  => ['campanas', 'campana-form', 'campana-ver', 'campana-accion',
-                         'plantillas', 'plantilla-form', 'plantilla-vista',
+                         'plantillas', 'plantilla-form', 'plantilla-texto', 'plantilla-vista',
                          'listas', 'lista-form', 'lista-ver',
                          'cuentas-correo', 'imagenes', 'conversacion', 'api-campana'],
         ],

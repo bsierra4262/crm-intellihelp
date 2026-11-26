@@ -190,6 +190,10 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
 <div class="card mb-4">
     <div class="card-head"><h2>Vista previa</h2><span class="small muted">Como lo va a recibir <?= e($vista['para']) ?></span></div>
     <p class="mb-3 m-0"><strong>Asunto:</strong> <?= e($vista['asunto']) ?></p>
+    <?php if (!empty($vista['solo_texto'])): ?>
+    <?php // Plantilla de texto: se ve tal cual sale, sin diseño. ?>
+    <pre class="correo-texto"><?= e($vista['texto']) ?></pre>
+    <?php else: ?>
     <div class="correo-vista">
         <?php // El correo va en un iframe con sandbox vacío: sin scripts y con un origen propio. Así ni su ?>
         <?php // estilo (la media query con .btn y .px) se mezcla con la pantalla, ni lo que traiga una ?>
@@ -197,6 +201,7 @@ $faltan = array_filter($pasos, fn($p) => !$p['ok']);
         <iframe class="correo-marco" title="Vista previa del correo" sandbox="" loading="lazy"
                 srcdoc="<?= e($vista['html']) ?>"></iframe>
     </div>
+    <?php endif; ?>
 </div>
 <?php endif; ?>
 

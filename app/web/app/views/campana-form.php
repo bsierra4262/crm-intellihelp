@@ -177,6 +177,15 @@ $v = fn(string $k, $def = '') => e($c[$k] ?? $def);
                 <input type="time" name="enviar_hasta" value="<?= e(substr((string)($c['enviar_hasta'] ?? '18:30'), 0, 5)) ?>">
                 <i class="hint">Hasta qué hora sale correo cada día. Conviene el horario laboral: un correo comercial a las 3 de la mañana se nota.</i>
             </label>
+            <div class="fld abajo">
+                <input type="hidden" name="solo_habiles" value="0">
+                <label class="switch">
+                    <input type="checkbox" name="solo_habiles" value="1" <?= (int)($c['solo_habiles'] ?? 1) === 1 ? 'checked' : '' ?>>
+                    <span class="track"></span><span>Sólo días hábiles</span>
+                </label>
+                <i class="hint">De lunes a viernes y nunca un feriado: sábados, domingos y feriados la campaña espera y
+                    sigue el día hábil siguiente. Los feriados se actualizan solos desde el calendario oficial.</i>
+            </div>
             <label class="fld full"><span>Notas internas</span>
                 <textarea name="descripcion" rows="3"><?= $v('descripcion') ?></textarea>
                 <i class="hint">Para vos y tu equipo. No sale en ningún correo.</i>

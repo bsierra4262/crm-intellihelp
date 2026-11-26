@@ -23,6 +23,10 @@ if ($id && !$p) {
     render('error', ['codigo' => 404, 'titulo' => 'Plantilla inexistente', 'mensaje' => ''], 'No encontrado');
     exit;
 }
+// Las de texto plano tienen su propia pantalla.
+if ($p && ($p['tipo'] ?? '') === 'texto') {
+    redirect('plantilla-texto?id=' . $id);
+}
 
 // Plantilla nueva: se arranca desde un preajuste (o desde cero).
 $preajustes = plantillas_preajustes();

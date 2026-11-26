@@ -26,10 +26,9 @@ try {
     exit;
 }
 
-$sid = (string)($c['sid'] ?? '');
-if ($sid !== '') {
-    ithub_cerrar_sid($sid);
-}
+// Con sid cae esa sesión única; si sólo viene sub (la persona), caen todas las
+// suyas abiertas antes de este aviso.
+ithub_cerrar((string)($c['sid'] ?? ''), empty($c['sid']) ? (string)($c['sub'] ?? '') : null);
 // El logout_token no trae el email (sólo `sub`, el id de ITHub): la salida de
 // la persona queda anotada cuando su sesión del CRM cae en auth_user().
 log_app('ithub.aviso_cierre', ['tipo' => 'auth', 'detalle' => 'ITHub avisó el cierre de una sesión única']);

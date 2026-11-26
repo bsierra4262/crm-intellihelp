@@ -68,6 +68,19 @@ eq('el aviso de cierre válido trae el sid', ithub_validar_jwt($__firmar($__logo
 eq('un id_token no sirve como aviso de cierre', $__falla(fn() => ithub_validar_jwt($__firmar($__base), null, true, $__claves)), 'logout_token');
 eq('un aviso de cierre con nonce se rechaza', $__falla(fn() => ithub_validar_jwt($__firmar(['nonce' => 'x'] + $__logout), null, true, $__claves)), 'logout_token');
 
+// ---- Cierres que avisa ITHub ----
+eq('la clave de un cierre siempre entra en la columna (32)', strlen(ithub_clave_cierre('sid', str_repeat('x', 300))), 32);
+ok('un sid y un sub iguales no se confunden', ithub_clave_cierre('sid', '7') !== ithub_clave_cierre('sub', '7'));
+$__sinSid = ['iss' => 'https://ithub.intellihelp.tech', 'aud' => 'crm', 'sub' => '7', 'iat' => time(), 'exp' => time() + 120,
+             'events' => [ITHUB_EVENTO_LOGOUT => new stdClass()]];
+eq('un aviso de cierre sólo con sub (la persona) es válido', ithub_validar_jwt($__firmar($__sinSid), null, true, $__claves)['sub'] ?? '', '7');
+$__srcIt = (string) file_get_contents($SRC . '/ithub.php');
+$__srcLo = (string) file_get_contents($SRC . '/pages/ithub-logout.php');
+ok('ithub-logout corta por sub cuando no viene sid', str_contains($__srcLo, "empty(\$c['sid']) ? (string)(\$c['sub']"));
+ok('por sub sólo caen las sesiones abiertas antes del aviso', str_contains($__srcIt, '>= $loginEn'));
+ok('un kid desconocido baja las claves a lo sumo una vez por minuto', (bool) preg_match('/filemtime\(\$marca\) > time\(\) - 60/', $__srcIt));
+ok('el ingreso guarda el sub de la sesión', str_contains((string) file_get_contents($SRC . '/pages/ithub-callback.php'), "\$_SESSION['ithub_sub']"));
+
 // ---- Salida ----
 $__salida = ithub_url_salida('tok.en.x');
 contiene('la salida va a /oauth/logout de ITHub', $__salida, 'https://ithub.intellihelp.tech/oauth/logout?');

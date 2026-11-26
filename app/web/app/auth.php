@@ -44,7 +44,9 @@ function auth_user(): ?array
     }
     // Sesión abierta con ITHub que ITHub ya cerró (aviso por detrás en
     // ithub-logout): se corta acá, en el primer pedido después del aviso.
-    if (!empty($_SESSION['ithub_sid']) && ithub_sid_cerrado((string)$_SESSION['ithub_sid'])) {
+    if ((!empty($_SESSION['ithub_sid']) || !empty($_SESSION['ithub_sub']))
+        && ithub_sesion_cortada((string)($_SESSION['ithub_sid'] ?? ''), (string)($_SESSION['ithub_sub'] ?? ''),
+                                (int)($_SESSION['login_en'] ?? 0))) {
         log_app('sesion.salida', ['tipo' => 'auth', 'usuario_id' => (int)$_SESSION['uid'],
             'detalle' => 'Cierre desde ITHub (sesión única)']);
         auth_logout();

@@ -1102,6 +1102,13 @@ function imap_acciones_por_defecto(): array
             if (!empty($d['envio_id'])) {
                 marcar_respuesta((string)$d['de'], (string)$d['asunto'], (int)$d['envio_id']);
             }
+            // BAJA, «falleció», «ya no trabaja acá»: lo resuelve el CRM solo
+            // (lista negra y papelera). Si falla, la respuesta ya quedó guardada.
+            try {
+                respuesta_aplicar_automatica($d);
+            } catch (\Throwable $e) {
+                log_app('campana.respuesta_automatica_error', ['tipo' => 'error', 'detalle' => recortar($e->getMessage(), 200)]);
+            }
             return true;
         },
     ];

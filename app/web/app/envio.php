@@ -411,7 +411,13 @@ function smtp_enviar($fp, array $msg, ?string &$err = null, ?array $cfg = null, 
     }
     $alt .= "--$limite--\r\n";
 
-    if ($ics === '') {
+    if (!empty($msg['solo_texto']) && $ics === '') {
+        // Correo en texto plano (plantillas de texto): una sola parte
+        // text/plain, como uno escrito a mano. Sin HTML no hay nada que a los
+        // filtros les «parezca publicidad».
+        $cab   .= "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n";
+        $cuerpo = chunk_split(base64_encode($texto));
+    } elseif ($ics === '') {
         $cab   .= 'Content-Type: multipart/alternative; boundary="' . $limite . "\"\r\n";
         $cuerpo = $alt;
     } else {
