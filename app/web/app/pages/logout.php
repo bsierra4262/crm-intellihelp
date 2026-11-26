@@ -48,7 +48,7 @@ if ($uid) {
 // ella todas las apps). El cierre automático por inactividad del CRM, no: se
 // cae la sesión del CRM y el resto sigue abierto.
 $idToken = (string)($_SESSION['ithub_id_token'] ?? '');
-$porIthub = ithub_habilitado() && !empty($_SESSION['ithub_sid']);
+$porIthub = ithub_habilitado() && (!empty($_SESSION['ithub_sid']) || !empty($_SESSION['ithub_sub']));
 auth_logout();
 if ($porIthub && $motivo === '') {
     header('Location: ' . ithub_url_salida($idToken !== '' ? $idToken : null));

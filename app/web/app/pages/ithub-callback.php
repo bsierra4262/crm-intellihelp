@@ -58,5 +58,6 @@ if ($usuario === null) {
 
 auth_login_user((int)$usuario['id'], 'Ingreso con ITHub');
 $_SESSION['ithub_sid'] = (string)($claims['sid'] ?? '');
+$_SESSION['ithub_sub'] = (string)($claims['sub'] ?? '');
 $_SESSION['ithub_id_token'] = (string)$tok['id_token'];
 redirect('dashboard');
