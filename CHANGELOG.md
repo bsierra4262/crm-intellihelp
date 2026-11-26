@@ -23,6 +23,25 @@ y el versionado, [SemVer](https://semver.org/lang/es/).
 - 18 pruebas nuevas (firma, emisor, destinatario, vencimiento, nonce, aviso de cierre, salida);
   `smoke.sh` reconoce el modo ITHub.
 
+## 2026-11-26 · Campañas en texto plano y limpieza automática
+
+- **Plantillas en texto plano** (migración **021**): el correo sale sólo como text/plain, sin
+  HTML, diseño ni píxel, como los de Pulsemail. Pantalla propia («Texto plano» en Plantillas);
+  acepta `@nombre`, y sin nombre «¡Hola {{nombre}}!» queda «¡Hola!». Al pie se agrega un renglón
+  para pedir la baja respondiendo BAJA; la baja en un clic sigue en la cabecera.
+- **Todo automático:** el lector de la casilla resuelve solo las respuestas que piden la baja,
+  avisan un fallecimiento o que la persona ya no trabaja ahí (también las respuestas
+  automáticas): la dirección va a la lista negra, el contacto a la papelera y se avisa al
+  responsable. Un rebote definitivo manda el contacto entero a la papelera.
+- **Reuniones:** Ajustes → «Reuniones agendadas» suma invitados fijos al evento de Google de
+  cada reunión (Nicolás Baldelli y Brian Sierra). La plantilla lleva el enlace a
+  `diagnostico-sin-cargo/#agendar`, que agenda con Carlos.
+- **ITHub:** el aviso de cierre que trae sólo `sub` corta las sesiones de la persona; el `sid`
+  se guarda como huella (sin tope de largo) y un `kid` desconocido baja las claves a lo sumo
+  una vez por minuto.
+- **Limpieza de contactos con la lista negra de Pulsemail:** 260 a la papelera (55 bajas,
+  168 rebotes, 32 que ya no trabajan, 5 fallecidos) y 4.913 direcciones en la lista negra.
+
 ## 2026-11-23 · Cierre de la auditoría
 
 Lo que había quedado pendiente en [md/AUDITORIA.md](md/AUDITORIA.md).
