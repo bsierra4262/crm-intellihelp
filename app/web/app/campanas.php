@@ -345,10 +345,13 @@ function render_plantilla(string $texto, array $datos, bool $html = false): stri
 function listas_listar(?int $categoriaId = null): array
 {
     $w = 'WHERE l.eliminado_en IS NULL' . ($categoriaId ? ' AND l.categoria_id = ' . $categoriaId : '');
+    // Cada uno ve lo suyo; el administrador, todo (campanas_solo_mias()).
+    $p = [];
+    if (($yo = campanas_solo_mias()) !== null) { $w .= ' AND (l.creado_por = ? OR l.creado_por IS NULL)'; $p[] = $yo; }
     return q("SELECT l.*, c.nombre AS categoria, c.color AS categoria_color,
                      (SELECT COUNT(*) FROM lista_miembros m WHERE m.lista_id = l.id) AS miembros
               FROM listas l LEFT JOIN categorias c ON c.id = l.categoria_id
-              $w ORDER BY c.orden IS NULL, c.orden, l.nombre")->fetchAll();
+              $w ORDER BY c.orden IS NULL, c.orden, l.nombre", $p)->fetchAll();
 }
 
 /** Una lista por id, o null si no existe o está en la papelera. */
@@ -582,6 +585,31 @@ function campana_motivo_omision(string $email, bool $dadoDeBaja, array $m): ?str
  * @param array $f estado, q (nombre), categoria_id, page.
  * @return array lo de paginar() + rows + total.
  */
+/**
+ * A quién se le limitan las campañas y listas: el id del usuario si NO es
+ * administrador (ve sólo lo suyo), o null si ve todo (administrador, o sin
+ * sesión: el cron y las tareas de fondo trabajan con todo).
+ */
+function campanas_solo_mias(): ?int
+{
+    if (!function_exists('auth_user') || !($u = auth_user())) { return null; }
+    return ($u['rol'] ?? '') === 'admin' ? null : (int)$u['id'];
+}
+
+/** ¿El usuario de la sesión puede ver esta campaña? */
+function campana_visible(array $c): bool
+{
+    $yo = campanas_solo_mias();
+    return $yo === null || (int)($c['propietario_id'] ?? 0) === $yo || (int)($c['creado_por'] ?? 0) === $yo;
+}
+
+/** ¿El usuario de la sesión puede ver esta lista? */
+function lista_visible(array $l): bool
+{
+    $yo = campanas_solo_mias();
+    return $yo === null || empty($l['creado_por']) || (int)$l['creado_por'] === $yo;
+}
+
 function campanas_listar(array $f = []): array
 {
     $w = ['c.eliminado_en IS NULL'];
@@ -589,6 +617,8 @@ function campanas_listar(array $f = []): array
     if (!empty($f['estado'])) { $w[] = 'c.estado = ?'; $p[] = $f['estado']; }
     if (!empty($f['q']))      { $w[] = 'c.nombre LIKE ?'; $p[] = '%' . $f['q'] . '%'; }
     if (!empty($f['categoria_id'])) { $w[] = 'c.categoria_id = ?'; $p[] = (int)$f['categoria_id']; }
+    // Cada uno ve las campañas que tiene a cargo o que creó; el administrador, todas.
+    if (($yo = campanas_solo_mias()) !== null) { $w[] = '(c.propietario_id = ? OR c.creado_por = ?)'; $p[] = $yo; $p[] = $yo; }
     $where = 'WHERE ' . implode(' AND ', $w);
     $total = (int) qv("SELECT COUNT(*) FROM campanas c $where", $p);
     $pg    = paginar($total, $f['page'] ?? 1);

@@ -31,6 +31,8 @@ verify_csrf();
 $id     = (int)($_POST['id'] ?? 0);
 $accion = (string)($_POST['accion'] ?? '');
 $c      = campana_get($id);
+// Lo de otro usuario no se toca (salvo el administrador).
+if ($c && !campana_visible($c)) { $c = null; }
 
 if (!$c) {
     flash('La campaña no existe.', 'error');

@@ -70,3 +70,12 @@ ok('un lunes feriado no', !campana_dia_habil('2026-12-07', fn(string $f) => $f =
 ok('el martes siguiente sí', campana_dia_habil('2026-12-09', fn(string $f) => $f === '2026-12-08' ? ['nombre' => 'Inmaculada'] : null));
 $iSrc = (string) file_get_contents((getenv('CRM_SRC') ?: __DIR__ . '/../../app/web/app') . '/campanas.php');
 ok('el despachador frena fuera de los días hábiles', (bool) preg_match("/function campana_en_horario.*?solo_habiles'\]\) && !campana_dia_habil/s", $iSrc));
+
+echo "== Campañas · Cada uno ve lo suyo ==\n";
+$iSrc = (string) file_get_contents((getenv('CRM_SRC') ?: __DIR__ . '/../../app/web/app') . '/campanas.php');
+ok('sin sesión (cron) se ve todo', campanas_solo_mias() === null);
+ok('la lista de campañas filtra por responsable o creador', str_contains($iSrc, "(c.propietario_id = ? OR c.creado_por = ?)"));
+ok('la de listas, por creador', str_contains($iSrc, "(l.creado_por = ? OR l.creado_por IS NULL)"));
+foreach (['campana-ver', 'campana-form', 'campana-accion', 'lista-ver', 'lista-form'] as $iPag) {
+    ok("$iPag no muestra lo de otro usuario", str_contains((string) file_get_contents((getenv('CRM_SRC') ?: __DIR__ . '/../../app/web/app') . "/pages/$iPag.php"), '_visible('));
+}

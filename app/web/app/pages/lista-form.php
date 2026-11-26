@@ -18,6 +18,8 @@ require_login();
 
 $id = (int)($_GET['id'] ?? 0);
 $l  = $id ? lista_get($id) : null;
+// Lo de otro usuario no se muestra (salvo al administrador): como si no existiera.
+if ($l && !lista_visible($l)) { $l = null; }
 if ($id && !$l) {
     http_response_code(404);
     render('error', ['codigo' => 404, 'titulo' => 'Lista inexistente', 'mensaje' => ''], 'No encontrado');

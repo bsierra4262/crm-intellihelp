@@ -13,6 +13,8 @@ require_login();
 
 $id = (int)($_GET['id'] ?? 0);
 $c  = $id ? campana_get($id) : null;
+// Lo de otro usuario no se muestra (salvo al administrador): como si no existiera.
+if ($c && !campana_visible($c)) { $c = null; }
 if (!$c) {
     http_response_code(404);
     render('error', ['codigo' => 404, 'titulo' => 'Campaña inexistente', 'mensaje' => ''], 'No encontrado');
