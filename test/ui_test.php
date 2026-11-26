@@ -1293,10 +1293,10 @@ ok('reservar mira el campo trampa y el token del formulario (§4 #11)',
 ok('cancelar desde el correo pide el token del formulario (§4 #9)',
    str_contains($leer('app/pages/r.php'), "'cancelar')"));
 ok('la página pública trae el campo trampa, oculto sin estilos en línea',
-   str_contains($publica, 'name="sitio_web"') && str_contains($publica, 'class="pub-trampa" hidden'));
+   str_contains($publica, 'name="sitio_web"') && str_contains($publica, 'class="agenda-form__hp" aria-hidden="true" hidden'));
 ok('y la casilla de consentimiento, obligatoria y sin marcar',
-   (bool) preg_match('/name="acepto" value="1" required <\?= !empty\(\$viejo\[\'acepto\'\]\)/', $publica));
-ok('con el enlace al aviso de privacidad', str_contains($publica, 'Ver el aviso de privacidad'));
+   (bool) preg_match('/name="acepto" type="checkbox" value="1" required <\?= !empty\(\$viejo\[\'acepto\'\]\)/', $publica));
+ok('con el enlace al aviso de privacidad', str_contains($publica, 'aviso de privacidad</a>'));
 ok('la IP de los visitantes queda como hash en la auditoría (§4 #12)',
    str_contains($leer('app/actividad.php'), "'h:' . substr(\$h, 0, 40)"));
 foreach (['agenda-mover.php', 'entradas-web.php', 'agenda-publica.php', 'agenda-ok.php', 'agenda-cancelar.php'] as $vista) {

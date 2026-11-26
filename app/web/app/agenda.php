@@ -2135,7 +2135,8 @@ function agenda_render_publica(array $tipo, array $extra = []): void
         'error'     => $extra['error'] ?? null,
         'campo'     => $extra['campo'] ?? null,
         'viejo'     => $extra['viejo'] ?? [],
-        'bodyClass' => 'publica',
+        // `reserva` carga reserva.css: el mismo diseño que la reserva de la web.
+        'bodyClass' => 'publica reserva dx dx--papel',
     ], $tipo['nombre'] . ' · ' . $tipo['usuario']);
 }
 

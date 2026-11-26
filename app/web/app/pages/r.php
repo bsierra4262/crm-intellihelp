@@ -127,7 +127,7 @@ if ($resto === 'mover') {
             try {
                 $nueva = agenda_reprogramar((string)$r['token'], (int)($_POST['inicio'] ?? 0), true);
                 render('agenda-ok', ['r' => $nueva, 'tipo' => $tipo, 'movida' => true,
-                                     'bodyClass' => $bodyClass], 'Horario cambiado');
+                                     'bodyClass' => 'publica reserva dx dx--papel'], 'Horario cambiado');
                 exit;
             } catch (AgendaExcepcion $e) {
                 $error = $e->getMessage();
