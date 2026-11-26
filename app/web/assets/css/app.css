@@ -535,7 +535,12 @@ table.grid tfoot .totals td{background:var(--soft);font-weight:700;border-top:2p
   font-size:11px;font-weight:700;background:var(--primary-050);color:var(--primary-700)}
 
 /* ---------- Control segmentado ---------- */
-.seg{display:inline-flex;background:var(--canvas);border:1px solid var(--line);border-radius:var(--pill);padding:3px;gap:2px}
+.seg{display:inline-flex;background:var(--canvas);border:1px solid var(--line);border-radius:var(--pill);padding:3px;gap:2px;
+  /* Con muchas solapas (Papelera, Actividades) en tablet o celular, la tira se
+     desliza adentro de su lugar en vez de correr la página entera de costado. */
+  max-width:100%;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+.seg::-webkit-scrollbar{display:none}
+.seg-item{flex:none}
 .seg-item{display:inline-flex;align-items:center;gap:.4rem;padding:.45rem .95rem;border-radius:var(--pill);color:var(--muted);font-weight:700;font-size:13px;white-space:nowrap}
 .seg-item:hover{color:var(--ink)}
 .seg-item.active{background:var(--primary);color:#fff}
@@ -1123,3 +1128,15 @@ table.grid tr.marcada{background:var(--primary-050)}
 .busc-det{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sel-op.busc-aviso{cursor:default;color:var(--muted)}
 .sel-op.busc-aviso:hover{background:none}
+
+/* ---------- Pantallas muy chicas (320 a 400 px: iPhone SE, Android chicos) ----------
+   Nada empuja la página de costado: los campos de una grilla pueden achicarse
+   por debajo de su contenido, el texto de un desplegable se corta con «…» y
+   los botones con texto largo pasan a dos renglones en vez de salirse. */
+.grid-fields>*{min-width:0}
+.sel-btn{min-width:0}
+.sel-btn .sel-txt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:400px){
+  .btn{white-space:normal;text-align:center;line-height:1.25}
+  .inline-form,.inline-form .btn{max-width:100%}
+}
