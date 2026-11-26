@@ -89,6 +89,7 @@ $rutas = [
     'campana-accion'  => ['public' => false],
     'plantillas'      => ['public' => false],
     'plantilla-form'  => ['public' => false],
+    'plantilla-texto' => ['public' => false],   // plantilla en texto plano (sin diseño)
     'plantilla-vista' => ['public' => false],
     // Administración: el menú ya las trataba así, pero la ruta no lo decía y
     // se podía entrar escribiendo la dirección a mano.

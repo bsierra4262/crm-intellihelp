@@ -828,7 +828,7 @@ CREATE TABLE IF NOT EXISTS `plantillas` (
   `cuerpo_texto` MEDIUMTEXT DEFAULT NULL,   -- alternativa en texto plano (anti-spam)
   `bloques`    MEDIUMTEXT   DEFAULT NULL,   -- (migracion 002)
   `carpeta`    VARCHAR(80)  DEFAULT NULL,
-  `tipo`       ENUM('visual','html') NOT NULL DEFAULT 'visual',   -- (migracion 002)
+  `tipo`       ENUM('visual','html','texto') NOT NULL DEFAULT 'visual',   -- (002; 'texto' en la 021)
   `preajuste`  VARCHAR(40)  DEFAULT NULL,   -- (migracion 002)
   `activo`    TINYINT(1)   NOT NULL DEFAULT 1,
   `creado_por` BIGINT UNSIGNED DEFAULT NULL,

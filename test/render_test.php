@@ -71,7 +71,9 @@ function rutas_a_probar(): array
     return [
         // El login se prueba SIN sesión: con sesión redirige al panel y no
         // renderiza nada, que es justamente lo que tiene que hacer.
-        'login'           => ['_sin_sesion' => true],
+        // Con ITHub, /login sin más redirige a la sesión única; con ?manual=1 se
+        // dibuja la pantalla (la que se ve después de un aviso o un error).
+        'login'           => ['_sin_sesion' => true, 'manual' => '1'],
         'dashboard'       => [],
         'contactos'       => [],
         'contactos:filtro'=> ['_r' => 'contactos', 'q' => 'a', 'provincia' => 'Buenos Aires', 'page' => '1'],
@@ -90,6 +92,7 @@ function rutas_a_probar(): array
         'campana-form'    => [],
         'plantillas'      => [],
         'plantilla-form'  => [],
+        'plantilla-texto' => [],
         'plantilla-nueva' => ['_r' => 'plantilla-form', 'desde' => 'pulsemail'],
         'cuentas-correo'  => [],
         'imagenes'        => [],

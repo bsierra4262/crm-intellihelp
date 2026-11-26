@@ -93,6 +93,18 @@ function ajustes_validar(array $post, callable $actual): array
         else { $valores['empresa_email'] = $v; }
     }
 
+    $v = $txt('agenda_invitados_fijos');
+    if ($v !== null) {
+        $lista = array_values(array_unique(array_map('normalizar_email',
+            array_filter(array_map('trim', explode(',', $v)), static fn($x) => $x !== ''))));
+        $malas = array_values(array_filter($lista, static fn($x) => !email_valido($x)));
+        if ($malas) {
+            $errores[] = 'Estos invitados fijos no son correos válidos: ' . implode(', ', $malas) . '.';
+        } else {
+            $valores['agenda_invitados_fijos'] = implode(', ', $lista);
+        }
+    }
+
     $v = $txt('avisar_email_a');
     if ($v !== null) {
         $lista = array_values(array_filter(array_map('trim', explode(',', $v)), static fn($x) => $x !== ''));

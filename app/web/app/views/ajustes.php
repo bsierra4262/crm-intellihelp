@@ -308,6 +308,18 @@ $enProduccion = (string) setting_get('app_entorno', 'testing') !== 'testing';
     </div>
 
     <div class="card form-card">
+        <h2 class="sec">Reuniones agendadas</h2>
+        <div class="grid-fields">
+            <label class="fld wide"><span>Invitados fijos de cada reunión</span>
+                <input name="agenda_invitados_fijos" value="<?= e($s('agenda_invitados_fijos')) ?>" maxlength="500"
+                       placeholder="nbaldelli@intellihelp.tech, bsierra@intellihelp.tech">
+                <i class="hint">Separados por coma. Se suman al evento de Google Calendar de toda reunión que
+                    agende un cliente (desde la web o desde una campaña), además de quien la atiende.</i>
+            </label>
+        </div>
+    </div>
+
+    <div class="card form-card">
         <h2 class="sec">Ritmo por defecto de las campañas</h2>
         <?php
         // El servidor valida todo (ajustes_validar.php): enteros mayores que

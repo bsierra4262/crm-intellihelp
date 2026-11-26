@@ -183,7 +183,9 @@ function contexto_marca(): array
  */
 function plantilla_guardar(array $d, ?int $id = null): int
 {
-    $tipo = 'visual';
+    // 'texto' es el correo sin diseño (como Pulsemail): el cuerpo se escribe
+    // tal cual y sale sólo como text/plain. Cualquier otro valor es 'visual'.
+    $tipo = ($d['tipo'] ?? '') === 'texto' ? 'texto' : 'visual';
 
     // En el editor visual el HTML NO se escribe a mano: se genera a partir de
     // los bloques. Así el correo siempre sale con la estructura de tablas que
@@ -204,6 +206,10 @@ function plantilla_guardar(array $d, ?int $id = null): int
         $texto = bloques_texto($lista, $ctx);
         $bloques = json_encode(['bloques' => $lista, 'ajustes' => $aj],
                                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    if ($tipo === 'texto') {
+        $texto = plantilla_texto_normalizar((string)($d['cuerpo_texto'] ?? ''));
     }
 
     $campos = [
@@ -230,6 +236,20 @@ function plantilla_guardar(array $d, ?int $id = null): int
     $nuevo = last_id();
     log_app('plantilla.crear', ['entidad' => 'plantilla', 'entidad_id' => $nuevo, 'detalle' => $campos['nombre']]);
     return $nuevo;
+}
+
+/**
+ * El cuerpo de una plantilla de texto, prolijo: saltos de línea de Unix, sin
+ * espacios colgando al final de cada renglón ni renglones vacíos de más al
+ * principio o al final. Acepta también la variable de Pulsemail «@nombre» y la
+ * pasa a {{nombre}}, para poder pegar los textos que ya se usaban.
+ */
+function plantilla_texto_normalizar(string $t): string
+{
+    $t = str_replace(["\r\n", "\r"], "\n", $t);
+    $t = preg_replace('/@nombre\b/u', '{{nombre}}', $t);
+    $t = implode("\n", array_map('rtrim', explode("\n", $t)));
+    return trim($t, "\n");
 }
 
 /**
@@ -298,6 +318,12 @@ function render_plantilla(string $texto, array $datos, bool $html = false): stri
         '{{agenda}}'            => (string)($datos['agenda'] ?? ''),
         '{{baja}}'              => (string)($datos['baja'] ?? ''),
     ];
+    if ($nombre === '') {
+        // «¡Hola {{nombre}}!» sin nombre queda «¡Hola!» y no «¡Hola Hola!»: la
+        // variable se va con el espacio que la separa. Al principio de un
+        // renglón («{{nombre}}, ¿cómo estás?») sigue valiendo «Hola».
+        $texto = preg_replace('/[ \t]+\{\{nombre\}\}/u', '', $texto);
+    }
     if ($html) {
         $mapa = array_map('e', $mapa);
     }
@@ -640,7 +666,7 @@ function campanas_cifras(array $ids): array
 function campana_get(int $id): ?array
 {
     return q1('SELECT c.*, l.nombre AS lista, pl.nombre AS plantilla, pl.asunto AS plantilla_asunto,
-                      pl.cuerpo_html, pl.cuerpo_texto, u.nombre AS propietario,
+                      pl.cuerpo_html, pl.cuerpo_texto, pl.tipo AS plantilla_tipo, u.nombre AS propietario,
                       cat.nombre AS categoria, cat.color AS categoria_color,
                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado <> "omitido") AS total,
                       (SELECT COUNT(*) FROM envios e WHERE e.campana_id = c.id AND e.estado = "enviado") AS enviados,
@@ -1242,6 +1268,33 @@ function campana_armar_mensaje(array $c, array $envio, ?array $cuenta = null, bo
     ];
 
     $asunto = render_plantilla((string)(($c['asunto'] ?? null) ?: ($c['plantilla_asunto'] ?? null) ?: ''), $datos);
+
+    // Plantilla de texto (como Pulsemail): sale sólo text/plain, sin HTML, sin
+    // diseño y sin píxel. Parece un correo escrito a mano, que es lo que mejor
+    // llega a la bandeja de entrada en una prospección. La baja sigue estando:
+    // en la cabecera List-Unsubscribe (Gmail y Outlook muestran el botón) y en
+    // un renglón al final que pide contestar BAJA, que el lector de la casilla
+    // procesa solo (respuesta_clasificar).
+    if (($c['plantilla_tipo'] ?? '') === 'texto') {
+        $texto = render_plantilla((string)($c['cuerpo_texto'] ?? ''), $datos);
+        if (stripos($texto, $baja) === false) {
+            $texto = rtrim($texto) . "\n\n--\n" . CAMPANA_PIE_TEXTO;
+        }
+        return [
+            'para'        => (string)$envio['email'],
+            'para_nombre' => (string)($envio['nombre'] ?? ''),
+            'asunto'      => $asunto,
+            'html'        => '',
+            'texto'       => $texto,
+            'solo_texto'  => true,
+            'de'          => ($c['remitente_email'] ?? null) ?: ($cuenta['remitente'] ?? null),
+            'de_nombre'   => ($c['remitente_nombre'] ?? null) ?: ($cuenta['remitente_nombre'] ?? null),
+            'responder_a' => ($c['responder_a'] ?? null) ?: ($cuenta['responder_a'] ?? null),
+            'cc'          => array_filter(array_map('trim', preg_split('/[;,\s]+/', (string)($c['copia_a'] ?? '')) ?: [])),
+            'baja_url'    => $baja,
+        ];
+    }
+
     // El HTML con los valores escapados; el asunto y el texto plano, tal cual.
     $html   = render_plantilla((string)($c['cuerpo_html'] ?? ''), $datos, true);
     $texto  = render_plantilla((string)($c['cuerpo_texto'] ?? ''), $datos);
@@ -1304,6 +1357,9 @@ function campana_cargo_destinatario(array $envio): string
     }
     return '';
 }
+
+/** El renglón de baja de los correos en texto plano (lo procesa respuesta_clasificar). */
+const CAMPANA_PIE_TEXTO = 'Si preferís no recibir más correos míos, respondé este mensaje con la palabra BAJA.';
 
 /** Lo que se anota en `envios.motivo` justo antes de entregarle el mensaje al servidor. */
 const CAMPANA_MARCA_ENTREGA = 'Entregando al servidor…';
@@ -1884,25 +1940,11 @@ function marcar_rebote(string $email, string $detalle = '', bool $duro = false):
 
     $archivados = 0;
     if ($duro) {
-        // Sólo se archiva si el correo rebotado es el ÚNICO del contacto: si
-        // tiene otra dirección válida, se sigue pudiendo trabajar con él.
-        foreach (['contactos' => 'contacto', 'posibles_clientes' => 'posible_cliente'] as $tabla => $entidad) {
-            $cols = $tabla === 'contactos' ? ['email', 'email2', 'email3'] : ['email', 'email2'];
-            $otros = implode(' OR ', array_map(
-                fn($c) => "($c IS NOT NULL AND $c <> '' AND $c <> ?)", array_slice($cols, 1)));
-            $params = array_merge([$email], array_fill(0, count($cols) - 1, $email));
-            $filas = q("SELECT id FROM $tabla
-                        WHERE email = ? AND eliminado_en IS NULL AND NOT ($otros)", $params)->fetchAll();
-            foreach ($filas as $r) {
-                q("UPDATE $tabla SET eliminado_en = NOW() WHERE id = ?", [(int)$r['id']]);
-                log_app($entidad . '.archivar_rebote', ['tipo' => 'sistema', 'actor' => 'sistema',
-                    'entidad' => $entidad, 'entidad_id' => (int)$r['id'],
-                    'detalle' => 'Archivado automáticamente: el correo ' . $email
-                               . ' rebotó de forma definitiva. Se puede recuperar desde la papelera '
-                               . 'durante ' . dias_papelera() . ' días.']);
-                $archivados++;
-            }
-        }
+        // El contacto se va a la papelera entero, aunque tenga otra dirección:
+        // es la regla del equipo (la casilla que rebota es la de la persona que
+        // se trabajaba). Se puede recuperar desde la papelera.
+        $archivados = contactos_a_papelera_por_correo($email,
+            'el correo ' . $email . ' rebotó de forma definitiva');
         desuscribir($email, 'rebote_duro', null, recortar($detalle, 200));
     }
 
@@ -1910,6 +1952,146 @@ function marcar_rebote(string $email, string $detalle = '', bool $duro = false):
         'detalle' => ($duro ? 'Rebote definitivo' : 'Rebote temporal')
                    . ($detalle ? ': ' . recortar($detalle, 200) : '')
                    . ($archivados ? ' · ' . $archivados . ' contacto(s) archivado(s)' : '')]);
+}
+
+/**
+ * Manda a la papelera los contactos y posibles clientes que tienen ese correo
+ * en cualquiera de sus direcciones, y lo deja en la bitácora con el motivo.
+ *
+ * @return int cuántas fichas se archivaron
+ */
+function contactos_a_papelera_por_correo(string $email, string $motivo): int
+{
+    $email = normalizar_email($email);
+    if ($email === '') { return 0; }
+    $n = 0;
+    foreach (['contactos' => ['contacto', ['email', 'email2', 'email3']],
+              'posibles_clientes' => ['posible_cliente', ['email', 'email2']]] as $tabla => [$entidad, $cols]) {
+        $donde = implode(' OR ', array_map(fn($c) => "LOWER($c) = ?", $cols));
+        $filas = q("SELECT id FROM $tabla WHERE eliminado_en IS NULL AND ($donde)",
+                   array_fill(0, count($cols), $email))->fetchAll();
+        foreach ($filas as $r) {
+            q("UPDATE $tabla SET eliminado_en = NOW() WHERE id = ?", [(int)$r['id']]);
+            log_app($entidad . '.archivar_automatico', ['tipo' => 'sistema', 'actor' => 'sistema',
+                'entidad' => $entidad, 'entidad_id' => (int)$r['id'],
+                'detalle' => 'Archivado automáticamente: ' . $motivo . '. Se puede recuperar desde la papelera '
+                           . 'durante ' . dias_papelera() . ' días.']);
+            $n++;
+        }
+    }
+    return $n;
+}
+
+/**
+ * ¿La respuesta pide algo que el CRM resuelve solo? Pura, para poder probarla.
+ *
+ * Mira sólo lo que escribió la persona (no la cita de nuestro correo, que
+ * podría decir cualquier cosa) y el asunto. Devuelve el motivo:
+ *   · 'fallecido'     avisan que la persona falleció;
+ *   · 'baja'          piden no recibir más correos (BAJA, «no me envíen más»,
+ *                     unsubscribe…), como lo hacía Pulsemail;
+ *   · 'ya_no_trabaja' la persona ya no está en la empresa o la casilla ya no
+ *                     se usa (respuestas automáticas incluidas).
+ * Una respuesta de «fuera de la oficina» o de vacaciones NO es nada de eso.
+ *
+ * @return array{motivo:string, frase:string}|null null = una respuesta común
+ */
+function respuesta_clasificar(string $asunto, string $texto): ?array
+{
+    $limpio = function_exists('mensaje_partir_cita') ? mensaje_partir_cita($texto)['limpio'] : $texto;
+    // Cortes que mensaje_partir_cita puede no ver en una sola línea larga.
+    $limpio = preg_split('/(?:^|\s)(?:El .{5,120}? escribi[oó]:|On .{5,120}? wrote:|-{3,} ?Original|De: .{3,120}? Enviado)/u', $limpio)[0];
+    $plano  = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $limpio)));
+    $asu    = mb_strtolower(trim($asunto));
+    $buscar = static function (array $patrones, string $txt): ?string {
+        foreach ($patrones as $re) {
+            if (preg_match('/' . $re . '/u', $txt, $m)) { return $m[0]; }
+        }
+        return null;
+    };
+
+    $fallecido = ['\bfalleci(?:[oó]|eron|miento|da|do)\b', '\bmuri[oó]\b', '\bq\.?\s?e\.?\s?p\.?\s?d\b',
+                  'en paz descanse', 'descanse en paz', '\bpassed away\b', '\bdeceased\b'];
+    if ($f = $buscar($fallecido, $plano)) { return ['motivo' => 'fallecido', 'frase' => $f]; }
+
+    $baja = ['\b(?:d[aá]me|d[eé]nme|d[aá]le|d[eé]nle|darme|darnos|darlo|darla|dar|den|denos) de baja\b',
+             'no (?:me|nos) (?:env[ií]en|manden|escriban|contacten) m[aá]s', 'dejen de (?:enviar|mandar|escribir)',
+             '(?:quitar|sacar|eliminar|borrar)(?:me|nos)? de (?:la|su|sus|vuestra) (?:lista|base|listado)',
+             '(?:s[aá]quen|qu[ií]ten|eliminen|borren)(?:me|nos) de', 'no (?:deseo|quiero|queremos|deseamos) recibir',
+             '\bunsubscribe\b', '\bremove me\b', '\bstop (?:sending|emailing)\b'];
+    if (preg_match('/\b(?:baja|unsubscribe|desuscribir)\b/u', $asu)) { return ['motivo' => 'baja', 'frase' => $asunto]; }
+    if (mb_strlen($plano) <= 200 && preg_match('/\bbaja\b/u', $plano)) { return ['motivo' => 'baja', 'frase' => $plano]; }
+    if ($f = $buscar($baja, $plano)) { return ['motivo' => 'baja', 'frase' => $f]; }
+
+    $yaNo = ['ya no (?:trabaja|forma parte|pertenece|se encuentra (?:trabajando|en la (?:empresa|compa[nñ][ií]a)))',
+             'no trabaja m[aá]s', 'dej[oó] de trabajar', '\bse desvincul[oó]\b', '\bse jubil[oó]\b', '\bse retir[oó] de la\b',
+             '(?:casilla|cuenta|direcci[oó]n)(?: de (?:correo|mail|e-?mail)(?: electr[oó]nico)?)? ya no (?:est[aá]|se encuentra|es) (?:activa|operativa|disponible|en uso|v[aá]lida)',
+             '\bno longer (?:with|works|working|employed|part of|active|valid|available)\b', '\bhas left (?:the|our) (?:company|organi[sz]ation)\b',
+             '\bis no longer (?:with|working|employed|part of)\b', '\bi am no longer\b', '\bleft the company\b'];
+    if ($f = $buscar($yaNo, $plano)) { return ['motivo' => 'ya_no_trabaja', 'frase' => $f]; }
+    return null;
+}
+
+/**
+ * Lo que hace el CRM solo con una respuesta que pide algo
+ * (respuesta_clasificar): da de baja las direcciones, manda los contactos a
+ * la papelera y le avisa al responsable de la campaña.
+ *
+ *   · Fallecido o ya no trabaja: se va la dirección a la que le escribimos
+ *     (la del envío). Si contestó un compañero, su dirección no se toca.
+ *   · Baja: la del envío y la de quien contestó (puede pedirlo un compañero).
+ * La conversación queda guardada igual: se puede leer desde el CRM.
+ *
+ * @param array $d la respuesta en el formato de mensaje_entrante() (de,
+ *                 asunto, texto, html, envio_id, campana_id).
+ * @return string|null el motivo aplicado, o null si no había nada que hacer
+ */
+function respuesta_aplicar_automatica(array $d): ?string
+{
+    $texto = (string)($d['texto'] ?? '');
+    if (trim($texto) === '' && !empty($d['html'])) {
+        $texto = html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>'], "\n", (string)$d['html'])), ENT_QUOTES, 'UTF-8');
+    }
+    $clase = respuesta_clasificar((string)($d['asunto'] ?? ''), $texto);
+    if ($clase === null) { return null; }
+    $motivo = $clase['motivo'];
+
+    $de = normalizar_email((string)($d['de'] ?? ''));
+    $envio = !empty($d['envio_id']) ? q1('SELECT id, email, campana_id FROM envios WHERE id = ?', [(int)$d['envio_id']]) : null;
+    $destino = normalizar_email((string)($envio['email'] ?? '')) ?: $de;
+    $direcciones = $motivo === 'baja' ? array_values(array_unique(array_filter([$destino, $de]))) : [$destino];
+    $campanaId = (int)($envio['campana_id'] ?? ($d['campana_id'] ?? 0)) ?: null;
+
+    $etiqueta = ['fallecido' => 'Falleció (lo avisaron respondiendo una campaña)',
+              'baja' => 'Pidió la baja respondiendo una campaña',
+              'ya_no_trabaja' => 'Ya no trabaja ahí o la casilla ya no se usa (respuesta a una campaña)'][$motivo];
+    $archivados = 0;
+    foreach ($direcciones as $email) {
+        desuscribir($email, $motivo === 'baja' ? 'baja' : 'manual', $campanaId,
+                    recortar($etiqueta . ': «' . $clase['frase'] . '»', 250));
+        $archivados += contactos_a_papelera_por_correo($email, mb_strtolower($etiqueta) . ' (' . $email . ')');
+    }
+    if ($envio && $motivo === 'baja') {
+        q("INSERT INTO envio_eventos (envio_id, tipo, detalle) VALUES (?, 'baja', ?)",
+          [(int)$envio['id'], 'Respondió pidiendo la baja']);
+    }
+    // Los contadores se rehacen también en la vuelta siguiente del cron: si
+    // esto falla, la baja ya quedó hecha.
+    if ($campanaId) {
+        try { campana_recontar($campanaId); } catch (\Throwable $e) { }
+    }
+
+    $camp = $campanaId ? q1('SELECT nombre, propietario_id FROM campanas WHERE id = ?', [$campanaId]) : null;
+    notificar('respuesta', ['fallecido' => 'Falleció: ', 'baja' => 'Se dio de baja: ', 'ya_no_trabaja' => 'Ya no trabaja: '][$motivo] . $destino,
+        ['usuario_id' => $camp['propietario_id'] ?? null,
+         'detalle'    => 'Lo resolvió el CRM solo: ' . implode(', ', $direcciones) . ' a la lista negra'
+                       . ($archivados ? ' y ' . $archivados . ' ficha(s) a la papelera' : '') . '.',
+         'entidad'    => $campanaId ? 'campana' : null, 'entidad_id' => $campanaId,
+         'url'        => 'conversacion?email=' . urlencode($de)]);
+    log_app('campana.respuesta_automatica', ['tipo' => 'sistema', 'actor' => $de,
+        'entidad' => $campanaId ? 'campana' : null, 'entidad_id' => $campanaId,
+        'detalle' => $etiqueta . ' · ' . implode(', ', $direcciones) . ' · ' . $archivados . ' ficha(s) a la papelera']);
+    return $motivo;
 }
 
 /**

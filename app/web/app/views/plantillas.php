@@ -20,6 +20,7 @@
     <div class="head-actions">
         <a class="btn btn-ghost" href="<?= e(url('campanas')) ?>"><?= icon('campanas', 16) ?>Campañas</a>
         <a class="btn btn-ghost" href="<?= e(url('imagenes')) ?>"><?= icon('subir', 16) ?>Imágenes</a>
+        <a class="btn btn-ghost" href="<?= e(url('plantilla-texto')) ?>"><?= icon('mas', 16) ?>Texto plano</a>
         <a class="btn btn-primary" href="<?= e(url('plantilla-form')) ?>"><?= icon('mas', 16) ?>Empezar de cero</a>
     </div>
 </div>
@@ -58,8 +59,8 @@
                 <tr>
                     <td data-label="Plantilla">
                         <div class="cell-main">
-                            <a href="<?= e(url('plantilla-form?id=' . (int)$p['id'])) ?>"><strong><?= e($p['nombre']) ?></strong></a>
-                            <small><?= $p['tipo'] === 'visual' ? 'Editor visual' : 'HTML propio' ?></small>
+                            <a href="<?= e(url((($p['tipo'] ?? '') === 'texto' ? 'plantilla-texto' : 'plantilla-form') . '?id=' . (int)$p['id'])) ?>"><strong><?= e($p['nombre']) ?></strong></a>
+                            <small><?= ['visual' => 'Editor visual', 'texto' => 'Texto plano'][$p['tipo']] ?? 'HTML propio' ?></small>
                         </div>
                     </td>
                     <td data-label="Asunto"><?= e(recortar($p['asunto'], 50)) ?></td>
@@ -83,7 +84,7 @@
                         </form>
                         <?php endif; ?>
 
-                        <a class="act" href="<?= e(url('plantilla-form?id=' . (int)$p['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
+                        <a class="act" href="<?= e(url((($p['tipo'] ?? '') === 'texto' ? 'plantilla-texto' : 'plantilla-form') . '?id=' . (int)$p['id'])) ?>" title="Editar"><?= icon('editar', 16) ?></a>
                         <a class="act" href="<?= e(url('plantilla-vista?id=' . (int)$p['id'])) ?>" target="_blank" title="Ver como lo recibe el cliente"><?= icon('enlace', 16) ?></a>
                     </td>
                 </tr>

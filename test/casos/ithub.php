@@ -77,7 +77,7 @@ eq('un aviso de cierre sólo con sub (la persona) es válido', ithub_validar_jwt
 $__srcIt = (string) file_get_contents($SRC . '/ithub.php');
 $__srcLo = (string) file_get_contents($SRC . '/pages/ithub-logout.php');
 ok('ithub-logout corta por sub cuando no viene sid', str_contains($__srcLo, "empty(\$c['sid']) ? (string)(\$c['sub']"));
-ok('por sub sólo caen las sesiones abiertas antes del aviso', str_contains($__srcIt, ">= $loginEn"));
+ok('por sub sólo caen las sesiones abiertas antes del aviso', str_contains($__srcIt, '>= $loginEn'));
 ok('un kid desconocido baja las claves a lo sumo una vez por minuto', (bool) preg_match('/filemtime\(\$marca\) > time\(\) - 60/', $__srcIt));
 ok('el ingreso guarda el sub de la sesión', str_contains((string) file_get_contents($SRC . '/pages/ithub-callback.php'), "\$_SESSION['ithub_sub']"));
 
