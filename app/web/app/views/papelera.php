@@ -15,9 +15,10 @@
 </div>
 
 <div class="flash flash-info">
-    Cuando un correo rebota de forma <strong>definitiva</strong> —la casilla ya no existe o el
-    dominio se dio de baja— el sistema <strong>archiva el contacto solo</strong>, para que la base
-    no siga cargando direcciones muertas. No se pierde nada: queda acá
+    Cuando un correo rebota de forma <strong>definitiva</strong>, o alguien responde una campaña
+    pidiendo la <strong>baja</strong>, avisando que la persona <strong>falleció</strong> o que
+    <strong>ya no trabaja ahí</strong>, el sistema <strong>archiva el contacto solo</strong> y pone
+    la dirección en la lista negra. No se pierde nada: queda acá
     <strong><?= (int)$dias ?> días</strong> y se puede restaurar con un clic. Recién pasado ese
     plazo se borra de verdad.
 </div>

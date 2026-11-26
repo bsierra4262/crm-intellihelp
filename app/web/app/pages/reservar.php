@@ -61,9 +61,15 @@ $viejo = [
     'empresa'    => trim((string)($_POST['empresa'] ?? '')),
     'telefono'   => trim((string)($_POST['telefono'] ?? '')),
     'comentario' => trim((string)($_POST['comentario'] ?? '')),
+    'como_nos_conociste' => recortar(trim((string)($_POST['como_nos_conociste'] ?? '')), 60),
     'acepto'     => !empty($_POST['acepto']),
     'inicio'     => $inicio,
 ];
+// «¿Cómo nos conociste?» (los botones del formulario, igual que en la web) va
+// en el comentario de la reserva, como lo manda la web: «¿Cómo nos conoció?: …».
+$comentarioReserva = trim($viejo['comentario']
+    . ($viejo['como_nos_conociste'] !== '' ? "
+¿Cómo nos conoció?: " . $viejo['como_nos_conociste'] : ''));
 
 /**
  * Vuelve a mostrar la página con un aviso y lo que la persona ya había escrito.
@@ -146,7 +152,7 @@ try {
         'empresa'                => $viejo['empresa'] ?: null,
         'email'                  => normalizar_email($viejo['email']),
         'telefono'               => $viejo['telefono'] ?: null,
-        'mensaje'                => $viejo['comentario'] ?: null,
+        'mensaje'                => $comentarioReserva ?: null,
         'novedades'              => 0,
         'consentimiento_en'      => $consEn,
         'consentimiento_version' => AGENDA_CONSENTIMIENTO_VERSION,
@@ -188,7 +194,7 @@ try {
         'email'      => $viejo['email'],
         'empresa'    => $viejo['empresa'],
         'telefono'   => $viejo['telefono'],
-        'comentario' => $viejo['comentario'],
+        'comentario' => $comentarioReserva,
         'campana_id' => $campanaId,
     ], [
         'origen'                 => 'publica',
@@ -229,4 +235,4 @@ try {
 $reserva = agenda_reserva_completar((int)$reserva['id']) ?: $reserva;
 // «Con» dice quién la atiende de verdad: el dueño o quien lo cubre ese día.
 $tipo = agenda_tipo_de_reserva($reserva) ?? $tipo;
-render('agenda-ok', ['r' => $reserva, 'tipo' => $tipo, 'bodyClass' => $bodyClass], 'Reunión confirmada');
+render('agenda-ok', ['r' => $reserva, 'tipo' => $tipo, 'bodyClass' => 'publica reserva dx dx--papel'], 'Reunión confirmada');

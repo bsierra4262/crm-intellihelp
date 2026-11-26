@@ -115,6 +115,10 @@ $brandOrg  = $GLOBALS['CONFIG']['app']['org'] ?? 'INTELLIHELP';
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Saira:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?= $asset('assets/css/app.css') ?>?v=<?= ASSETS_V ?>">
+    <?php // Reserva pública (/r/…): el diseño del bloque de reserva de la web, copiado en reserva.css. ?>
+    <?php if (str_contains(' ' . $bodyClass . ' ', ' reserva ')): ?>
+    <link rel="stylesheet" href="<?= $asset('assets/css/reserva.css') ?>?v=<?= ASSETS_V ?>">
+    <?php endif; ?>
     <?php if (!empty($brand['primary']) || !empty($brand['accent'])): ?>
     <style>:root{<?php if (!empty($brand['primary'])): ?>--primary:<?= e($brand['primary']) ?>;<?php endif; ?><?php if (!empty($brand['accent'])): ?>--accent:<?= e($brand['accent']) ?>;<?php endif; ?>}</style>
     <?php endif; ?>

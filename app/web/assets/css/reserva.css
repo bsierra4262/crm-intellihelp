@@ -1,0 +1,656 @@
+/* =========================================================
+   Página pública de reserva del CRM (/r/<usuario>/<tipo>).
+   Copia de los estilos del bloque de reserva de la web (TEMPLATE-NICO:
+   css/styles.css y css/diagnostico.css) para que el calendario se vea
+   igual que en intellihelp.tech/diagnostico-sin-cargo/. Si la web cambia
+   su diseño, se vuelve a copiar de ahí (bin: ver el comentario de
+   views/agenda-publica.php). No editar a mano las reglas copiadas.
+   ========================================================= */
+
+/* ---- styles.css: variables ---- */
+
+:root {
+  --ink: #2A2A2A;
+  --ink-2: #333333;
+  --muted: #444444;
+  --line-dark: #4A4A4A;
+  --purple: #663399;
+  --lime: #98CC32;
+  --lavender: #F0EBF5;
+  --gray-bg: #E6E2EA;   /* fondo gris de las secciones alternadas */
+  --white: #FFFFFF;
+
+  --radius: 16px;
+  --radius-sm: 8px;
+  --header-h: 72px;
+
+  /* Layout amplio (ritmo de Globant): contenedor de 1240px, 40px de margen lateral (20 en celular) y secciones de
+     104px arriba y abajo en escritorio (64 en celular). */
+  --wrap-max: 1240px;
+  --wrap-pad: 40px;
+  --section-y: clamp(64px, 7.2vw, 104px);
+
+  /* Escala de títulos, la misma en todas las páginas (home, diagnóstico, postulate, privacidad y el blog): el H1 de
+     cada página es siempre lo más grande de la pantalla y los títulos de sección quedan un escalón abajo.
+     --h2-big es el título de las dos secciones madre (¿Qué ofrecemos? y Quiénes somos), siempre por debajo del H1 desde
+     1024 px. Escala de esas secciones: título 1 · subsección (.offer__sub-title) ~0,55 · tarjeta (.service__title) ~0,42. */
+  --h1: clamp(38px, 5vw, 72px);
+  --h2: clamp(30px, 3.6vw, 52px);
+  --h2-big: clamp(34px, 3vw + 18px, 64px);
+
+  /* Movimiento: una sola curva de entrada (easeOutQuint) y tiempos fijos por tipo de gesto.
+     Se anima solo transform y opacity; con "reducir movimiento" no se anima nada (ver .anim en <head>). */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --t-fast: .2s;     /* color, fondo y flecha */
+  --t-lift: .35s;    /* elevación de tarjetas y botones */
+  --t-in: .9s;       /* subida (rise), la de Nico */
+  --t-focus: .9s;    /* entrada de títulos (focusIn) */
+  --t-img: .85s;     /* zoom de fotos */
+  --stagger: .08s;   /* paso del escalonado */
+}
+
+/* ---- styles.css: utilidades ---- */
+
+.list-reset { list-style: none; margin: 0; padding: 0; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- styles.css: botones ---- */
+
+/* ---------- Botones ---------- */
+.btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0 26px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), transform var(--t-lift) var(--ease-out), box-shadow var(--t-lift) var(--ease-out);
+}
+/* Brillo que cruza el botón al pasar el mouse. Se mueve con transform (no con `left`) para no relayoutar en cada cuadro;
+   445% de su propio ancho (45% del botón) equivale a recorrer dos anchos del botón. */
+.btn::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -70%;
+  width: 45%;
+  background: rgba(255, 255, 255, .4);
+  transform: translateX(0) skewX(-22deg);
+  transition: transform .8s var(--ease-out);
+  pointer-events: none;
+}
+/* Hover: cambio de color de cada variante, elevación mínima (1 px, sin escala), sombra suave y el brillo de Nico que
+   cruza el botón. Solo con mouse y con movimiento habilitado; con "reducir movimiento" o en pantallas táctiles queda
+   el cambio de colores. */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(42, 42, 42, .12); }
+  .btn:hover::after { transform: translateX(445%) skewX(-22deg); }
+}
+
+/* Principal: .btn-lime (lima con letra carbón) y .btn-violeta (violeta con letra blanca); .btn-light es el secundario con borde carbón */
+.btn-light { background: transparent; color: var(--ink); border-color: var(--ink); }
+.btn-light:hover { background: var(--ink); color: var(--white); }
+/* Botón de la card lima del CTA final: gris, y al pasar el mouse fondo blanco */
+.btn-gray { background: var(--line-dark); color: var(--white); border-color: var(--line-dark); }
+.btn-gray:hover { background: var(--white); color: var(--ink); border-color: var(--white); }
+/* Gris claro (el de las cards de Servicios), letra carbón; al pasar el mouse se invierte */
+.btn-soft { background: var(--gray-bg); color: var(--ink); border-color: var(--gray-bg); }
+.btn-soft:hover { background: var(--ink); color: var(--white); border-color: var(--ink); }
+.btn-lime { background: var(--lime); color: var(--ink); }
+.btn-lime:hover { color: var(--ink); filter: brightness(1.06); } /* `color` repetido: `a:hover` pesa más que `.btn-lime` */
+.btn-violeta { border-color: var(--purple); background: var(--purple); color: var(--white); }
+.btn-violeta:hover { color: var(--white); filter: brightness(1.12); }
+
+.btn-sm { min-height: 48px; }
+/* Clic: el botón se hunde apenas (igual en todo el sitio: home, header, diagnóstico y postulate) */
+@media (prefers-reduced-motion: no-preference) {
+  .btn:active { transform: translateY(0) scale(.97); transition-duration: .12s; }
+}
+.btn[aria-disabled="true"] { cursor: progress; opacity: .75; }
+.btn:disabled { cursor: not-allowed; opacity: .5; filter: grayscale(.4); }
+
+.btn .arr { display: inline-block; margin-left: 6px; transition: transform var(--t-fast) var(--ease-out); }
+
+
+/* ---- styles.css: agenda del CRM ---- */
+
+/* ---------- Agenda del CRM y formulario de consulta (card carbón de #agenda) ----------
+   Los mismos materiales de la card: carbón con letras blancas, texto secundario lila y lima como relleno (botón,
+   círculo, elegido) y nunca como texto. Superficies internas en #333 con filete #4A4A4A. Campos blancos con letra
+   carbón y foco con el contorno lima de .card-dark. Sin JS se ve solo el formulario de consulta. */
+#agenda .contact { align-items: flex-start; }
+#agenda .agenda-panel { flex: 1.25 1 440px; }
+#agenda .agenda-panel { scroll-margin-top: calc(var(--header-h) + 16px); } /* destino de los CTA en celular (js/agenda.js) */
+.agenda-panel [hidden] { display: none !important; }
+.agenda-panel > :is(.agenda-crm, .agenda-form, .agenda-done) { align-self: stretch; }
+.agenda-panel :focus:not(:focus-visible) { outline: none; }
+#agenda-titulo:focus-visible, .agenda-crm__titulo:focus-visible, .agenda-crm__elegido-texto:focus-visible,
+.agenda-done:focus-visible, .agenda-status--nota:focus-visible { outline-offset: 4px; border-radius: 4px; }
+/* El texto de la columna izquierda acompaña a la card mientras se completa (solo con dos columnas) */
+@media (min-width: 961px) {
+  #agenda .contact__intro { position: sticky; top: calc(var(--header-h) + 40px); }
+}
+
+/* Paso 1: día y hora */
+.agenda-crm, .agenda-crm__paso { display: flex; flex-direction: column; gap: 16px; }
+.agenda-crm__titulo { margin: 8px 0 0; font-size: 22px; font-weight: 700; line-height: 1.2; }
+.agenda-crm__sub, .agenda-crm__alt { margin: 0; color: var(--lavender); font-size: 15px; line-height: 1.55; }
+.agenda-crm__sub { margin-top: -8px; }
+.agenda-crm__alt a, .agenda-form__legal a, .agenda-form__check a { color: var(--white); font-weight: 600; transition: color var(--t-fast) var(--ease-out); }
+.agenda-crm__alt a:hover, .agenda-form__legal a:hover, .agenda-form__check a:hover { color: var(--lavender); }
+
+.agenda-crm__nav { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px; align-items: center; gap: 8px; }
+.agenda-crm__rango { margin: 0; font-size: 16px; font-weight: 600; text-align: center; }
+.agenda-crm__flecha, .agenda-crm__dia, .agenda-crm__hora {
+  border: 1px solid var(--line-dark);
+  border-radius: var(--radius-sm);
+  background: var(--ink-2);
+  color: var(--white);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out), transform var(--t-lift) var(--ease-out);
+}
+.agenda-crm__flecha { display: inline-grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 50%; }
+.agenda-crm__flecha:disabled { cursor: default; opacity: .35; }
+.agenda-crm__dias { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; min-height: 78px; }
+.agenda-crm__dia { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; padding: 10px 2px; line-height: 1.1; }
+.agenda-crm__dia-semana, .agenda-crm__dia-mes { color: var(--lavender); font-size: 13px; }
+.agenda-crm__dia-num { font-size: 24px; font-weight: 700; }
+.agenda-crm__grupo { min-width: 0; margin: 0; padding: 0; border: 0; }
+.agenda-crm__legend { margin-bottom: 10px; padding: 0; font-size: 15px; font-weight: 600; }
+.agenda-crm__legend::first-letter { text-transform: uppercase; }
+.agenda-crm__horas { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; min-height: 48px; }
+.agenda-crm__hora { min-height: 48px; padding: 8px 4px; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.agenda-crm__flecha:not(:disabled):hover, .agenda-crm__dia:hover, .agenda-crm__hora:hover { border-color: var(--lavender); }
+/* Elegido: relleno lima con letra carbón, como el botón principal */
+.agenda-crm__dia[aria-pressed="true"], .agenda-crm__hora[aria-pressed="true"] { border-color: var(--lime); background: var(--lime); color: var(--ink); }
+.agenda-crm__dia[aria-pressed="true"] :is(.agenda-crm__dia-semana, .agenda-crm__dia-mes) { color: var(--ink); }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .agenda-crm__dia:hover, .agenda-crm__hora:hover { transform: translateY(-2px); }
+}
+/* Mientras llegan los horarios: el texto y un anillo que gira (sin giro con "reducir movimiento") */
+.agenda-crm__cargando { display: flex; grid-column: 1 / -1; align-items: center; gap: 10px; margin: 0; color: var(--lavender); font-size: 15px; }
+.agenda-crm__cargando::before { content: ""; flex: none; width: 16px; height: 16px; border: 2px solid var(--lime); border-right-color: transparent; border-radius: 50%; }
+@keyframes agendaSpin { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: no-preference) {
+  .agenda-crm__cargando::before { animation: agendaSpin .8s linear infinite; }
+}
+.agenda-crm[data-estado="cargando"] :is(.agenda-crm__nav, .agenda-crm__dias) { visibility: hidden; }
+
+/* Paso 2: el horario elegido arriba de los datos, con el botón para cambiarlo */
+.agenda-crm__elegido { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px 14px; padding: 14px 16px; border: 1px solid var(--line-dark); border-radius: var(--radius-sm); background: var(--ink-2); }
+.agenda-crm__elegido-texto { display: flex; flex-direction: column; gap: 2px; margin: 0; color: var(--lavender); font-size: 14px; line-height: 1.4; }
+.agenda-crm__elegido-texto strong { color: var(--white); font-size: 17px; }
+.agenda-crm__elegido-texto strong::first-letter { text-transform: uppercase; }
+.agenda-crm__cambiar { grid-column: 1 / -1; justify-self: start; min-height: 44px; padding: 0; border: 0; background: none; color: var(--white); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; transition: color var(--t-fast) var(--ease-out); }
+.agenda-crm__cambiar:hover { color: var(--lavender); }
+@media (min-width: 520px) {
+  .agenda-crm__elegido { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .agenda-crm__cambiar { grid-column: auto; }
+}
+
+/* Campos (los dos formularios) */
+.agenda-form { display: flex; flex-direction: column; gap: 16px; }
+.agenda-form__nota { margin: 0; color: var(--lavender); font-size: 14px; }
+.agenda-form__req { color: var(--lavender); font-weight: 700; }
+.agenda-form__fila { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.agenda-form__campo { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.agenda-form__label { font-size: 15px; font-weight: 600; }
+.agenda-form__opc { color: var(--lavender); font-weight: 400; }
+.agenda-form__input {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 1px solid var(--white);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px; /* 16px: el celular no hace zoom al enfocar */
+  transition: border-color var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
+}
+.agenda-form__input::placeholder { color: var(--muted); opacity: .75; }
+.agenda-form__input[aria-invalid="true"] { border-color: var(--lime); box-shadow: inset 0 0 0 2px var(--lime); }
+.agenda-form__textarea { min-height: 96px; resize: none; line-height: 1.5; } /* sin el tirador nativo de tamaño */
+.agenda-form__error { display: flex; align-items: baseline; gap: 8px; margin: 0; color: var(--white); font-size: 14px; line-height: 1.4; }
+.agenda-form__error::before { content: "!"; display: inline-grid; flex: none; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--lime); color: var(--ink); font-size: 12px; font-weight: 700; transform: translateY(3px); }
+.agenda-form__check { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: start; gap: 12px; font-size: 15px; line-height: 1.5; }
+.agenda-form__check input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--lime); cursor: pointer; }
+.agenda-form__check + .agenda-form__error { margin-top: -8px; padding-left: 34px; }
+.agenda-form__hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.agenda-form__enviar { align-self: flex-start; }
+.agenda-form__enviar[aria-disabled="true"] { cursor: progress; opacity: .7; }
+.agenda-form__legal { margin: 0; color: var(--lavender); font-size: 13px; line-height: 1.55; }
+
+/* Avisos (role="status"): vacíos no ocupan lugar */
+.agenda-status:empty { display: none; }
+.agenda-status { margin: 0; padding: 12px 14px; border-left: 3px solid var(--lime); border-radius: 4px; background: var(--ink-2); color: var(--white); font-size: 15px; line-height: 1.5; }
+.agenda-status a { color: var(--white); font-weight: 700; }
+
+/* Paso 3 y gracias de la consulta */
+.agenda-done { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; border: 1px solid var(--line-dark); border-radius: var(--radius-sm); background: var(--ink-2); }
+.agenda-done__titulo { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.2; }
+.agenda-done__texto { margin: 0; color: var(--lavender); font-size: 16px; line-height: 1.6; }
+.agenda-done__texto strong { color: var(--white); }
+
+/* Cambio de paso: entrada corta (main.js no interviene; la clase la pone js/agenda.js solo con movimiento) */
+.anim .is-entering { animation: riseSm .45s var(--ease-out) both; }
+
+@media (max-width: 600px) {
+  #agenda .agenda-panel { padding: 32px 20px; }
+  .agenda-form__fila { grid-template-columns: minmax(0, 1fr); }
+  .agenda-form__enviar { align-self: stretch; }
+  .agenda-crm__dias { gap: 6px; }
+  .agenda-crm__dia-num { font-size: 20px; }
+  .agenda-crm__horas { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); }
+}
+
+/* ---- diagnostico.css: base de la página ---- */
+
+.dx {
+  --dx-e: cubic-bezier(.23, 1, .32, 1);
+  --dx-filete: rgba(42, 42, 42, .12);
+  --dx-sombra: 0 26px 50px -18px rgba(42, 42, 42, .28);
+  --dx-bajo: rgba(240, 235, 245, .78); /* lavanda sobre carbón, para texto secundario */
+}
+/* El header es fijo: lo que recibe el foco o un ancla queda siempre debajo de él, nunca tapado. */
+html:has(body.dx) { scroll-padding-top: calc(var(--header-h) + 16px); }
+/* Barra de la página: la base (violeta sobre lavanda, sin destello al tocar) está en styles.css; acá solo la variante de
+   cada pantalla (en la carbón, gris sobre carbón). */
+html:has(body.dx--papel) { scrollbar-color: var(--purple) var(--lavender); }
+html:has(body.dx--noche) { scrollbar-color: var(--line-dark) var(--ink); background: var(--ink); }
+html:has(body.dx--noche)::-webkit-scrollbar { background: var(--ink); }
+html:has(body.dx--noche)::-webkit-scrollbar-thumb { border-color: var(--ink); background: var(--line-dark); }
+.dx a, .dx button, .dx label, .dx input { -webkit-tap-highlight-color: transparent; }
+.dx--papel { background: var(--lavender); color: var(--ink-2); }
+.dx--noche { background: var(--ink); color: var(--white); }
+
+/* Ningún subrayado, en ningún link ni botón (también los de la agenda de styles.css). */
+.dx a, .dx a:hover, .dx a:focus, .dx button { text-decoration: none !important; }
+.dx--papel main a:not([class]), .dx--papel .dx-pie a { color: var(--purple); font-weight: 600; }
+.dx--papel main a:not([class]):hover, .dx--papel .dx-pie a:hover { color: var(--ink); }
+.dx--noche main a:not([class]), .dx--noche .dx-pie a { color: var(--white); font-weight: 700; }
+.dx--noche main a:not([class]):hover, .dx--noche .dx-pie a:hover { color: var(--lavender); }
+
+.dx :focus-visible { outline: 2px solid var(--purple); outline-offset: 3px; }
+.dx--noche :focus-visible { outline-color: var(--lime); }
+
+
+/* ---- diagnostico.css: bloque de reserva ---- */
+.dx-reserva { position: relative; z-index: 4; max-width: 1260px; margin: 34px auto 0; padding: 0 24px; }
+.dx-reserva__card {
+  --r-bg: var(--white);
+  --r-fg: var(--ink);
+  --r-muted: var(--muted);
+  --r-line: rgba(42, 42, 42, .14);
+  --r-cell: var(--lavender);
+  --r-sel: var(--purple);
+  --r-sel-fg: var(--white);
+  --r-input: var(--white);
+  --r-input-line: rgba(42, 42, 42, .26);
+  --r-focus: var(--purple);
+  --r-ring: rgba(102, 51, 153, .16);
+  --r-link: var(--purple);
+  --r-ph: rgba(68, 68, 68, .62);
+  --i-bg: var(--ink);
+  --i-fg: var(--white);
+  --i-muted: var(--dx-bajo);
+  --i-line: rgba(255, 255, 255, .12);
+  --i-ico: #B99BDF; /* violeta claro: se lee sobre el carbón (foco con teclado) */
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  grid-template-areas: "info main" "alt main";
+  border: 1.5px solid var(--ink);
+  background: var(--r-bg);
+  color: var(--r-fg);
+  box-shadow: var(--dx-sombra);
+}
+/* Columna informativa */
+.dx-reserva__info { grid-area: info; padding: 32px 30px 12px; background: var(--i-bg); color: var(--i-fg); }
+.dx-reserva__alt { grid-area: alt; display: flex; align-items: flex-end; margin: 0; padding: 12px 30px 30px; background: var(--i-bg); }
+.dx-reserva__info, .dx-reserva__alt { border-right: 1px solid var(--i-line); }
+/* Sin la salida (en la consulta o confirmada), la columna carbón ocupa todo el alto. */
+@media (min-width: 961px) { .dx-reserva__card:has(.dx-reserva__alt[hidden]) .dx-reserva__info { grid-row: 1 / -1; } }
+.dx-reserva__rotulo { margin: 0 0 6px; color: var(--i-muted); font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.dx-reserva__titulo { margin: 0 0 22px; color: var(--i-fg); font-size: 28px; font-weight: 700; line-height: 1.15; letter-spacing: -.02em; }
+.dx-reserva__datos li { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--i-line); font-size: 15.5px; font-weight: 500; line-height: 1.35; }
+/* Íconos en violeta (pedido de Brian, 25/11): cuadro violeta del sitio con el dibujo en blanco, que se lee sobre el carbón */
+.dx-reserva__ico { display: grid; flex: none; place-items: center; width: 36px; height: 36px; border: 1px solid var(--purple); background: var(--purple); color: var(--white); }
+.dx-reserva__alt-btn {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--i-muted);
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+.dx-reserva__alt-btn strong { display: inline-block; color: var(--i-fg); font-weight: 700; }
+.dx-reserva__alt-btn strong span { display: inline-block; transition: translate .2s var(--dx-e); }
+.dx-reserva__alt-btn:hover strong span { translate: 3px 0; }
+.dx-reserva__info :focus-visible, .dx-reserva__alt :focus-visible { outline-color: var(--i-ico); }
+
+/* Columna de la agenda */
+.dx-reserva__main { grid-area: main; min-width: 0; padding: 26px 32px 30px; }
+.dx-reserva :focus-visible { outline: 2px solid var(--r-focus); outline-offset: 2px; }
+
+/* Indicador de pasos: barra arriba y "01 Día y horario" alineado a la izquierda (los números no se centran). */
+.dx-pasos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 24px; }
+.dx-pasos__item { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding-top: 10px; border-top: 3px solid var(--r-line); color: var(--r-muted); font-size: 13.5px; font-weight: 600; }
+.dx-pasos__num { flex: none; font-size: 12px; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+.dx-pasos__txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dx-pasos__item.is-hecho { border-top-color: var(--r-sel); }
+.dx-pasos__item[aria-current="step"] { border-top-color: var(--r-sel); color: var(--r-fg); }
+html:not(.js) .dx-pasos, html:not(.js) .dx-reserva__alt, .dx-pasos[hidden], .dx-reserva__alt[hidden] { display: none; }
+
+/* La agenda de styles.css, con la paleta del bloque */
+.dx-agenda { display: flex; flex-direction: column; color: var(--r-fg); }
+.dx-agenda > :is(.agenda-crm, .agenda-form, .agenda-done) { align-self: stretch; }
+.dx-agenda .is-entering { animation: none !important; } /* el bloque no se anima nunca */
+.dx-agenda .agenda-crm__titulo { margin: 0; color: var(--r-fg); font-size: 22px; font-weight: 700; line-height: 1.2; }
+.dx-agenda .agenda-crm__sub { margin: 4px 0 0; }
+.dx-agenda :is(.agenda-crm__sub, .agenda-crm__alt, .agenda-form__legal, .agenda-form__opc, .agenda-crm__cargando, .agenda-crm__elegido-texto, .agenda-done__texto) { color: var(--r-muted); }
+.dx-reserva .dx-agenda a:not([class]) { color: var(--r-link); font-weight: 700; }
+.dx-reserva .dx-agenda a:not([class]):hover { color: var(--r-fg); }
+.dx-paso-cab { margin: 0; }
+
+.dx-horario { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: start; gap: 32px; }
+.dx-tira { display: none; }
+
+/* Calendario mensual (lo arma diagnostico.js) */
+.dx-mes__cab { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; gap: 8px; margin-bottom: 12px; }
+.dx-mes__titulo { margin: 0; font-size: 16px; font-weight: 700; text-align: center; }
+.dx-mes__titulo::first-letter { text-transform: uppercase; }
+.dx-mes__flecha, .dx-agenda .agenda-crm__flecha {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--r-line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--r-fg);
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease;
+}
+.dx-mes__flecha:not(:disabled):hover, .dx-agenda .agenda-crm__flecha:not(:disabled):hover { border-color: var(--r-sel); color: var(--r-sel); }
+.dx-mes__flecha:disabled, .dx-agenda .agenda-crm__flecha:disabled { cursor: default; opacity: .35; }
+.dx-mes__semana, .dx-mes__grilla { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.dx-mes__semana { margin-bottom: 4px; color: var(--r-muted); font-size: 12px; font-weight: 600; text-align: center; }
+.dx-mes__dia {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--r-muted);
+  font: inherit;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  opacity: .8; /* días sin turnos: más claros, pero con contraste suficiente para leerlos (AA) */
+}
+button.dx-mes__dia { background: var(--r-cell); color: var(--r-fg); font-weight: 700; opacity: 1; cursor: pointer; transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+button.dx-mes__dia:hover { border-color: var(--r-sel); }
+button.dx-mes__dia[aria-pressed="true"] { border-color: var(--r-sel); background: var(--r-sel); color: var(--r-sel-fg); }
+.dx-mes__dia.is-hoy::after { content: ""; position: absolute; bottom: 5px; left: 50%; width: 4px; height: 4px; border-radius: 50%; background: currentColor; translate: -50% 0; }
+.dx-mes__nota { margin: 10px 0 0; color: var(--r-muted); font-size: 13px; }
+/* Feriado: no se puede elegir; un punto violeta arriba y el nombre debajo del mes */
+.dx-mes__dia.is-feriado { color: var(--r-sel); opacity: .9; }
+.dx-mes__dia.is-feriado::before { content: ""; position: absolute; top: 6px; right: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--r-sel); }
+.dx-mes__feriados { margin: 10px 0 0; color: var(--r-muted); font-size: 13px; line-height: 1.45; }
+.dx-mes__feriados::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 7px; border-radius: 50%; background: var(--r-sel); vertical-align: middle; translate: 0 -1px; }
+
+/* Horarios del día: sin scroll interno, en grilla */
+.dx-horas .agenda-crm__legend { margin-bottom: 12px; color: var(--r-fg); font-size: 15px; font-weight: 700; }
+.dx-agenda .agenda-crm__horas { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; min-height: 0; }
+.dx-agenda .agenda-crm__hora {
+  min-height: 44px;
+  border: 1px solid var(--r-line);
+  border-radius: 6px;
+  background: var(--r-bg);
+  color: var(--r-fg);
+  font-size: 15.5px;
+}
+.dx-agenda .agenda-crm__hora:hover { border-color: var(--r-sel); color: var(--r-fg); }
+.dx-agenda .agenda-crm__hora[aria-pressed="true"] { border-color: var(--r-sel); background: var(--r-sel); color: var(--r-sel-fg); }
+.dx-agenda .agenda-crm__cargando::before { border-color: var(--r-sel); border-right-color: transparent; }
+
+/* Turno elegido y "Cambiar" */
+.dx-agenda .agenda-crm__elegido { grid-template-columns: auto minmax(0, 1fr) auto; padding: 14px 16px; border: 1px solid var(--r-line); border-radius: 8px; background: var(--r-cell); }
+.dx-elegido__ico, .dx-ok__ico { display: grid; flex: none; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--r-sel); color: var(--r-sel-fg); }
+.dx-agenda .agenda-crm__elegido-texto strong { color: var(--r-fg); }
+.dx .agenda-crm__cambiar {
+  display: inline-flex;
+  grid-column: auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--r-line);
+  border-radius: 999px;
+  background: var(--r-bg);
+  color: var(--r-fg);
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.dx .agenda-crm__cambiar:hover { border-color: var(--r-sel); color: var(--r-fg); }
+
+/* Campos */
+.dx-agenda .agenda-form { gap: 18px; }
+.dx-agenda .agenda-form__fila { gap: 16px; }
+.dx-agenda .agenda-form__label { color: var(--r-fg); font-size: 13.5px; font-weight: 600; }
+.dx-agenda .agenda-form__input {
+  min-height: 48px;
+  padding: 11px 14px;
+  border: 1px solid var(--r-input-line);
+  border-radius: 6px;
+  background: var(--r-input);
+  color: var(--ink);
+  font-size: 16px;
+}
+.dx-agenda .agenda-form__input::placeholder { color: var(--r-ph); opacity: 1; }
+.dx-agenda .agenda-form__input:hover { border-color: var(--r-muted); }
+.dx-agenda .agenda-form__input:focus { outline: none; border-color: var(--r-focus); box-shadow: 0 0 0 3px var(--r-ring); }
+.dx-agenda .agenda-form__input[aria-invalid="true"] { border-color: var(--r-focus); box-shadow: inset 0 0 0 1px var(--r-focus); }
+/* Autocompletado del navegador: sin el fondo celeste ni amarillo */
+.dx-agenda .agenda-form__input:-webkit-autofill { -webkit-text-fill-color: var(--ink); caret-color: var(--ink); box-shadow: 0 0 0 100px var(--white) inset; }
+.dx-agenda .agenda-form__input:-webkit-autofill:focus { box-shadow: 0 0 0 100px var(--white) inset, 0 0 0 3px var(--r-ring); }
+.dx-agenda .agenda-form__textarea { min-height: 112px; resize: none; scrollbar-width: thin; scrollbar-color: var(--r-line) transparent; }
+.dx-agenda .agenda-form__textarea::-webkit-scrollbar { width: 8px; }
+.dx-agenda .agenda-form__textarea::-webkit-scrollbar-thumb { border-radius: 8px; background: var(--r-line); }
+.dx .agenda-form__error { display: flex; align-items: baseline; gap: 8px; margin: 0; color: var(--r-fg); font-size: 14px; line-height: 1.45; }
+.dx .agenda-form__error::before { background: var(--r-sel); color: var(--r-sel-fg); }
+
+/* "¿Cómo nos conociste?": chips */
+.dx-chips { min-width: 0; margin: 0; padding: 0; border: 0; }
+.dx-chips legend { margin-bottom: 8px; padding: 0; }
+.dx-chips__lista { display: flex; flex-wrap: wrap; gap: 8px; }
+.dx-chip { position: relative; display: inline-flex; cursor: pointer; }
+.dx-chip input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.dx-chip span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--r-input-line);
+  border-radius: 999px;
+  background: var(--r-bg);
+  color: var(--r-fg);
+  font-size: 14.5px;
+  font-weight: 500;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.dx-chip:hover span { border-color: var(--r-sel); }
+.dx-chip input:checked + span { border-color: var(--r-sel); background: var(--r-sel); color: var(--r-sel-fg); font-weight: 600; }
+.dx-chip input:focus-visible + span { outline: 2px solid var(--r-focus); outline-offset: 2px; }
+
+/* Casilla de consentimiento propia */
+.dx .agenda-form__check.dx-check { position: relative; display: block; color: var(--r-muted); font-size: 14px; line-height: 1.5; }
+.dx .dx-check .dx-check__input { position: absolute; top: 0; left: 0; width: 22px; height: 22px; margin: 0; opacity: 0; cursor: pointer; }
+.dx-check label { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: start; gap: 12px; cursor: pointer; }
+.dx-check__caja {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--r-input-line);
+  border-radius: 5px;
+  background: var(--r-input);
+  color: transparent;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.dx-check:hover .dx-check__caja { border-color: var(--r-sel); }
+.dx-check__input:checked + label .dx-check__caja { border-color: var(--r-sel); background: var(--r-sel); color: var(--r-sel-fg); }
+.dx-check__input:focus-visible + label .dx-check__caja { outline: 2px solid var(--r-focus); outline-offset: 2px; }
+.dx-check__input[aria-invalid="true"] + label .dx-check__caja { border-color: var(--r-focus); box-shadow: 0 0 0 3px var(--r-ring); }
+.dx .dx-check + .agenda-form__error { margin-top: -8px; padding-left: 34px; }
+
+/* Botón y estados */
+.dx-enviar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; }
+.dx-enviar .agenda-form__legal { flex: 1 1 260px; margin: 0; font-size: 13px; }
+.dx-agenda .agenda-form__enviar { align-self: auto; }
+.dx .agenda-status { padding: 12px 14px; border-left: 3px solid var(--r-sel); border-radius: 4px; background: var(--r-cell); color: var(--r-fg); }
+.dx .agenda-done { gap: 12px; padding: 24px; border: 1px solid var(--r-line); border-radius: 8px; background: var(--r-cell); color: var(--r-fg); }
+.dx .agenda-done__titulo { color: var(--r-fg); }
+.dx .agenda-done__texto strong { color: var(--r-fg); }
+.dx-consulta__volver { margin: 0; }
+.dx-agenda .agenda-status--nota { margin: 0; }
+
+/* Recibido sin JS (api/contact.php vuelve con #contact-success) */
+.dx-agenda #contact-success:target { display: flex !important; }
+.dx-agenda:has(#contact-success:target) #contact-form { display: none !important; }
+
+/* ---------- Clientes ("Confían en nosotros") ----------
+   Franja blanca a todo el ancho entre la reserva (lavanda) y los casos (lavanda), con los 50 logos de la home en la
+
+/* ---- diagnostico.css: celular y tablet ---- */
+
+/* ---------- Celular y tablet ---------- */
+@media (max-width: 1180px) {
+  .dx-reserva__card { grid-template-columns: 280px minmax(0, 1fr); }
+  .dx-reserva__info { padding: 28px 24px 12px; }
+  .dx-reserva__alt { padding: 12px 24px 26px; }
+  .dx-reserva__main { padding: 24px 26px 28px; }
+  .dx-horario { gap: 24px; }
+}
+@media (max-width: 960px) {
+  .dx-reserva__card { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; grid-template-areas: "info" "main" "alt"; }
+  .dx-reserva__info, .dx-reserva__alt { border-right: 0; }
+  .dx-reserva__info { padding: 24px 24px 20px; }
+  .dx-reserva__titulo { margin-bottom: 14px; font-size: 24px; }
+  .dx-reserva__datos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+  .dx-reserva__alt { padding: 18px 24px; }
+}
+@media (max-width: 880px) {
+  .dx-hero { padding: 74px 0 0; }
+  .dx-hero__grid { grid-template-columns: minmax(0, 1fr); }
+  .dx-video { margin-top: 22px; }
+  .dx-reserva { margin-top: 22px; }
+  .dx-video__sonido { top: 10px; left: 10px; padding: 8px 13px 8px 10px; font-size: 13px; }
+  .dx-video__play { width: 60px; height: 60px; }
+  .gx { padding-top: 64px; }
+}
+@media (max-width: 720px) {
+  .dx-horario { grid-template-columns: minmax(0, 1fr); }
+  .dx-agenda .agenda-form__fila { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .dx-reserva__info { padding: 22px 18px 18px; }
+  .dx-reserva__titulo { margin-bottom: 10px; font-size: 22px; }
+  .dx-reserva__datos { column-gap: 12px; }
+  .dx-reserva__datos li { gap: 8px; padding: 8px 0; font-size: 13.5px; }
+  .dx-reserva__ico { width: 28px; height: 28px; }
+  .dx-reserva__ico svg { width: 16px; height: 16px; }
+  .dx-reserva__alt { padding: 16px 18px 20px; }
+  .dx-reserva__main { padding: 20px 16px 22px; }
+  .dx-pasos { gap: 8px; margin-bottom: 20px; }
+  .dx-pasos__item { flex-direction: column; gap: 2px; font-size: 12.5px; }
+  .dx-pasos__txt { white-space: normal; }
+  .dx-agenda .agenda-crm__elegido { grid-template-columns: auto minmax(0, 1fr); }
+  .dx .agenda-crm__elegido .agenda-crm__cambiar { grid-column: 1 / -1; justify-self: start; }
+  .dx-enviar .btn { width: 100%; }
+  .gx-card { padding: 20px 16px; }
+  .dx-carrusel__flecha { width: 40px; height: 40px; }
+}
+
+/* Pantallas táctiles chicas: lo que se toca mide al menos 44 px (flechas del mes y de los casos, la alternativa de
+   contacto y el logo del pie). Los días del calendario miden 44 px de alto; de ancho, lo que da la grilla de 7 columnas
+   (en 320 px no entran 7 de 44: quedan de 38 px, por encima del mínimo de 24 px de las pautas de accesibilidad). */
+@media (max-width: 600px), (max-height: 430px) and (pointer: coarse) {
+  .dx-mes__cab { grid-template-columns: 44px minmax(0, 1fr) 44px; }
+  .dx-mes__flecha, .dx-agenda .agenda-crm__flecha { width: 44px; height: 44px; }
+  .dx-carrusel__flecha { width: 44px; height: 44px; }
+  .dx-reserva__alt-btn { display: inline-flex; align-items: center; min-height: 44px; }
+  .dx-pie__marca { display: inline-flex; align-items: center; min-height: 44px; }
+}
+@media (max-width: 400px) {
+  .dx-reserva { padding: 0 12px; }
+  .dx-reserva__main { padding: 20px 10px 22px; }
+  .dx-mes__semana, .dx-mes__grilla { gap: 2px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dx *, .dx *::before, .dx *::after { transition: none !important; }
+  .dx-ac { animation: none !important; }
+}
+
+/* Pantallas táctiles: los casos se pasan con el dedo (en bucle), sin flechas. */
+@media (hover: none) and (pointer: coarse) {
+  .dx-carrusel__flecha { display: none !important; }
+  .dx-carrusel { margin: 0; }
+}
+
+
+/* =========================================================
+   Propio del CRM (no viene de la web)
+   ========================================================= */
+/* La página entera, como la sección de la web: fondo lavanda y Saira. */
+body.publica.reserva { min-height: 100vh; padding: 24px 0 20px; background: var(--lavender); color: var(--ink-2); font-family: 'Saira', sans-serif; }
+body.publica.reserva .dx-reserva { margin-top: 0; }
+/* La web oculta los pasos y la salida «contactanos» hasta que su JS marca
+   <html class="js">; acá se ven siempre (funcionan sin JS). */
+html:not(.js) body.reserva .dx-pasos { display: grid; }
+html:not(.js) body.reserva .dx-reserva__alt:not([hidden]) { display: flex; }
+/* Sin JavaScript los días y las flechas del mes son enlaces: se ven igual que los botones. */
+a.dx-mes__dia { background: var(--r-cell); color: var(--r-fg); font-weight: 700; opacity: 1; text-decoration: none; transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+a.dx-mes__dia:hover { border-color: var(--r-sel); }
+a.dx-mes__dia[aria-pressed="true"] { border-color: var(--r-sel); background: var(--r-sel); color: var(--r-sel-fg); }
+a.dx-mes__flecha { display: grid; place-items: center; color: inherit; text-decoration: none; }
+.agenda-form__hp { display: none !important; }
+.dx-reserva__alt-btn { flex-wrap: wrap; column-gap: .3em; text-decoration: none; }
+.reserva-pie { margin: 18px 0 0; color: var(--muted); font-size: 13px; text-align: center; }
+/* Confirmación (paso 3) */
+.dx .agenda-done { display: flex; flex-direction: column; align-items: flex-start; }
+.agenda-done__titulo { margin: 4px 0 0; font-size: 22px; font-weight: 700; line-height: 1.2; }
+.agenda-done__texto { margin: 0; font-size: 15.5px; line-height: 1.55; }
+.agenda-done__acciones { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-top: 6px; }
+.agenda-done__aviso { margin: 0; padding: 12px 14px; border-left: 3px solid var(--r-sel); border-radius: 4px; background: var(--white); color: var(--r-fg); font-size: 14.5px; }
+.agenda-done__links { margin: 0; color: var(--r-muted); font-size: 14px; }
